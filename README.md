@@ -1,5 +1,3 @@
-Dưới đây là phần tách biệt chi tiết về quy luật đặt tên nhánh và các thẻ tag khi commit dựa trên quy chuẩn đã thiết lập:
-
 ### 1. Quy luật đặt tên Nhánh (Branch Naming)
 
 Hệ thống nhánh sử dụng ký tự thường, các từ cách nhau bằng dấu gạch ngang (`-`), ngoại trừ tiền tố danh mục. Cấu trúc chung cho các nhánh hỗ trợ là `<tiền_tố>/<tên_chức_năng_hoặc_mã_tác_vụ>`.
@@ -63,5 +61,12 @@ Dự án áp dụng tiêu chuẩn Conventional Commits với cấu trúc: `<tag>
 
 8. **chore**: Các thay đổi đối với quy trình xây dựng dự án, cấu hình công cụ phụ trợ hoặc thư viện bên ngoài mà không làm thay đổi source code cốt lõi.
 
+## Dataset 
 
-9. **ci**: Thay đổi cấu hình liên quan đến quy trình tích hợp và triển khai tự động (CI/CD).
+## Dataset 
+https://zenodo.org/records/14590730?preview_file=RE3-OB.zip
+
+
+
+
+10. **ci**: Thay đổi cấu hình liên quan đến quy trình tích hợp và triển khai tự động (CI/CD).
