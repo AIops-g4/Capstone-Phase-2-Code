@@ -61,12 +61,12 @@ Dự án áp dụng tiêu chuẩn Conventional Commits với cấu trúc: `<tag>
 
 8. **chore**: Các thay đổi đối với quy trình xây dựng dự án, cấu hình công cụ phụ trợ hoặc thư viện bên ngoài mà không làm thay đổi source code cốt lõi.
 
-## Dataset 
+10. **ci**: Thay đổi cấu hình liên quan đến quy trình tích hợp và triển khai tự động (CI/CD).
 
 ## Dataset 
 https://zenodo.org/records/14590730?preview_file=RE3-OB.zip
+> [!warning]
+> chỉ tả những file `RE3_*`
+>
 
 
-
-
-10. **ci**: Thay đổi cấu hình liên quan đến quy trình tích hợp và triển khai tự động (CI/CD).
