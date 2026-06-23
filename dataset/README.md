@@ -4,6 +4,53 @@ Dự án này chứa toàn bộ mã nguồn cấu hình, tập lệnh thiết l�
 * **RE2-OB**: Các lỗi tài nguyên hạ tầng và đường truyền mạng (CPU, Memory, Disk, Sockets, Delay, Packet Loss).
 * **RE3-OB**: Các lỗi logic ở cấp độ code ứng dụng (Status Code, Exception, Infinite Loop, Crash).
 
+### 1. Bộ dữ liệu RE2-OB (Resource & Network Faults)
+Bộ dữ liệu này tập trung vào các **lỗi hạ tầng, tài nguyên và mạng** xảy ra trong các microservices của Online Boutique.
+
+* **Mục tiêu**: Đánh giá khả năng chẩn đoán lỗi tài nguyên phần cứng và các sự cố đường truyền.
+* **Quy mô**:
+  * **30 ca lỗi (Cases)**: Được sinh ra từ sự kết hợp của 5 dịch vụ bị tiêm lỗi và 6 loại lỗi khác nhau.
+  * **90 lần chạy (Runs)**: Mỗi ca lỗi được chạy kiểm thử 3 lần độc lập để thu thập dữ liệu telemetry tĩnh.
+* **Các dịch vụ bị tiêm lỗi (Faulty Services)**: `checkoutservice`, `currencyservice`, `emailservice`, `productcatalogservice`, `recommendationservice`.
+* **6 loại lỗi được tiêm (Fault Types)**:
+  1. `cpu`: Quá tải tài nguyên CPU.
+  2. `mem`: Quá tải bộ nhớ (Memory leak / OOM).
+  3. `disk`: Sự cố I/O đĩa cứng (Disk read/write stress).
+  4. `socket`: Lỗi cạn kiệt sockets mở (Socket exhaustion).
+  5. `delay`: Trễ truyền tải mạng (Network latency delay).
+  6. `loss`: Mất gói tin truyền tải (Network packet loss).
+* **Chiến lược phân chia độ khó**:
+  * **Unseen Fault Service**: Toàn bộ lỗi trên dịch vụ **`currencyservice`** (18 runs) được giữ lại hoàn toàn để làm dữ liệu kiểm thử kiểm chứng độ tổng quát của mô hình (6 runs thuộc `public_test`, 12 runs thuộc `private_test`). Mô hình không được học lỗi của service này trong tập train.
+  * **Hard Faults**: Các lỗi mạng phức tạp gồm `socket`, `loss` và `delay` được xếp vào nhóm lỗi khó (Hard faults) và ưu tiên phân phối vào tập dữ liệu ẩn `private_test`.
+
+---
+
+### 2. Bộ dữ liệu RE3-OB (Code-Level Faults)
+Bộ dữ liệu này tập trung vào các **lỗi logic ứng dụng bên trong code** của các microservices Online Boutique.
+
+* **Mục tiêu**: Đánh giá khả năng phân tích ngữ cảnh code (logs, stack traces, traces span error) để tìm ra dịch vụ có dòng code bị lỗi.
+* **Quy mô**:
+  * **10 ca lỗi (Cases)**.
+  * **30 lần chạy (Runs)**: Mỗi ca lỗi chạy 3 lần độc lập.
+* **Các dịch vụ bị tiêm lỗi (Faulty Services)**: `adservice`, `cartservice`, `currencyservice`, `emailservice`.
+* **5 loại lỗi logic code được tiêm (Fault Types)**:
+  1. `f1`: Lỗi Status Code (giao dịch trả về mã lỗi gRPC/HTTP).
+  2. `f2`: Lỗi ném ra Exception (quăng lỗi Java/Python exception trong logs).
+  3. `f3`: Lỗi chức năng / Logic sai lệch (Missing function).
+  4. `f4`: Lỗi vòng lặp vô hạn (Infinite loop gây treo luồng xử lý).
+  5. `f5`: Lỗi crash ứng dụng đột ngột (Unhandled exception).
+* **Chiến lược phân chia độ khó**:
+  * **Unseen Fault Service**: Dịch vụ **`currencyservice`** (với lỗi `f1`, gồm 3 runs) được cô lập dành riêng cho tập test.
+  * **Hard Faults**: Các lỗi `f3` (lỗi logic khó nhận biết) và `f5` (lỗi crash không bắt được exception thông thường) được coi là lỗi khó và ưu tiên đưa vào `private_test`.
+
+---
+
+### 3. Cấu trúc dữ liệu thu thập của mỗi ca lỗi (Per-run Data Structure)
+Trong mỗi thư mục chạy của cả RE2-OB và RE3-OB, CDO cung cấp 3 file dữ liệu tĩnh:
+1. **`metrics.csv`**: Chứa các chỉ số đo lường tài nguyên CPU, Memory, Sockets, Network drops, và các chỉ số Istio (request total, error total, latency p95).
+2. **`logs.csv`**: Logs stdout thu thập được từ các container (rất quan trọng để mô hình AI quét stack traces của lỗi RE3).
+3. **`traces.csv`**: Ghi nhận toàn bộ cuộc gọi RPC/HTTP giữa các services, bao gồm mã trạng thái (`statusCode`) và độ trễ (`duration_ms`) của từng span.
+
 ---
 
 ## HƯỚNG DẪN KHỞI CHẠY NHANH (QUICK START)
