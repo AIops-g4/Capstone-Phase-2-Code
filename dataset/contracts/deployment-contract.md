@@ -54,14 +54,6 @@ AI Engine chạy một instance duy nhất (shared backend) cho cả hai CDO pla
 | **Simulation (RE2)** | `tnt-re2-simulation` | (Internal simulation routing) | IAM SigV4 / Local |
 | **Simulation (RE3)** | `tnt-re3-simulation` | (Internal simulation routing) | IAM SigV4 / Local |
 
-#### Request Header Specification:
-Mọi cuộc gọi API đến AI Engine bắt buộc phải bao gồm các headers sau:
-* `Authorization`: AWS Signature Version 4 (SigV4)
-* `X-Tenant-Id`: Định danh tenant (`cdo-1`, `cdo-2`, `tnt-re2-simulation`, hoặc `tnt-re3-simulation`)
-* `Idempotency-Key`: UUID v4 chống thực thi lặp
-* `X-Request-Id`: UUID v4 định danh request duy nhất
-* `Content-Type`: `application/json`
-
 ### D. Chiến lược chạy thử nghiệm mô phỏng (Offline Simulation Mode)
 * Vì RE2 và RE3 dataset là dữ liệu offline đã thu thập dưới dạng CSV tĩnh, các hành động sửa đổi hạ tầng thật (`RESTART_DEPLOYMENT`, `SCALE_UP_PODS`,...) sẽ được **chạy ở chế độ giả lập (Mock Mode)** trong môi trường sandbox của CDO.
 * CDO Platform sẽ ghi nhận lệnh gọi từ AI Engine, ghi log kiểm toán tương ứng, và mô phỏng phản hồi thành công. Dữ liệu telemetry phản hồi tiếp theo sẽ được trích xuất từ dữ liệu tĩnh lịch sử (sau mốc thời gian lỗi của dataset) để gửi verify.
