@@ -1,0 +1,898 @@
+{
+  "RE3-OB/cartservice_f1/1": {
+    "root_cause_service": "cartservice",
+    "fault_type": "f1",
+    "system": "OB",
+    "candidate_services": [
+      "cartservice",
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/emailservice_f5/1": {
+    "root_cause_service": "emailservice",
+    "fault_type": "f5",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/adservice_f4/1": {
+    "root_cause_service": "adservice",
+    "fault_type": "f4",
+    "system": "OB",
+    "candidate_services": [
+      "adservice",
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/adservice_f5/1": {
+    "root_cause_service": "adservice",
+    "fault_type": "f5",
+    "system": "OB",
+    "candidate_services": [
+      "adservice",
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/emailservice_f2/3": {
+    "root_cause_service": "emailservice",
+    "fault_type": "f2",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/emailservice_f4/3": {
+    "root_cause_service": "emailservice",
+    "fault_type": "f4",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/emailservice_f2/1": {
+    "root_cause_service": "emailservice",
+    "fault_type": "f2",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/emailservice_f4/2": {
+    "root_cause_service": "emailservice",
+    "fault_type": "f4",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/emailservice_f2/2": {
+    "root_cause_service": "emailservice",
+    "fault_type": "f2",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/emailservice_f1/1": {
+    "root_cause_service": "emailservice",
+    "fault_type": "f1",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/emailservice_f5/3": {
+    "root_cause_service": "emailservice",
+    "fault_type": "f5",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/emailservice_f1/3": {
+    "root_cause_service": "emailservice",
+    "fault_type": "f1",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/emailservice_f4/1": {
+    "root_cause_service": "emailservice",
+    "fault_type": "f4",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/adservice_f5/3": {
+    "root_cause_service": "adservice",
+    "fault_type": "f5",
+    "system": "OB",
+    "candidate_services": [
+      "adservice",
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/adservice_f4/2": {
+    "root_cause_service": "adservice",
+    "fault_type": "f4",
+    "system": "OB",
+    "candidate_services": [
+      "adservice",
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/adservice_f4/3": {
+    "root_cause_service": "adservice",
+    "fault_type": "f4",
+    "system": "OB",
+    "candidate_services": [
+      "adservice",
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-SS/front-end_f2/3": {
+    "root_cause_service": "front-end",
+    "fault_type": "f2",
+    "system": "SS",
+    "candidate_services": [
+      "front-end"
+    ]
+  },
+  "RE3-SS/front-end_f1/3": {
+    "root_cause_service": "front-end",
+    "fault_type": "f1",
+    "system": "SS",
+    "candidate_services": [
+      "front-end"
+    ]
+  },
+  "RE3-SS/carts_f3/4": {
+    "root_cause_service": "carts",
+    "fault_type": "f3",
+    "system": "SS",
+    "candidate_services": [
+      "carts"
+    ]
+  },
+  "RE3-SS/orders_f3/1": {
+    "root_cause_service": "orders",
+    "fault_type": "f3",
+    "system": "SS",
+    "candidate_services": [
+      "orders"
+    ]
+  },
+  "RE3-SS/orders_f4/2": {
+    "root_cause_service": "orders",
+    "fault_type": "f4",
+    "system": "SS",
+    "candidate_services": [
+      "orders"
+    ]
+  },
+  "RE3-SS/front-end_f3/3": {
+    "root_cause_service": "front-end",
+    "fault_type": "f3",
+    "system": "SS",
+    "candidate_services": [
+      "front-end"
+    ]
+  },
+  "RE3-SS/front-end_f2/2": {
+    "root_cause_service": "front-end",
+    "fault_type": "f2",
+    "system": "SS",
+    "candidate_services": [
+      "front-end"
+    ]
+  },
+  "RE3-SS/orders_f1/2": {
+    "root_cause_service": "orders",
+    "fault_type": "f1",
+    "system": "SS",
+    "candidate_services": [
+      "orders"
+    ]
+  },
+  "RE3-SS/carts_f1/1": {
+    "root_cause_service": "carts",
+    "fault_type": "f1",
+    "system": "SS",
+    "candidate_services": [
+      "carts"
+    ]
+  },
+  "RE3-SS/orders_f4/3": {
+    "root_cause_service": "orders",
+    "fault_type": "f4",
+    "system": "SS",
+    "candidate_services": [
+      "orders"
+    ]
+  },
+  "RE3-SS/carts_f1/4": {
+    "root_cause_service": "carts",
+    "fault_type": "f1",
+    "system": "SS",
+    "candidate_services": [
+      "carts"
+    ]
+  },
+  "RE3-SS/carts_f1/2": {
+    "root_cause_service": "carts",
+    "fault_type": "f1",
+    "system": "SS",
+    "candidate_services": [
+      "carts"
+    ]
+  },
+  "RE3-SS/orders_f1/1": {
+    "root_cause_service": "orders",
+    "fault_type": "f1",
+    "system": "SS",
+    "candidate_services": [
+      "orders"
+    ]
+  },
+  "RE3-SS/orders_f4/1": {
+    "root_cause_service": "orders",
+    "fault_type": "f4",
+    "system": "SS",
+    "candidate_services": [
+      "orders"
+    ]
+  },
+  "RE3-SS/orders_f1/3": {
+    "root_cause_service": "orders",
+    "fault_type": "f1",
+    "system": "SS",
+    "candidate_services": [
+      "orders"
+    ]
+  },
+  "RE3-SS/carts_f3/3": {
+    "root_cause_service": "carts",
+    "fault_type": "f3",
+    "system": "SS",
+    "candidate_services": [
+      "carts"
+    ]
+  },
+  "RE3-TT/ts-route-service_f4/3": {
+    "root_cause_service": "ts-route-service",
+    "fault_type": "f4",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-auth-service_f4/1": {
+    "root_cause_service": "ts-auth-service",
+    "fault_type": "f4",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-auth-service_f2/1": {
+    "root_cause_service": "ts-auth-service",
+    "fault_type": "f2",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-auth-service_f4/3": {
+    "root_cause_service": "ts-auth-service",
+    "fault_type": "f4",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-route-service_f2/2": {
+    "root_cause_service": "ts-route-service",
+    "fault_type": "f2",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-route-service_f2/1": {
+    "root_cause_service": "ts-route-service",
+    "fault_type": "f2",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-auth-service_f2/3": {
+    "root_cause_service": "ts-auth-service",
+    "fault_type": "f2",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-route-service_f1/3": {
+    "root_cause_service": "ts-route-service",
+    "fault_type": "f1",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-auth-service_f4/2": {
+    "root_cause_service": "ts-auth-service",
+    "fault_type": "f4",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-auth-service_f1/4": {
+    "root_cause_service": "ts-auth-service",
+    "fault_type": "f1",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service"
+    ]
+  },
+  "RE3-TT/ts-auth-service_f1/3": {
+    "root_cause_service": "ts-auth-service",
+    "fault_type": "f1",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-auth-service_f1/1": {
+    "root_cause_service": "ts-auth-service",
+    "fault_type": "f1",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-route-service_f1/1": {
+    "root_cause_service": "ts-route-service",
+    "fault_type": "f1",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-auth-service_f1/2": {
+    "root_cause_service": "ts-auth-service",
+    "fault_type": "f1",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-auth-service_f2/2": {
+    "root_cause_service": "ts-auth-service",
+    "fault_type": "f2",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  },
+  "RE3-TT/ts-route-service_f4/2": {
+    "root_cause_service": "ts-route-service",
+    "fault_type": "f4",
+    "system": "TT",
+    "candidate_services": [
+      "ts-admin-basic-info-service",
+      "ts-admin-travel-service",
+      "ts-assurance-service",
+      "ts-auth-service",
+      "ts-basic-service",
+      "ts-config-service",
+      "ts-consign-price-service",
+      "ts-consign-service",
+      "ts-contacts-service",
+      "ts-food-map-service",
+      "ts-food-service",
+      "ts-inside-payment-service",
+      "ts-order-other-service",
+      "ts-order-service",
+      "ts-payment-service",
+      "ts-preserve-other-service",
+      "ts-preserve-service",
+      "ts-price-service",
+      "ts-route-service",
+      "ts-seat-service",
+      "ts-security-service",
+      "ts-station-service",
+      "ts-ticketinfo-service",
+      "ts-train-service",
+      "ts-travel-service",
+      "ts-travel2-service",
+      "ts-user-service"
+    ]
+  }
+}
