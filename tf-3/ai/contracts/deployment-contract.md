@@ -92,8 +92,10 @@ graph TB
 ---
 
 ## 3. Kubernetes RBAC & Safety Constraints (Least Privilege)
-1. AI Engine vẫn được host trên ECS Fargate và chỉ dùng quyền này để gọi EKS API thực thi self-heal 
-2. Để thực thi các kịch bản tự chữa lành (Self-Heal Actions) trên EKS Sandbox Cluster chạy các dịch vụ RE2 và RE3 (Online Boutique) mà vẫn bảo đảm chính sách an toàn (**Zero unsafe actions**):
+> [!warning]
+>AI Engine vẫn được host trên ECS Fargate và chỉ dùng quyền này để gọi EKS API thực thi self-heal
+> 
+Để thực thi các kịch bản tự chữa lành (Self-Heal Actions) trên EKS Sandbox Cluster chạy các dịch vụ RE2 và RE3 (Online Boutique) mà vẫn bảo đảm chính sách an toàn (**Zero unsafe actions**):
 
 - **Không** cấp quyền quản trị cụm (`ClusterAdmin`).
 - **Không** cấp quyền chỉnh sửa cấu hình phân quyền K8s (`ClusterRole`, `RoleBinding`).
