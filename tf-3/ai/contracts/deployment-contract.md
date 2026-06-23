@@ -277,7 +277,7 @@ graph TB
                 SM[Secrets Manager VPCe]
                 DDB[(DynamoDB - Idempotency Lock)]
                 S3[(S3 Bucket: Audit Trail<br>Object Lock Compliance Mode 90d)]
-                EKS_API[EKS Sandbox Cluster API Server]
+                EKS_API[EKS Sandbox Cluster API Server (Temporary POC Target for Self-Heal Actions)]
             end
             
             ECS1 & ECS2 -->|Fetch Kubeconfig| SM
