@@ -51,6 +51,20 @@ Trong mỗi thư mục chạy của cả RE2-OB và RE3-OB, CDO cung cấp 3 fil
 2. **`logs.csv`**: Logs stdout thu thập được từ các container (rất quan trọng để mô hình AI quét stack traces của lỗi RE3).
 3. **`traces.csv`**: Ghi nhận toàn bộ cuộc gọi RPC/HTTP giữa các services, bao gồm mã trạng thái (`statusCode`) và độ trễ (`duration_ms`) của từng span.
 
+### 4. Số lượng services 
+1. `adservice`
+2. `cartservice`
+3. `checkoutservice`
+4. `currencyservice`
+5. `emailservice`
+6. `frontend`
+7. `frontendservice`
+8. `paymentservice`
+9. `productcatalogservice`
+10. `recommendationservice`
+
+*(Lưu ý: Các dịch vụ có lỗi được inject trực tiếp trong RE2 và RE3 bao gồm: `adservice`, `cartservice`, `checkoutservice`, `currencyservice`, `emailservice`, `productcatalogservice`, và `recommendationservice`)*
+
 ---
 
 ## HƯỚNG DẪN KHỞI CHẠY NHANH (QUICK START)
