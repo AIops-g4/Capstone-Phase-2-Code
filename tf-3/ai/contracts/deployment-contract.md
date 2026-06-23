@@ -25,6 +25,72 @@ AI Engine được triển khai dưới dạng **ECS Fargate tasks** độc lậ
 
 ---
 
+## 2.1 Deployment Topology Diagram
+
+Dưới đây là sơ đồ chi tiết kiến trúc hạ tầng và luồng dữ liệu của hệ thống tự chữa lành (Self-Heal Engine) được triển khai trên EKS Sandbox Cluster cho hệ thống **Online Boutique**:
+
+```mermaid
+graph TB
+    subgraph "AWS Region: us-east-1"
+        subgraph "VPC Task Force 3"
+            subgraph "EKS Sandbox Cluster (Online Boutique)"
+                OB_Namespace["onlineboutique Namespace<br>(adservice, checkoutservice, ...)"]
+                Prometheus["Prometheus Server / AlertManager"]
+                OB_Namespace -->|Metrics / Logs / Traces| Prometheus
+            end
+
+            subgraph "Private Subnet (Multi-AZ)"
+                ALB[Internal Application Load Balancer]
+                ECS1[ECS Fargate Task - Replica 1]
+                ECS2[ECS Fargate Task - Replica 2]
+                SQS[Amazon SQS Queue: Telemetry & Alerts]
+                
+                ALB -->|Port 8080| ECS1
+                ALB -->|Port 8080| ECS2
+                SQS -->|Trigger / Consume| ECS1
+                SQS -->|Trigger / Consume| ECS2
+            end
+            
+            subgraph "VPC Endpoints & Managed Services"
+                SM[Secrets Manager VPCe]
+                DDB[(DynamoDB / Redis - Idempotency Lock)]
+                S3[(S3 Bucket: Audit Trail<br>Object Lock Compliance Mode 90d)]
+                EKS_API[EKS Sandbox Cluster API Server]
+            end
+            
+            ECS1 & ECS2 -->|Fetch Kubeconfig| SM
+            ECS1 & ECS2 -->|Check / Acquire Lock| DDB
+            ECS1 & ECS2 -->|Write Tamper-evident Logs| S3
+            ECS1 & ECS2 -->|Execute Self-Heal Actions| EKS_API
+            EKS_API -->|Apply Deployments Patch| OB_Namespace
+        end
+        
+        subgraph "Ingestion & Serverless Flow"
+            APIGW[API Gateway / Webhook Handler]
+            Lambda[AWS Lambda Preprocessor]
+            EB[Amazon EventBridge]
+            
+            Prometheus -->|Fire Alert / Webhook| APIGW
+            APIGW --> Lambda
+            Lambda -->|Publish Event| EB
+            EB -->|Forward Event| SQS
+        end
+        
+        Bedrock[AWS Bedrock Service]
+        ECS1 & ECS2 -->|Invoke Claude LLM via IAM| Bedrock
+    end
+
+    subgraph "CDO Execution Platforms"
+        CDO1[CDO-1 Platform Workflow]
+        CDO2[CDO-2 Platform Workflow]
+    end
+    
+    CDO1 -->|REST API + Tenant ID| ALB
+    CDO2 -->|REST API + Tenant ID| ALB
+```
+
+---
+
 ## 3. Kubernetes RBAC & Safety Constraints (Least Privilege)
 
 Để thực thi các kịch bản tự chữa lành (Self-Heal Actions) trên EKS Sandbox Cluster chạy các dịch vụ RE2 và RE3 (Online Boutique) mà vẫn bảo đảm chính sách an toàn (**Zero unsafe actions**):
