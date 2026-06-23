@@ -1,10 +1,5 @@
 # Deployment Contract - Task Force 3 (Self-Heal Engine)
 
-<!-- Owner: Nhóm AI Task Force 3
-     Signed by: AI Lead + CDO Leads x 2 + Reviewer panel
-     Date signed: 2026-06-25 (W11 T5)
-     🔒 FREEZE - no change without formal change request -->
-
 ## 1. Mục đích
 
 Tài liệu này xác định **quy chuẩn triển khai hạ tầng (Deployment Specification)** của AI Engine và các phân quyền Kubernetes đi kèm để thực thi các hành động khắc phục lỗi. Các phân quyền và hạ tầng được thiết kế tương thích với các ứng dụng microservice có trong **RE2 và RE3 dataset** (Online Boutique) và phục vụ multi-tenant cho hai nền tảng CDO.
