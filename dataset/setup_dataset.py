@@ -3,6 +3,7 @@ import sys
 import zipfile
 import shutil
 import subprocess
+from utils import load_dotenv
 
 try:
     import gdown
@@ -11,15 +12,18 @@ except ImportError:
     print("Please make sure you are using the 'capstone' conda environment.")
     sys.exit(1)
 
+# Load environment configurations
+load_dotenv()
+
 # Google Drive File IDs
 DRIVE_IDS = {
-    "OB": "1cZpnaZ1ijLUBssXzCnbGVWsT1NlnXtoy",
-    "SS": "1sLrZFyJi-5Q1oEIN8ERuapIJIx1KFTEV",
-    "TT": "1SRB4kTNRWtSIJAp96kz1iMEHY2ToytVG"
+    "OB": os.environ.get("GDRIVE_ID_OB", ""),
+    "SS": os.environ.get("GDRIVE_ID_SS", ""),
+    "TT": os.environ.get("GDRIVE_ID_TT", "")
 }
 
-COMPRESS_DIR = "compress"
-RAW_DIR = "raw"
+COMPRESS_DIR = os.environ.get("COMPRESS_DIR", "compress")
+RAW_DIR = os.environ.get("RAW_DIR", "raw")
 
 def download_file(sys_name, file_id):
     """

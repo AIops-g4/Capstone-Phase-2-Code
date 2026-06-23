@@ -5,11 +5,18 @@ import json
 import csv
 import shutil
 
-# Set random seed for reproducibility
-random.seed(42)
+# Import shared load_dotenv
+from utils import load_dotenv
 
-RAW_DIR = "raw"
-FILTERED_DIR = "filtered"
+# Load environment configurations
+load_dotenv()
+
+# Set random seed for reproducibility
+seed_val = int(os.environ.get("RANDOM_SEED", "42"))
+random.seed(seed_val)
+
+RAW_DIR = os.environ.get("RAW_DIR", "raw")
+FILTERED_DIR = os.environ.get("FILTERED_DIR", "filtered")
 
 def get_candidate_services(traces_path):
     """

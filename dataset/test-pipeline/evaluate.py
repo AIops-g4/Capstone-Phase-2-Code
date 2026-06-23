@@ -3,6 +3,12 @@ import sys
 import json
 import argparse
 
+# Import shared load_dotenv
+from utils import load_dotenv
+
+# Load environment configurations
+load_dotenv()
+
 def load_json(filepath):
     if not os.path.exists(filepath):
         print(f"Error: File not found at {filepath}")
@@ -175,8 +181,12 @@ def main():
     parser.add_argument("-p", "--predictions", required=True, help="Path to predictions JSON file")
     parser.add_argument("-g", "--ground-truth", required=True, help="Path to ground truth JSON file")
     parser.add_argument("-o", "--output", default="metrics.json", help="Path to output metrics JSON file")
-    parser.add_argument("-t", "--threshold", type=float, default=0.5, help="Decision threshold for threshold-based metrics (default: 0.5)")
-    parser.add_argument("-s", "--schemes", default=os.path.join(os.path.dirname(__file__), "SCHEMES.json"), help="Path to SCHEMES.json file")
+    default_th = float(os.environ.get("DEFAULT_THRESHOLD", "0.5"))
+    parser.add_argument("-t", "--threshold", type=float, default=default_th, help=f"Decision threshold for threshold-based metrics (default: {default_th})")
+    
+    # Fallback to local SCHEMES.json if SCHEMES_PATH not set in .env
+    default_schemes = os.environ.get("SCHEMES_PATH", os.path.join(os.path.dirname(__file__), "SCHEMES.json"))
+    parser.add_argument("-s", "--schemes", default=default_schemes, help=f"Path to SCHEMES.json file (default: {default_schemes})")
     
     args = parser.parse_args()
     
