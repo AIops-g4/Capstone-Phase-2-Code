@@ -244,11 +244,25 @@ AI Engine được triển khai hoàn toàn trong mạng nội bộ bảo mật,
 - **DNS**: Truy cập nội bộ qua Route 53 Private Hosted Zone với tên miền: `https://ai-engine.tf-3.internal/`.
 
 ### B. Security Group Rules (`tf-3-ai-engine-sg`)
-- **Ingress Rules (Inbound)**:
-  - Chỉ cho phép port `8080/TCP` từ Security Group của CDO-1 Platform và CDO-2 Platform (SG-to-SG reference). Chặn toàn bộ traffic từ các nguồn khác.
-- **Egress Rules (Outbound)**:
-  - Cho phép port `443/TCP` kết nối tới các VPC Endpoints trong VPC: Secrets Manager VPCe, Bedrock Service, DynamoDB VPCe, và S3 VPCe.
-  - Cho phép port kết nối tới Kubernetes API Server của Sandbox EKS Cluster để thực thi các hành động chữa lành qua Kubeconfig.
+
+#### Ingress (Inbound) Rules
+
+| Source | Protocol | Port Range | Description |
+|---|---|---|---|
+| CDO-1 Platform Security Group | TCP | `8080` | Cho phép CDO-1 Platform gửi request API (`v1/detect`, `v1/decide`, `v1/verify`) |
+| CDO-2 Platform Security Group | TCP | `8080` | Cho phép CDO-2 Platform gửi request API (`v1/detect`, `v1/decide`, `v1/verify`) |
+| Mọi nguồn khác (Anywhere) | All | All | Chặn hoàn toàn (Deny by default) |
+
+#### Egress (Outbound) Rules
+
+| Destination | Protocol | Port Range | Description |
+|---|---|---|---|
+| AWS Secrets Manager VPC Endpoint | TCP | `443` | Kết nối lấy secrets, credentials, và kubeconfig cấu hình |
+| AWS Bedrock Endpoint | TCP | `443` | Gọi APIs của AWS Bedrock phục vụ phân tích log/context |
+| Amazon DynamoDB VPC Endpoint | TCP | `443` | Kiểm tra và cập nhật khóa chống trùng lặp (Idempotency Lock) |
+| Amazon S3 VPC Endpoint | TCP | `443` | Ghi nhật ký kiểm toán (Audit Trail) phục vụ tuân thủ SOC2 |
+| EKS Sandbox Cluster API Server | TCP | `443` / `6443` | Thực thi các hành động chữa lành (Self-Heal Actions) trên EKS cluster |
+
 
 ### C. Deployment Topology Diagram
 
