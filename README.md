@@ -65,8 +65,6 @@ Dự án áp dụng tiêu chuẩn Conventional Commits với cấu trúc: `<tag>
 
 ## Dataset 
 https://zenodo.org/records/14590730?preview_file=RE3-OB.zip
-> [!warning]
-> chỉ tả những file `RE3_*`
->
+
 
 
