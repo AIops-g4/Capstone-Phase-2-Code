@@ -36,8 +36,8 @@
           },
           "system": {
             "type": "string",
-            "enum": ["OB", "SS", "TT"],
-            "description": "The microservice system (Online Boutique, Sock Shop, Train Ticket)."
+            "enum": ["OB"],
+            "description": "The microservice system (Online Boutique)."
           },
           "candidate_services": {
             "type": "array",

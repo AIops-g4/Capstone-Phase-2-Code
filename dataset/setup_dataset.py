@@ -3,7 +3,15 @@ import sys
 import zipfile
 import shutil
 import subprocess
-from utils import load_dotenv
+
+# Append test-pipeline directory to path to load shared utility
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "test-pipeline")))
+try:
+    from utils import load_dotenv
+except ImportError:
+    # Fallback in case path resolver fails
+    def load_dotenv(dotenv_path=".env"):
+        pass
 
 try:
     import gdown
@@ -17,9 +25,8 @@ load_dotenv()
 
 # Google Drive File IDs
 DRIVE_IDS = {
-    "OB": os.environ.get("GDRIVE_ID_OB", ""),
-    "SS": os.environ.get("GDRIVE_ID_SS", ""),
-    "TT": os.environ.get("GDRIVE_ID_TT", "")
+    "RE3-OB": os.environ.get("GDRIVE_ID_RE3_OB", "1cZpnaZ1ijLUBssXzCnbGVWsT1NlnXtoy"),
+    "RE2-OB": os.environ.get("GDRIVE_ID_RE2_OB", "")
 }
 
 COMPRESS_DIR = os.environ.get("COMPRESS_DIR", "compress")
@@ -28,32 +35,36 @@ RAW_DIR = os.environ.get("RAW_DIR", "raw")
 def download_file(sys_name, file_id):
     """
     Download zip file from Google Drive using gdown.
+    Bypasses download if zip file is already locally present.
     """
     os.makedirs(COMPRESS_DIR, exist_ok=True)
-    output_path = os.path.join(COMPRESS_DIR, f"RE3-{sys_name}.zip")
-    
-    print(f"\n>>> Downloading RE3-{sys_name}.zip from Google Drive...")
+    output_path = os.path.join(COMPRESS_DIR, f"{sys_name}.zip")
     
     # Check if file already exists
     if os.path.exists(output_path):
         print(f"File {output_path} already exists. Skipping download.")
         return output_path
         
+    if not file_id:
+        print(f"Error: No Google Drive ID defined for {sys_name} and zip file is missing at {output_path}.")
+        sys.exit(1)
+        
+    print(f"\n>>> Downloading {sys_name}.zip from Google Drive...")
     try:
         # Call gdown download
         gdown.download(id=file_id, output=output_path, quiet=False)
         print(f"Successfully downloaded to {output_path}")
     except Exception as e:
-        print(f"Error downloading RE3-{sys_name}: {e}")
+        print(f"Error downloading {sys_name}: {e}")
         sys.exit(1)
         
     return output_path
 
 def smart_extract(zip_path, sys_name):
     """
-    Extract zip file safely and organize into raw/RE3-<sys_name>/
+    Extract zip file safely and organize into raw/<sys_name>/
     """
-    target_dir = os.path.join(RAW_DIR, f"RE3-{sys_name}")
+    target_dir = os.path.join(RAW_DIR, sys_name)
     print(f"\n>>> Extracting {zip_path} to {target_dir}...")
     
     # Clean target directory if it exists
@@ -76,9 +87,9 @@ def smart_extract(zip_path, sys_name):
         # Check structure inside temp directory
         extracted_items = os.listdir(temp_extract_dir)
         
-        # If there is a single directory with the same name as the system, e.g. RE3-OB
+        # If there is a single directory with the same name as the system, e.g. RE3-OB or RE2-OB
         # we move its contents. Otherwise, we move all contents from temp.
-        matching_subdirs = [d for d in extracted_items if d == f"RE3-{sys_name}" and os.path.isdir(os.path.join(temp_extract_dir, d))]
+        matching_subdirs = [d for d in extracted_items if d == sys_name and os.path.isdir(os.path.join(temp_extract_dir, d))]
         
         if matching_subdirs:
             source_dir = os.path.join(temp_extract_dir, matching_subdirs[0])
@@ -91,7 +102,7 @@ def smart_extract(zip_path, sys_name):
         for item in os.listdir(source_dir):
             shutil.move(os.path.join(source_dir, item), os.path.join(target_dir, item))
             
-        print(f"Extraction completed successfully for RE3-{sys_name}.")
+        print(f"Extraction completed successfully for {sys_name}.")
         
     except Exception as e:
         print(f"Error extracting {zip_path}: {e}")
