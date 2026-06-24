@@ -317,8 +317,8 @@ Hệ thống giám sát Canary của CDO sẽ tự động dừng rollout và k�
 - **Tốc độ tiêu thụ ngân sách lỗi nhanh (Error Budget Burn Rate Fast Alert):** Tỷ lệ tiêu hao ngân sách lỗi của các dịch vụ nghiệp vụ (do CDO giám sát) vượt quá ngưỡng cảnh báo nhanh (Fast Burn Rate > 14.4 trong cửa sổ 1 giờ, hoặc tiêu thụ quá 2% ngân sách lỗi trong vòng 1 giờ), biểu thị sự cố nghiêm trọng ảnh hưởng trực tiếp đến người dùng cuối.
 
 ### C. Cơ chế Rollback
-- **Phương thức chính**: ArgoCD tự động rollback trạng thái Kubernetes sang Git commit SHA ổn định trước đó.
-- **Phương thức dự phòng**: ECS Service rollback thủ công sang task definition version trước đó.
+- **Phương thức chính**: AWS CodeDeploy tự động rollback (Blue/Green) điều hướng lưu lượng traffic về phiên bản (Task Set) ổn định trước đó khi có cảnh báo từ CloudWatch Alarms hoặc khi có tín hiệu hủy (Abort) từ CDO Platform.
+- **Phương thức dự phòng**: ECS Deployment Circuit Breaker tự động rollback dịch vụ sang Task Definition version ổn định gần nhất nếu các task mới gặp lỗi khởi động (OOM, Crash) hoặc không vượt qua kiểm tra sức khỏe.
 - **Mục tiêu RTO (Recovery Time Objective)**: `< 60 giây` từ thời điểm kích hoạt.
 
 ---
