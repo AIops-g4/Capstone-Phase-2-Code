@@ -284,6 +284,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `verify_policy` | object | ✓ | Chính sách xác thực sau khi thực hiện hành động tự chữa lành |
 | `verify_policy.window_seconds` | integer | ✓ | Thời gian chờ tối thiểu (giây) trước khi CDOps thu thập telemetry để xác thực |
 | `verify_policy.success_conditions` | array (of strings) | optional | Danh sách các điều kiện kiểm tra thành công (ví dụ: `pod_ready == true`) |
+| `cost_cap_exceeded` | boolean | optional | Cờ báo hiệu chi phí gọi LLM Bedrock trong ngày của Tenant đã vượt hạn mức $50 (khi bằng `true`, hệ thống tự động chuyển sang chế độ dự phòng rule-based truyền thống, kế hoạch hành động vẫn có thể thực thi bình thường) |
 
 * **Lược đồ Schema Phản hồi**:
 ```json
@@ -350,7 +351,8 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
     },
     "correlation_id": { "type": "string", "format": "uuid" },
     "idempotency_key": { "type": "string", "format": "uuid" },
-    "dry_run_mode": { "type": "boolean" }
+    "dry_run_mode": { "type": "boolean" },
+    "cost_cap_exceeded": { "type": "boolean" }
   },
   "required": ["matched_runbook", "pattern_type", "action_plan", "blast_radius_config", "verify_policy", "correlation_id", "idempotency_key", "dry_run_mode"],
   "additionalProperties": false
@@ -390,7 +392,8 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
   },
   "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
   "idempotency_key": "d3b07384-d113-495f-9f58-20d18d357d75",
-  "dry_run_mode": false
+  "dry_run_mode": false,
+  "cost_cap_exceeded": false
 }
 ```
 
