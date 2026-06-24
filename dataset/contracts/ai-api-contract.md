@@ -573,6 +573,14 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
   - `/v1/detect`: < 300 ms
   - `/v1/decide`: < 3000 ms (Nới lỏng độ trễ khi gọi LLM AWS Bedrock; các kịch bản fallback rule-based bắt buộc < 500 ms)
   - `/v1/verify`: < 500 ms
+
+#### Quy trình và Điều kiện Kích hoạt Chế độ Dự phòng Rule-Based (Fallback Rule-Based)
+Để đảm bảo thời gian xử lý sự cố toàn trình (End-to-End SLO) của CDOps Platform luôn nằm trong giới hạn dưới 5 phút, AI Engine thiết lập cơ chế tự động chuyển đổi sang chế độ dự phòng Rule-Based (thời gian phản hồi p99 < 500 ms, dựa trên cây quyết định tĩnh thay vì gọi LLM Bedrock) khi xảy ra các điều kiện sau:
+1. **Vượt hạn mức chi phí (Cost Cap Exceeded)**: Chi phí sử dụng AWS Bedrock tích lũy trong ngày của Tenant vượt quá **$50/ngày** (reset vào lúc 00:00:00 UTC). Phản hồi trả về sẽ chứa thuộc tính `"cost_cap_exceeded": true`.
+2. **AWS Bedrock API bị giới hạn tần suất (Rate Limiting - HTTP 429)**: Khi dịch vụ AWS Bedrock trả về lỗi `429 Too Many Requests` và việc thực hiện thử lại (retry với exponential backoff) có nguy cơ đẩy tổng thời gian xử lý vượt quá ngân sách thời gian nội bộ (2000 ms).
+3. **Lỗi hệ thống hoặc Thời gian chờ dịch vụ LLM Bedrock (Downtime & Timeouts)**: Khi dịch vụ AWS Bedrock gặp sự cố kết nối, phản hồi chậm (hơn 2500 ms) hoặc trả về các mã lỗi `5xx`.
+4. **Lỗi phân tích cú pháp phản hồi (LLM Response Parse Failure)**: Khi mô hình LLM phản hồi dữ liệu không đúng cấu trúc JSON hoặc không vượt qua bộ kiểm tra schema nghiêm ngặt của `DecideResponse`. Hệ thống sẽ tự động dùng bộ rule engine tĩnh để sinh ra kế hoạch hành động an toàn và hợp lệ.
+
 - **Availability**: 99.9%
 - **Hạn mức Lưu lượng (Throughput SLAs & Rate Limit)**:
   - `/v1/detect`: Hạn mức 100 RPS (Requests Per Second) per tenant.
