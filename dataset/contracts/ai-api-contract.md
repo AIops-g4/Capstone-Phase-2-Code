@@ -287,19 +287,20 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `cost_cap_exceeded` | boolean | optional | Cờ báo hiệu chi phí gọi LLM Bedrock trong ngày của Tenant đã vượt hạn mức $50 (khi bằng `true`, hệ thống tự động chuyển sang chế độ dự phòng rule-based truyền thống, kế hoạch hành động vẫn có thể thực thi bình thường) |
 
 * **Ghi chú quan trọng về `pattern_type` (Quy trình xử lý dành cho CDOps Executor)**:
-  > [!warning]
-  > CDOps Platform bắt buộc phải tuân thủ nghiêm ngặt quy trình xử lý khác biệt giữa hai loại `pattern_type` dưới đây để đảm bảo tính nhất quán của hạ tầng và tránh xung đột trạng thái (state drift):
-  > 
-  > 1. **Đối với `"pattern_type": "urgent"` (Path B - Vá trực tiếp / Hotfix)**:
-  >    * **Mục đích**: Áp dụng cho các sự cố khẩn cấp đe dọa trực tiếp tính liên tục của dịch vụ (như `pod_oom_event`, `service_unhealthy`).
-  >    * **Hành vi thực thi**: CDOps Executor thực thi hành động tự chữa lành **ngay lập tức** bằng cách gọi trực tiếp vào Kubernetes API Server (ví dụ: chạy lệnh patch tài nguyên, restart deployment trực tiếp).
-  >    * **Quy trình Safety Gate**: Kiểm tra giới hạn vùng ảnh hưởng (Blast Radius) theo thời gian thực trước khi thực thi. Bỏ qua luồng duyệt thủ công để tối ưu hóa thời gian phục hồi (RTO < 60 giây).
-  > 
-  > 2. **Đối với `"pattern_type": "deferred"` (Path A - Luồng đồng bộ GitOps)**:
-  >    * **Mục đích**: Áp dụng cho các sự cố mang tính chất tích lũy cấu hình lâu dài (như điều chỉnh giới hạn tài nguyên vĩnh viễn, tăng số lượng replicas do nghẽn hàng đợi `queue_backlog`).
-  >    * **Hành vi thực thi**: CDOps Platform **nghiêm cấm** việc ghi đè trực tiếp lên cụm Kubernetes. Thay vào đó, CDOps phải tự động **tạo một Git commit hoặc mở một Pull Request (PR)** cập nhật thông số cấu hình trên Git Repository quản lý manifest của dịch vụ nghiệp vụ (ví dụ: cập nhật file Helm `values.yaml` hoặc Kube manifest). Trạng thái mới sẽ được đồng bộ tự động xuống cụm K8s thông qua công cụ GitOps (như ArgoCD/FluxCD).
-  >    * **Quy trình Safety Gate**: Logic an toàn sẽ được tích hợp trực tiếp vào quá trình kiểm thử tự động của CI/CD pipeline hoặc luồng duyệt PR. CDOps chấp nhận độ trễ đồng bộ của GitOps (thường từ 2 - 5 phút).
-  > 
+
+> [!warning] 
+> 
+> CDOps Platform bắt buộc phải tuân thủ nghiêm ngặt quy trình xử lý khác biệt giữa hai loại `pattern_type` dưới đây để đảm bảo tính nhất quán của hạ tầng và tránh xung đột trạng thái (state drift):
+> 
+> 1. **Đối với `"pattern_type": "urgent"` (Path B - Vá trực tiếp / Hotfix)**:
+>    * **Mục đích**: Áp dụng cho các sự cố khẩn cấp đe dọa trực tiếp tính liên tục của dịch vụ (như `pod_oom_event`, `service_unhealthy`).
+>    * **Hành vi thực thi**: CDOps Executor thực thi hành động tự chữa lành **ngay lập tức** bằng cách gọi trực tiếp vào Kubernetes API Server (ví dụ: chạy lệnh patch tài nguyên, restart deployment trực tiếp).
+>    * **Quy trình Safety Gate**: Kiểm tra giới hạn vùng ảnh hưởng (Blast Radius) theo thời gian thực trước khi thực thi. Bỏ qua luồng duyệt thủ công để tối ưu hóa thời gian phục hồi (RTO < 60 giây).
+> 
+> 2. **Đối với `"pattern_type": "deferred"` (Path A - Luồng đồng bộ GitOps)**:
+>    * **Mục đích**: Áp dụng cho các sự cố mang tính chất tích lũy cấu hình lâu dài (như điều chỉnh giới hạn tài nguyên vĩnh viễn, tăng số lượng replicas do nghẽn hàng đợi `queue_backlog`).
+>    * **Hành vi thực thi**: CDOps Platform **nghiêm cấm** việc ghi đè trực tiếp lên cụm Kubernetes. Thay vào đó, CDOps phải tự động **tạo một Git commit hoặc mở một Pull Request (PR)** cập nhật thông số cấu hình trên Git Repository quản lý manifest của dịch vụ nghiệp vụ (ví dụ: cập nhật file Helm `values.yaml` hoặc Kube manifest). Trạng thái mới sẽ được đồng bộ tự động xuống cụm K8s thông qua công cụ GitOps (như ArgoCD/FluxCD).
+>    * **Quy trình Safety Gate**: Logic an toàn sẽ được tích hợp trực tiếp vào quá trình kiểm thử tự động của CI/CD pipeline hoặc luồng duyệt PR. CDOps chấp nhận độ trễ đồng bộ của GitOps (thường từ 2 - 5 phút).
 
 * **Lược đồ Schema Phản hồi**:
 ```json
