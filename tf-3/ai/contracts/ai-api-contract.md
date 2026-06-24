@@ -97,7 +97,7 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 #### Request Headers
 | Header | Type | Required | Description |
 |---|---|---|---|
-| `X-Tenant-Id` | UUID v4 | ✓ | Định danh khách hàng (Dùng `tnt-re3-simulation`) |
+| `X-Tenant-Id` | UUID v4 | ✓ | Định danh khách hàng (`cdo-1`, `cdo-2`, hoặc giá trị giả lập `tnt-re3-simulation`)  |
 | `Idempotency-Key` | UUID v4 | ✓ | Tránh chạy lặp kịch bản quyết định |
 
 #### Request Body
@@ -163,6 +163,13 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 ### Endpoint 3: `POST /v1/verify`
 
 **Mục đích**: Nhận thông tin từ CDO sau khi đã thực thi xong action, tiến hành phân tích telemetry hậu sự kiện để xác định xem lỗi đã được xử lý triệt để hay chưa.
+
+#### Request Headers
+| Header | Type | Required | Description |
+|---|---|---|---|
+| `X-Tenant-Id` | string | ✓ | Định danh khách hàng (`cdo-1`, `cdo-2`, hoặc giá trị giả lập `tnt-re3-simulation`) |
+| `Idempotency-Key` | UUID v4 | ✓ | Tránh chạy lặp kịch bản kiểm chứng (Verify) |
+
 
 #### Request Body
 | Field | Type | Required | Description |
