@@ -15,9 +15,9 @@ Mục này định nghĩa cấu trúc thiết lập topology hệ thống đích
 2. **Deployment Resource**: Mọi dịch vụ nghiệp vụ (`service`) bắt buộc phải tương ứng với một đối tượng Kubernetes Deployment quản trị. Định dạng định danh tài nguyên chuẩn là `deployment/<deployment_name>`. 
 
 ### B. Quy chuẩn cấu trúc dữ liệu yêu cầu
-Trong mọi giao dịch API liên dịch vụ (như gửi telemetry, lập kế hoạch `/v1/decide`, và báo cáo `/v1/verify`), các trường `namespace` và `deployment` phải được truyền tải đầy đủ dưới dạng chuỗi ký tự (`string`) theo quy chuẩn sau:
-* `namespace`: Tên của K8s namespace đang chứa tài nguyên đích (ví dụ: `[operational_namespace_name]`).
-* `deployment`: Tên của đối tượng K8s Deployment quản trị trực tiếp dịch vụ bị lỗi (ví dụ: `[k8s_deployment_resource_name]`).
+Trong mọi giao dịch API liên dịch vụ (như gửi telemetry, lập kế hoạch `/v1/decide`, và báo cáo `/v1/verify`), các trường `namespace` và `deployment` là tùy chọn (optional) và có thể được truyền tải dưới dạng chuỗi ký tự (`string`) theo quy chuẩn sau:
+* `namespace`: Tên của K8s namespace đang chứa tài nguyên đích (Tùy chọn, ví dụ: `[operational_namespace_name]`).
+* `deployment`: Tên của đối tượng K8s Deployment quản trị trực tiếp dịch vụ bị lỗi (Tùy chọn, ví dụ: `[k8s_deployment_resource_name]`).
 
 ### C. Bảng cấu trúc ánh xạ đăng ký dịch vụ (Template Registry)
 Dưới đây là cấu trúc bảng mẫu dùng để đăng ký và đối chiếu tài nguyên khi dự án cụ thể được triển khai thực tế:

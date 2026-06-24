@@ -27,7 +27,7 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
 | Attribute | Value |
 |---|---|
 | **Type** | Gauge |
-| **Labels** | `service`, `endpoint`, `tenant_id`, `namespace`, `deployment` (Bắt buộc) |
+| **Labels** | `service`, `endpoint`, `tenant_id` (Bắt buộc); `namespace`, `deployment` (Tùy chọn) |
 | **Unit** | Percentage (0.0 to 1.0) |
 | **Frequency** | 5 giây (Cửa sổ trượt) |
 | **Emit point** | CDO Platform Preprocessor (đọc metrics.csv -> tính toán -> gửi qua SQS) |
@@ -62,7 +62,7 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
 | Attribute | Value |
 |---|---|
 | **Type** | Gauge |
-| **Labels** | `service`, `endpoint`, `tenant_id`, `namespace`, `deployment` (Bắt buộc) |
+| **Labels** | `service`, `endpoint`, `tenant_id` (Bắt buộc); `namespace`, `deployment` (Tùy chọn) |
 | **Unit** | Milliseconds |
 | **Frequency** | 5 giây |
 | **Emit point** | CDO Platform (Trích xuất từ metrics.csv -> gửi qua SQS) |
@@ -97,7 +97,7 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
 | Attribute | Value |
 |---|---|
 | **Type** | Gauge |
-| **Labels** | `service`, `pod_name`, `container`, `tenant_id`, `namespace`, `deployment` (Bắt buộc) |
+| **Labels** | `service`, `pod_name`, `container`, `tenant_id` (Bắt buộc); `namespace`, `deployment` (Tùy chọn) |
 | **Unit** | Bytes |
 | **Frequency** | 10 giây |
 | **Emit point** | CDO Platform (Trích xuất từ metrics.csv -> gửi qua SQS) |
@@ -130,7 +130,7 @@ Sự kiện log lỗi của ứng dụng khi phát hiện log có mức độ `E
 | Attribute | Value |
 |---|---|
 | **Type** | Event |
-| **Labels** | `service`, `pod_name`, `level`, `tenant_id`, `namespace`, `deployment` (Bắt buộc) |
+| **Labels** | `service`, `pod_name`, `level`, `tenant_id` (Bắt buộc); `namespace`, `deployment` (Tùy chọn) |
 | **Frequency** | Real-time (On-event) |
 | **Emit point** | CDO Platform Log Parser (đọc logs.csv -> lọc log ERROR -> gửi qua SQS) |
 | **Retention** | 30 ngày hot |
@@ -163,7 +163,7 @@ Sự kiện được phát sinh khi có cuộc gọi giao dịch (trace span) k�
 | Attribute | Value |
 |---|---|
 | **Type** | Event |
-| **Labels** | `service`, `operation`, `trace_id`, `span_id`, `status_code`, `tenant_id`, `namespace`, `deployment` (Bắt buộc) |
+| **Labels** | `service`, `operation`, `trace_id`, `span_id`, `status_code`, `tenant_id` (Bắt buộc); `namespace`, `deployment` (Tùy chọn) |
 | **Frequency** | Real-time (On-event) |
 | **Emit point** | CDO Platform Trace Parser (đọc traces.csv -> lọc span statusCode != 0.0 -> gửi qua SQS) |
 | **Retention** | 7 ngày hot |

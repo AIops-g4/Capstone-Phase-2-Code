@@ -80,8 +80,8 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 | `anomaly_context.target_service` | string | Tên service bị lỗi (Phải thuộc 10 services của Online Boutique) |
 | `anomaly_context.suspected_fault_type` | string | Loại lỗi nghi ngờ. Đối với lỗi code RE3: `f1` đến `f5`. Đối với lỗi tài nguyên/mạng RE2: `cpu`, `mem`, `disk`, `loss`, `delay`, `socket`. |
 | `anomaly_context.system` | string | Luôn là `"OB"` (Online Boutique) |
-| `anomaly_context.namespace` | string | Namespace xảy ra lỗi (Luôn là `"onlineboutique"`) |
-| `anomaly_context.deployment` | string | Tên Kubernetes Deployment của service bị lỗi (Ví dụ: `"adservice"`) |
+| `anomaly_context.namespace` | string | Namespace xảy ra lỗi (Tùy chọn, ví dụ: `"onlineboutique"`) |
+| `anomaly_context.deployment` | string | Tên Kubernetes Deployment của service bị lỗi (Tùy chọn, ví dụ: `"adservice"`) |
 | `confidence` | float | Độ tin cậy của mô hình AI (0.0 đến 1.0) |
 | `correlation_id` | UUID | Định danh correlation để liên kết sang decide step |
 
