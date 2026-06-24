@@ -266,11 +266,17 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `matched_runbook` | string | ✓ | Tên của Runbook được đối chiếu và kích hoạt để giải quyết sự cố |
 | `action_plan` | array | ✓ | Kế hoạch hành động chi tiết chứa các bước tự chữa lành tuần tự |
 | `action_plan[].step` | integer | ✓ | Số thứ tự của bước thực hiện hành động (bắt đầu từ 1) |
-| `action_plan[].action` | string (Enum) | ✓ | Loại hành động tự chữa lành (`RESTART_DEPLOYMENT`, `SCALE_UP_PODS`, `UPDATE_ENV_SECRET`, `ADJUST_MEMORY_LIMIT`, `DELETE_POD`) |
+| `action_plan[].action` | string (Enum) | ✓ | Loại hành động tự chữa lành (`RESTART_DEPLOYMENT`, `PATCH_MEMORY_LIMIT`, `SCALE_REPLICAS`, `ROLLOUT_UNDO`, `ROTATE_SECRET`, `DELETE_POD`) |
 | `action_plan[].target` | string | ✓ | Đối tượng hạ tầng đích chịu tác động (ví dụ: `deployment/order-service`) |
-| `action_plan[].params` | object | optional | Đối tượng chứa các tham số cấu hình bổ sung cho hành động |
-| `action_plan[].params.namespace` | string | optional | Kubernetes namespace của đối tượng đích (Tùy chọn) |
-| `action_plan[].params.grace_period_seconds` | integer | optional | Thời gian chờ tắt pod cũ một cách an toàn tính bằng giây (Tùy chọn) |
+| `action_plan[].params` | object | ✓ | Đối tượng chứa các tham số cấu hình bắt buộc cho hành động |
+| `action_plan[].params.namespace` | string | ✓ | Kubernetes namespace của đối tượng đích |
+| `action_plan[].params.container` | string | optional | Tên container chịu tác động (bắt buộc cho `PATCH_MEMORY_LIMIT`) |
+| `action_plan[].params.memory_request_mb` | integer | optional | Cấu hình bộ nhớ request mới tính bằng MB (cho `PATCH_MEMORY_LIMIT`) |
+| `action_plan[].params.memory_limit_mb` | integer | optional | Cấu hình bộ nhớ limit mới tính bằng MB (cho `PATCH_MEMORY_LIMIT`) |
+| `action_plan[].params.replicas` | integer | optional | Số lượng replicas mong muốn mới (cho `SCALE_REPLICAS`) |
+| `action_plan[].params.secret_name` | string | optional | Tên của secret cần rotate (cho `ROTATE_SECRET`) |
+| `action_plan[].params.pod_name` | string | optional | Tên của pod cần xóa (cho `DELETE_POD`) |
+| `action_plan[].params.grace_period_seconds` | integer | optional | Thời gian chờ tắt pod cũ một cách an toàn tính bằng giây (cho `RESTART_DEPLOYMENT`) |
 | `blast_radius_config` | object | ✓ | Cấu hình giới hạn vùng ảnh hưởng (Blast Radius) bảo đảm an toàn cho cụm |
 | `blast_radius_config.max_pod_impact_pct` | integer | ✓ | Tỷ lệ phần trăm tối đa các pod bị tác động đồng thời trong cụm |
 | `blast_radius_config.circuit_breaker_error_rate` | number | ✓ | Ngưỡng tỷ lệ lỗi tối đa cho phép để kích hoạt ngắt mạch hệ thống |
@@ -292,18 +298,25 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
           "step": { "type": "integer" },
           "action": { 
             "type": "string", 
-            "enum": ["RESTART_DEPLOYMENT", "SCALE_UP_PODS", "UPDATE_ENV_SECRET", "ADJUST_MEMORY_LIMIT", "DELETE_POD"] 
+            "enum": ["RESTART_DEPLOYMENT", "PATCH_MEMORY_LIMIT", "SCALE_REPLICAS", "ROLLOUT_UNDO", "ROTATE_SECRET", "DELETE_POD"] 
           },
           "target": { "type": "string" },
           "params": {
             "type": "object",
             "properties": {
               "namespace": { "type": "string" },
+              "container": { "type": "string" },
+              "memory_request_mb": { "type": "integer" },
+              "memory_limit_mb": { "type": "integer" },
+              "replicas": { "type": "integer" },
+              "secret_name": { "type": "string" },
+              "pod_name": { "type": "string" },
               "grace_period_seconds": { "type": "integer" }
-            }
+            },
+            "required": ["namespace"]
           }
         },
-        "required": ["step", "action", "target"]
+        "required": ["step", "action", "target", "params"]
       }
     },
     "blast_radius_config": {
@@ -334,11 +347,13 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
   "action_plan": [
     {
       "step": 1,
-      "action": "RESTART_DEPLOYMENT",
+      "action": "PATCH_MEMORY_LIMIT",
       "target": "deployment/order-service",
       "params": {
         "namespace": "production",
-        "grace_period_seconds": 30
+        "container": "main",
+        "memory_request_mb": 512,
+        "memory_limit_mb": 768
       }
     }
   ],
