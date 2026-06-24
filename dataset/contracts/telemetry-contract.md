@@ -33,6 +33,29 @@ Mọi điểm dữ liệu telemetry gửi sang AI Engine phải được xác th
 2. **Cơ chế Dead-Letter Queue (DLQ)**: CDO Platform có trách nhiệm chuyển hướng (route) các bản ghi bị từ chối này vào một Dead-Letter Queue (DLQ) độc lập để phục vụ phân tích lỗi và giám sát chất lượng dữ liệu.
 3. **Giám sát & Cảnh báo (Alerting)**: Hệ thống phải tự động kích hoạt cảnh báo nếu tỷ lệ malformed telemetry vượt quá `0.5%` tổng lưu lượng telemetry trong vòng 5 phút.
 
+### C. Kênh Truyền tải Chính thức & Kiến trúc Bộ đệm Telemetry (Official Transmission Channel & Buffering Architecture)
+1. **Giao thức Truyền tải Chính thức**: Kênh giao tiếp chính thức giữa CDOps Platform và AI Engine để truyền tải dữ liệu telemetry là **HTTP Push (HTTPS POST)** trực tiếp đến API endpoint **`/v1/detect`** của AI Engine (được cấu hình tại địa chỉ nội bộ `https://ai-engine.tf-3.internal:8080/v1/detect` với cơ chế bảo mật AWS IAM SigV4). AI Engine không trực tiếp pull hoặc poll dữ liệu từ hàng đợi tin nhắn của CDOps.
+2. **Kiến trúc Bộ đệm Đầu cuối (SQS Buffering & Backpressure)**: Để đảm bảo tính sẵn sàng cao, chống mất mát dữ liệu khi có sự cố mạng hoặc quá tải hệ thống, CDOps Platform được khuyến nghị triển khai hàng đợi **Amazon SQS** làm bộ đệm dữ liệu nội bộ (Internal Telemetry Buffer) nằm hoàn toàn trong ranh giới hạ tầng của CDOps:
+   * **Luồng đi của dữ liệu**: Các bộ thu thập của CDOps (Prometheus, OTel Collector, Fluentd) thu thập telemetry $\rightarrow$ Ghi nhanh vào hàng đợi SQS nội bộ của CDOps $\rightarrow$ Một tiến trình điều phối (CDOps Telemetry Forwarder/Worker) đọc dữ liệu từ SQS và thực hiện gửi (batch-push) sang cổng API `/v1/detect` của AI Engine qua HTTPS.
+   * **Lợi ích**: Giúp CDOps chủ động kiểm soát tốc độ truyền tải (Backpressure) không vượt quá hạn mức Volume SLA (100 RPS per tenant), đồng thời lưu trữ tạm thời dữ liệu nếu AI Engine gặp sự cố.
+
+```mermaid
+graph TD
+    subgraph "CDOps Platform Boundary (Vùng CDO quản lý)"
+        A[CDOps Collectors<br>Prometheus / OTel / Fluentd] -->|Emit Telemetry| B[(Amazon SQS Queue<br>Internal Telemetry Buffer)]
+        B -->|Read & Throttle / Batch| C[CDOps Telemetry Forwarder<br>Worker Process]
+    end
+
+    subgraph "AIOps AI Engine Boundary (Vùng AI Engine quản lý)"
+        C -->|HTTP POST /v1/detect<br>IAM SigV4 / HTTPS| D[Internal Application Load Balancer<br>ai-engine.tf-3.internal:8080]
+        D -->|Route traffic| E[ECS Fargate Tasks<br>AI Engine Replicas]
+    end
+
+    style B fill:#f9f,stroke:#333,stroke-width:2px
+    style C fill:#bbf,stroke:#333,stroke-width:2px
+    style D fill:#dfd,stroke:#333,stroke-width:2px
+```
+
 ---
 
 ## 3. Lược đồ Dữ liệu Telemetry (JSON Schema & Description)
