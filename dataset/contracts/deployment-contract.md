@@ -70,10 +70,10 @@ AI Engine chạy một instance duy nhất (shared backend) cho cả hai CDO pla
 
 | CDO platform | Tenant ID | Endpoint URL | Auth |
 |---|---|---|---|
-| **CDO-1** | `cdo-1` | `https://ai-engine.tf-3.internal/` | IAM SigV4 |
-| **CDO-2** | `cdo-2` | `https://ai-engine.tf-3.internal/` | IAM SigV4 |
-| **Simulation (RE2)** | `tnt-re2-simulation` | (Internal simulation routing) | IAM SigV4 / Local |
-| **Simulation (RE3)** | `tnt-re3-simulation` | (Internal simulation routing) | IAM SigV4 / Local |
+| **[cdo_platform_name_1]** | `d3b07384-d113-495f-9f58-20d18d357d75` | `https://ai-engine.[task_force_identifier].internal/` | IAM SigV4 |
+| **[cdo_platform_name_2]** | `6c8b4b2b-4d45-4209-a1b4-4b532d56a31c` | `https://ai-engine.[task_force_identifier].internal/` | IAM SigV4 |
+| **Simulation (Scenario Type 1)** | `d3b07384-d113-495f-9f58-20d18d357d75` | (Internal simulation routing) | IAM SigV4 / Local |
+| **Simulation (Scenario Type 2)** | `6c8b4b2b-4d45-4209-a1b4-4b532d56a31c` | (Internal simulation routing) | IAM SigV4 / Local |
 
 ### D. Chiến lược chạy thử nghiệm mô phỏng (Offline Simulation Mode)
 * Vì RE2 và RE3 dataset là dữ liệu offline đã thu thập dưới dạng CSV tĩnh, các hành động sửa đổi hạ tầng thật (`RESTART_DEPLOYMENT`, `SCALE_UP_PODS`,...) sẽ được **chạy ở chế độ giả lập (Mock Mode)** trong môi trường sandbox của CDO.

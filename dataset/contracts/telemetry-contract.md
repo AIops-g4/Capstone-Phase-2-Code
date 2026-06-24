@@ -11,7 +11,7 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
 
 - **Current version**: `v1.0`
 - **Quy tắc chạy mô phỏng (Offline Simulation Mode)**:
-  * **Chèn Tenant ID**: Vì dữ liệu telemetry thô của RE2 và RE3 dataset không chứa thông tin tenant, nhóm CDO Platform khi gửi dữ liệu mô phỏng bắt buộc phải **tự động chèn (inject)** trường `"tenant_id": "tnt-re2-simulation"` hoặc `"tenant_id": "tnt-re3-simulation"` (tương ứng với dataset nguồn) vào mọi payload gửi sang AI Engine để đáp ứng cơ chế phân vùng multi-tenant.
+  * **Chèn Tenant ID**: Vì dữ liệu telemetry thô của hệ thống không chứa thông tin tenant, nhóm CDO Platform khi gửi dữ liệu mô phỏng bắt buộc phải **tự động chèn (inject)** trường `"tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75"` hoặc `"tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c"` (tương ứng với từng nguồn kịch bản lỗi) vào mọi payload gửi sang AI Engine để đáp ứng cơ chế phân vùng multi-tenant.
   * **Tính toán chỉ số phái sinh**: CDO Platform có nhiệm vụ tiền xử lý (pre-processing) các chỉ số cộng dồn (Counter) trong dataset gốc thành dạng chỉ số tức thời (Gauge) theo đúng tần suất yêu cầu của hợp đồng.
 
 ---
@@ -39,7 +39,7 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
 ```json
 {
   "ts": "2026-06-25T10:30:00.123Z",
-  "tenant_id": "tnt-re3-simulation",
+  "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
   "service": "adservice",
   "endpoint": "hipstershop.AdService/GetAds",
   "value": 0.45,
@@ -74,7 +74,7 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
 ```json
 {
   "ts": "2026-06-25T10:30:00.123Z",
-  "tenant_id": "tnt-re2-simulation",
+  "tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c",
   "service": "checkoutservice",
   "endpoint": "hipstershop.CheckoutService/PlaceOrder",
   "value": 245.0,
@@ -108,7 +108,7 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
 ```json
 {
   "ts": "2026-06-25T10:30:00.000Z",
-  "tenant_id": "tnt-re2-simulation",
+  "tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c",
   "service": "emailservice",
   "pod_name": "emailservice-68d7f5c9b-abcde",
   "container": "main",
@@ -141,7 +141,7 @@ Sự kiện log lỗi của ứng dụng khi phát hiện log có mức độ `E
 ```json
 {
   "ts": "2026-06-25T10:30:05.456Z",
-  "tenant_id": "tnt-re3-simulation",
+  "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
   "service": "adservice",
   "pod_name": "adservice-5f8d9b7c-xyz12",
   "level": "ERROR",
@@ -174,7 +174,7 @@ Sự kiện được phát sinh khi có cuộc gọi giao dịch (trace span) k�
 ```json
 {
   "ts": "2026-06-25T10:30:04.999Z",
-  "tenant_id": "tnt-re2-simulation",
+  "tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c",
   "service": "frontend",
   "operation": "grpc.hipstershop.ProductCatalogService/GetProduct",
   "trace_id": "d472bd0a6bda79d8d0b2852d8165cb97",
@@ -193,6 +193,6 @@ Sự kiện được phát sinh khi có cuộc gọi giao dịch (trace span) k�
 
 ## 4. Các yêu cầu chung (Cross-cutting Requirements)
 
-- **Tenant Scoping (Bắt buộc)**: Mọi signal payload **phải** chứa trường `tenant_id` (với dữ liệu mô phỏng RE2 và RE3 sẽ sử dụng giá trị chèn tương ứng là `tnt-re2-simulation` hoặc `tnt-re3-simulation`).
+- **Tenant Scoping (Bắt buộc)**: Mọi signal payload **phải** chứa trường `tenant_id` (với dữ liệu mô phỏng sẽ sử dụng giá trị chèn tương ứng là `"d3b07384-d113-495f-9f58-20d18d357d75"` hoặc `"6c8b4b2b-4d45-4209-a1b4-4b532d56a31c"`).
 - **Time Precision**: Tất cả timestamps phải tuân thủ chuẩn RFC3339 UTC, độ chính xác ở mức millisecond.
 - **Anonymization**: Nhóm CDO có trách nhiệm lọc bỏ hoặc mã hóa toàn bộ dữ liệu nhạy cảm (PII) xuất hiện trong log trước khi đẩy qua AI Engine.

@@ -29,7 +29,7 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 #### Request Headers
 | Header | Type | Required | Description |
 |---|---|---|---|
-| `X-Tenant-Id` | UUID v4 | ✓ | Định danh khách hàng (Dùng `tnt-re3-simulation` trong offline test) |
+| `X-Tenant-Id` | string | ✓ | Định danh khách hàng (Có thể là `"d3b07384-d113-495f-9f58-20d18d357d75"`, `"6c8b4b2b-4d45-4209-a1b4-4b532d56a31c"`, hoặc giá trị giả lập) |
 | `Authorization` | IAM SigV4 | ✓ | Xác thực liên dịch vụ |
 | `X-Correlation-Id` | UUID | optional | Trace correlation ID |
 
@@ -100,7 +100,7 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
     "trigger_value": 0.45
   },
   "confidence": 0.92,
-  "correlation_id": "c1a2b3c4-d5e6-4f7g-8h9i-0j1k2l3m4n5o"
+  "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
 }
 ```
 
@@ -113,7 +113,7 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 #### Request Headers
 | Header | Type | Required | Description |
 |---|---|---|---|
-| `X-Tenant-Id` | UUID v4 | ✓ | Định danh khách hàng (`cdo-1`, `cdo-2`, hoặc giá trị giả lập `tnt-re3-simulation`)  |
+| `X-Tenant-Id` | string | ✓ | Định danh khách hàng (`"d3b07384-d113-495f-9f58-20d18d357d75"`, `"6c8b4b2b-4d45-4209-a1b4-4b532d56a31c"`, hoặc giá trị giả lập)  |
 | `Idempotency-Key` | UUID v4 | ✓ | Tránh chạy lặp kịch bản quyết định |
 
 #### Request Body
@@ -126,11 +126,13 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 **Request Example**:
 ```json
 {
-  "correlation_id": "c1a2b3c4-d5e6-4f7g-8h9i-0j1k2l3m4n5o",
+  "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
   "anomaly_context": {
     "target_service": "adservice",
     "suspected_fault_type": "f3",
     "system": "OB",
+    "namespace": "onlineboutique",
+    "deployment": "adservice",
     "trigger_metric": "istio_request_error_rate",
     "trigger_value": 0.45
   },
@@ -144,12 +146,14 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 | `matched_runbook` | string | Tên runbook được khớp |
 | `action_plan` | array | Danh sách các bước lệnh tuần tự để CDO infra thực thi |
 | `action_plan[].step` | integer | Thứ tự thực hiện lệnh |
-| `action_plan[].action` | enum | Lệnh: `RESTART_DEPLOYMENT`, `SCALE_UP_PODS`, `UPDATE_ENV_SECRET`, `ADJUST_MEMORY_LIMIT` |
-| `action_plan[].target` | string | Target resource (ví dụ: deployment name) |
+| `action_plan[].action` | enum | Lệnh: `RESTART_DEPLOYMENT`, `SCALE_UP_PODS`, `UPDATE_ENV_SECRET`, `ADJUST_MEMORY_LIMIT`, `DELETE_POD` |
+| `action_plan[].target` | string | Target resource (ví dụ: `deployment/adservice` hoặc `pod/adservice-abc-123`) |
 | `action_plan[].params` | object | Tham số đi kèm lệnh |
+| `action_plan[].params.namespace` | string | Namespace thực hiện hành động (Tùy chọn, ví dụ: `"onlineboutique"`) |
 | `blast_radius_config` | object | Giới hạn vùng ảnh hưởng cho phép CDO áp dụng |
 | `blast_radius_config.max_pod_impact_pct` | integer | Tỷ lệ pod tối đa được phép khởi động lại cùng lúc |
 | `blast_radius_config.circuit_breaker_error_rate` | float | Ngưỡng ngắt mạch tự động dừng rollback/action |
+| `blast_radius_config.allowed_namespaces` | array | Danh sách các namespaces được phép tác động (Ví dụ: `["onlineboutique"]`) |
 
 **Response Example**:
 ```json
@@ -183,7 +187,7 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 #### Request Headers
 | Header | Type | Required | Description |
 |---|---|---|---|
-| `X-Tenant-Id` | string | ✓ | Định danh khách hàng (`cdo-1`, `cdo-2`, hoặc giá trị giả lập `tnt-re3-simulation`) |
+| `X-Tenant-Id` | string | ✓ | Định danh khách hàng (`"d3b07384-d113-495f-9f58-20d18d357d75"`, `"6c8b4b2b-4d45-4209-a1b4-4b532d56a31c"`, hoặc giá trị giả lập) |
 | `Idempotency-Key` | UUID v4 | ✓ | Tránh chạy lặp kịch bản kiểm chứng (Verify) |
 
 
@@ -197,7 +201,7 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 **Request Example**:
 ```json
 {
-  "correlation_id": "c1a2b3c4-d5e6-4f7g-8h9i-0j1k2l3m4n5o",
+  "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
   "action_executed": {
     "action": "RESTART_DEPLOYMENT",
     "target": "deployment/adservice",
