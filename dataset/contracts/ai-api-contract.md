@@ -282,6 +282,9 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `blast_radius_config.max_pod_impact_pct` | integer | ✓ | Tỷ lệ phần trăm tối đa các pod bị tác động đồng thời trong cụm |
 | `blast_radius_config.circuit_breaker_error_rate` | number | ✓ | Ngưỡng tỷ lệ lỗi tối đa cho phép để kích hoạt ngắt mạch hệ thống |
 | `blast_radius_config.allowed_namespaces` | array | ✓ | Danh sách các Kubernetes namespace hợp lệ được phép thực thi hành động |
+| `verify_policy` | object | ✓ | Chính sách xác thực sau khi thực hiện hành động tự chữa lành |
+| `verify_policy.window_seconds` | integer | ✓ | Thời gian chờ tối thiểu (giây) trước khi CDOps thu thập telemetry để xác thực |
+| `verify_policy.success_conditions` | array (of strings) | optional | Danh sách các điều kiện kiểm tra thành công (ví dụ: `pod_ready == true`) |
 
 * **Lược đồ Schema Phản hồi**:
 ```json
@@ -336,11 +339,22 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
       },
       "required": ["max_pod_impact_pct", "circuit_breaker_error_rate", "allowed_namespaces"]
     },
+    "verify_policy": {
+      "type": "object",
+      "properties": {
+        "window_seconds": { "type": "integer" },
+        "success_conditions": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["window_seconds"]
+    },
     "correlation_id": { "type": "string", "format": "uuid" },
     "idempotency_key": { "type": "string", "format": "uuid" },
     "dry_run_mode": { "type": "boolean" }
   },
-  "required": ["matched_runbook", "pattern_type", "action_plan", "blast_radius_config", "correlation_id", "idempotency_key", "dry_run_mode"],
+  "required": ["matched_runbook", "pattern_type", "action_plan", "blast_radius_config", "verify_policy", "correlation_id", "idempotency_key", "dry_run_mode"],
   "additionalProperties": false
 }
 ```
@@ -367,6 +381,14 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
     "max_pod_impact_pct": 25,
     "circuit_breaker_error_rate": 0.20,
     "allowed_namespaces": ["production"]
+  },
+  "verify_policy": {
+    "window_seconds": 120,
+    "success_conditions": [
+      "pod_ready == true",
+      "restart_count_no_increase == true",
+      "container_memory_usage_pct < 80"
+    ]
   },
   "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
   "idempotency_key": "d3b07384-d113-495f-9f58-20d18d357d75",
