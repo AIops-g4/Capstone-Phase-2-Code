@@ -1,10 +1,5 @@
 # AI API Contract - Generic Multi-Tenant Self-Heal Platform
 
-<!-- Owner: Architecture & Platform Infrastructure Team
-     Signed by: Principal AI Architect + Lead Platform Engineers
-     Date signed: 2026-06-25
-     🔒 FREEZE - no change without formal change request -->
-
 ## 1. Mục đích
 
 Tài liệu này định nghĩa **Giao diện lập trình ứng dụng (API Endpoints)** do bộ phận AI cung cấp (expose) và bộ phận hạ tầng CDO tích hợp tiêu thụ (consume). Cam kết kỹ thuật này đảm bảo chu trình tự động khắc phục lỗi tự động (Self-Healing Loop) hoạt động an toàn và đồng bộ giữa các hệ thống:
@@ -536,7 +531,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 
 ## 5. Chính sách Quản lý Phiên bản & Quy trình Thay đổi (Versioning & Change-Request)
 
-Hợp đồng API này được đóng băng ("🔒 FREEZE") để bảo đảm tính ổn định tích hợp. Mọi thay đổi trong tương lai phải tuân thủ quy trình sau:
+Hợp đồng API này được đóng băng ("FREEZE") để bảo đảm tính ổn định tích hợp. Mọi thay đổi trong tương lai phải tuân thủ quy trình sau:
 
 ### A. Phân loại Thay đổi (Change Classification)
 1. **Thay đổi lớn (Breaking Changes)**:
@@ -560,11 +555,3 @@ Dưới đây là các nội dung kỹ thuật cần tiếp tục thảo luận 
 2. **Chế độ mã hóa payload**: Các tham số nhạy cảm trong `action_plan[].params` có cần được mã hóa bằng KMS key của Tenant trước khi gửi qua mạng hay không?
 
 ---
-
-## 7. Ký duyệt Song phương (Signatories)
-
-Hợp đồng này đại diện cho cam kết kỹ thuật chính thức giữa các bộ phận. Mọi bên ký duyệt cam kết tuân thủ đầy đủ các điều khoản kỹ thuật và vận hành được nêu trong tài liệu này.
-
-| Đại diện Bộ phận AI (AI Lead) | Đại diện Bộ phận Hạ tầng (CDO Lead) | Hội đồng Đánh giá Kiến trúc (Architecture Reviewer) |
-|---|---|---|
-| <br>**Ký tên:**<br>Bộ phận AI Architect Lead<br>**Ngày ký:** 2026-06-25 | <br>**Ký tên:**<br>CDO Platform Infrastructure Lead<br>**Ngày ký:** 2026-06-25 | <br>**Ký tên:**<br>Principal Enterprise Architect<br>**Ngày ký:** 2026-06-25 |

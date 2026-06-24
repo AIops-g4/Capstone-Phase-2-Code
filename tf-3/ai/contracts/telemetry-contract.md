@@ -19,6 +19,22 @@ Tài liệu này xác định **Hợp đồng Telemetry (Telemetry Specification
 
 ---
 
+## 2.5. Quy định Xử lý Dữ liệu, Bảo vệ PII/Bí mật & Xử lý Malformed
+
+### A. Nguyên tắc Bảo vệ PII và Scrubbing Bí mật (SOC2 Compliance)
+Để tuân thủ nghiêm ngặt các tiêu chuẩn bảo mật và chứng nhận SOC2 Type II, dữ liệu telemetry tuyệt đối không được phép chứa bất kỳ thông tin nhận dạng cá nhân (PII - email, số điện thoại, token xác thực, credentials, connection string) nào.
+1. **Trách nhiệm lọc dữ liệu**: CDO Platform chịu trách nhiệm chạy bộ lọc (scrubbing/redaction) ở lớp thu thập (Ingestion Layer) trước khi gửi telemetry sang AI Engine.
+2. **Xử lý Stack Trace**: Đối với tín hiệu `application_log_event`, CDO bắt buộc phải áp dụng các bộ lọc regex để xóa bỏ hoặc ẩn danh các dữ liệu nhạy cảm như token, mật khẩu, và connection string xuất hiện trong stack trace.
+3. **Mã hóa Định danh**: Các trường định danh như `pod_name` hay `container` phải sử dụng tên tài nguyên hệ thống chuẩn, cấm đính kèm tên riêng hay email của người dùng.
+
+### B. Xử lý Dữ liệu không hợp lệ (Malformed Telemetry & Dead-Letter Queue)
+Mọi điểm dữ liệu telemetry gửi sang AI Engine phải được xác thực thời gian thực (real-time validation) dựa trên Lược đồ JSON Schema chính thức ở Mục 3.
+1. **Từ chối dữ liệu (Reject)**: Các payload lỗi cú pháp, thiếu trường bắt buộc, hoặc sai kiểu dữ liệu sẽ bị AI Engine từ chối tiếp nhận ngay lập tức với mã lỗi `400 Bad Request`.
+2. **Cơ chế Dead-Letter Queue (DLQ)**: CDO Platform có trách nhiệm chuyển hướng (route) các bản ghi bị từ chối này vào một Dead-Letter Queue (DLQ) độc lập để phục vụ phân tích lỗi và giám sát chất lượng dữ liệu.
+3. **Giám sát & Cảnh báo (Alerting)**: Hệ thống phải tự động kích hoạt cảnh báo nếu tỷ lệ malformed telemetry vượt quá `0.5%` tổng lưu lượng telemetry trong vòng 5 phút.
+
+---
+
 ## 3. Lược đồ Dữ liệu Telemetry (JSON Schema & Description)
 
 Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ liệu telemetry, theo sau là đặc tả lược đồ JSON Schema chính thức dùng cho kiểm thử và xác thực tự động.
@@ -42,6 +58,7 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 | `labels.trace_id` | string | optional | Trace ID để liên kết chuỗi vết lỗi giao dịch (Tùy chọn) |
 | `labels.span_id` | string | optional | Span ID của giao dịch cụ thể gặp sự cố (Tùy chọn) |
 | `labels.operation` | string | optional | Tên giao dịch hoặc phương thức của trace span (Tùy chọn) |
+| `labels.level` | string | optional | Mức độ nghiêm trọng của log ứng dụng (ERROR, WARNING, INFO) (Tùy chọn) |
 
 ### Lược đồ JSON Schema chính thức
 
@@ -122,6 +139,10 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
         "operation": {
           "type": "string",
           "description": "Tên giao dịch hoặc phương thức của trace span (Ví dụ: GET /checkout)"
+        },
+        "level": {
+          "type": "string",
+          "description": "Mức độ nghiêm trọng của log lỗi (ERROR, WARNING, INFO)"
         }
       },
       "required": [
@@ -253,3 +274,45 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
   }
 }
 ```
+
+---
+
+## 5. Thuộc tính Vận hành & Cam kết Chất lượng Dữ liệu (Telemetry SLA)
+
+Để phục vụ công tác định cỡ tài nguyên (capacity sizing), quản trị chi phí và bảo đảm tính cập nhật của dữ liệu cho mô hình AI, các tín hiệu telemetry phải tuân thủ các chỉ số vận hành sau:
+
+| Tên Tín hiệu (`signal_name`) | Tần suất gửi (Frequency) | Điểm phát (Emit Point) | Thời gian lưu trữ (Retention) | Cam kết độ trễ (Emit SLA) | Hạn mức Lưu lượng (Volume SLA) | Mục đích sử dụng (Used For) |
+|---|---|---|---|---|---|---|
+| `service_error_rate` | Cửa sổ trượt 1 phút | Ingestion Prometheus / OTel | Hot: 7 ngày <br> Cold: 90 ngày | < 10 giây từ lúc tính toán | Max: 100 events/sec per tenant | Phát hiện tăng tỷ lệ lỗi dịch vụ nghiệp vụ |
+| `service_latency_p95` | Cửa sổ trượt 1 phút | Ingestion Prometheus / OTel | Hot: 7 ngày <br> Cold: 90 ngày | < 10 giây từ lúc tính toán | Max: 100 events/sec per tenant | Phát hiện nghẽn hoặc treo API |
+| `container_resource_usage` | Mỗi 15 giây | K8s Metrics Server / Advisor | Hot: 7 ngày <br> Cold: 90 ngày | < 15 giây từ lúc thu thập | Max: 50 events/sec per tenant | Phát hiện Memory Leak và nguy cơ OOMKilled |
+| `application_log_event` | Theo thời gian thực (khi có lỗi) | OTel Log Collector / Fluentd | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc log phát sinh | Max: 200 events/sec per tenant | Phân tích sâu nguyên nhân lỗi qua Stack Trace |
+| `distributed_trace_error_event` | Theo thời gian thực (khi giao dịch lỗi) | OTel Trace Collector / Jaeger | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc giao dịch hoàn tất | Max: 150 events/sec per tenant | Phác họa bản đồ lỗi giao dịch phân tán |
+
+---
+
+## 6. Chính sách Quản lý Phiên bản & Quy trình Thay đổi (Versioning & Change-Request)
+
+Hợp đồng telemetry này được đóng băng ("FREEZE") để bảo đảm tính ổn định vận hành. Mọi thay đổi trong tương lai phải tuân thủ quy trình sau:
+
+### A. Phân loại Thay đổi (Change Classification)
+1. **Thay đổi lớn (Breaking Changes)**:
+   * Định nghĩa: Xóa trường bắt buộc, thay đổi kiểu dữ liệu của trường hiện tại, thay đổi định dạng thời gian `ts`, hoặc thay đổi tên tín hiệu `signal_name` hiện có.
+   * Quy trình: Bắt buộc nâng cấp phiên bản hợp đồng lên `/v2`. Hệ thống phải hỗ trợ song song cả hai phiên bản (Dual-support) tối thiểu **30 ngày** để các bên hoàn tất chuyển đổi.
+2. **Thay đổi nhỏ (Non-breaking Changes)**:
+   * Định nghĩa: Thêm trường tùy chọn (optional) trong `labels`, hoặc bổ sung giá trị enum mới không ảnh hưởng logic cũ.
+   * Quy trình: Tăng số phiên bản phụ (minor bump), triển khai trực tiếp sau khi thông báo trước 5 ngày làm việc.
+
+### B. Quy trình Thay đổi (Change-Request Process)
+* Bước 1: Bên đề xuất gửi yêu cầu thay đổi hợp đồng (RFC - Request for Comments) bằng văn bản cho hội đồng kỹ thuật.
+* Bước 2: Tổ chức họp đánh giá tác động với sự tham gia bắt buộc của AI Lead và các CDO Platform Leads.
+* Bước 3: Sau khi thống nhất, cập nhật schema, chạy bộ test tự động và ký duyệt phiên bản hợp đồng mới.
+
+---
+
+## 7. Các vấn đề chưa chốt (Open Questions)
+
+Dưới đây là các nội dung kỹ thuật cần tiếp tục làm rõ và chốt phương án trong các phiên họp tiếp theo:
+1. **Cơ chế nén dữ liệu (Data Compression)**: CDO có nên nén log thô (gzip) trước khi gửi qua API `/v1/detect` đối với các sự kiện log lỗi quá lớn hay không để tiết kiệm băng thông mạng?
+2. **Phương án mã hóa lưu trữ lâu dài (Cold Retention Encryption)**: Dữ liệu telemetry lưu trữ cold retention (90 ngày) trên S3 sẽ sử dụng khóa mã hóa do AWS quản lý (SSE-S3) hay khóa KMS riêng của từng Tenant (SSE-KMS) để bảo đảm an toàn dữ liệu?
+

@@ -452,10 +452,3 @@ Dưới đây là các nội dung kỹ thuật cần tiếp tục thảo luận 
 
 ---
 
-## 10. Ký duyệt Song phương (Signatories)
-
-Hợp đồng này đại diện cho cam kết kỹ thuật chính thức giữa các bộ phận. Mọi bên ký duyệt cam kết tuân thủ đầy đủ các điều khoản kỹ thuật và vận hành được nêu trong tài liệu này.
-
-| Đại diện Bộ phận AI (AI Lead) | Đại diện Bộ phận Hạ tầng (CDO Lead) | Hội đồng Đánh giá Kiến trúc (Architecture Reviewer) |
-|---|---|---|
-| <br>**Ký tên:**<br>Bộ phận AI Architect Lead<br>**Ngày ký:** 2026-06-25 | <br>**Ký tên:**<br>CDO Platform Infrastructure Lead<br>**Ngày ký:** 2026-06-25 | <br>**Ký tên:**<br>Principal Enterprise Architect<br>**Ngày ký:** 2026-06-25 |

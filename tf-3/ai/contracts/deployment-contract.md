@@ -48,9 +48,9 @@ Bảng dưới đây mô tả các thông số triển khai tối thiểu mà AI
 | Aspect | Configuration |
 |---|---|
 | **Target Compute** | ECS Fargate |
-| **Cluster name** | `[task_force_identifier]-aiops-cluster` |
+| **Cluster name** | `tf-3-aiops-cluster` |
 | **Service name** | `ai-engine` |
-| **Task definition family** | `[task_force_identifier]-ai-engine` |
+| **Task definition family** | `tf-3-ai-engine` |
 | **Container name** | `ai-engine` |
 | **Container port** | `8080` |
 | **Image source** | ECR repo URI + immutable image tag |
@@ -75,8 +75,8 @@ AI Engine chạy một instance duy nhất (shared backend) cho cả hai CDO pla
 
 | CDO platform | Tenant ID | Endpoint URL | Auth |
 |---|---|---|---|
-| **[cdo_platform_name_1]** | `d3b07384-d113-495f-9f58-20d18d357d75` | `https://ai-engine.[task_force_identifier].internal/` | IAM SigV4 |
-| **[cdo_platform_name_2]** | `6c8b4b2b-4d45-4209-a1b4-4b532d56a31c` | `https://ai-engine.[task_force_identifier].internal/` | IAM SigV4 |
+| **cdo-1** | `d3b07384-d113-495f-9f58-20d18d357d75` | `https://ai-engine.tf-3.internal/` | IAM SigV4 / AWS STS AssumeRole |
+| **cdo-2** | `6c8b4b2b-4d45-4209-a1b4-4b532d56a31c` | `https://ai-engine.tf-3.internal/` | IAM SigV4 / AWS STS AssumeRole |
 | **Simulation (Scenario Type 1)** | `d3b07384-d113-495f-9f58-20d18d357d75` | (Internal simulation routing) | IAM SigV4 / Local |
 | **Simulation (Scenario Type 2)** | `6c8b4b2b-4d45-4209-a1b4-4b532d56a31c` | (Internal simulation routing) | IAM SigV4 / Local |
 
@@ -92,13 +92,12 @@ AI Engine chạy một instance duy nhất (shared backend) cho cả hai CDO pla
 
 ### A. Phân tách IAM Roles
 1. **ECS Task Execution Role**: Được sử dụng bởi ECS Agent để pull image từ ECR, đẩy logs lên CloudWatch Logs và lấy các secret từ Secrets Manager khi khởi tạo container.
-2. **ECS Task Role**: Được sử dụng trực tiếp bởi ứng dụng AI Engine tại runtime để gọi các dịch vụ AWS Bedrock, DynamoDB, S3 và EKS API.
+2. **ECS Task Role**: Được sử dụng trực tiếp bởi ứng dụng AI Engine tại runtime để gọi các dịch vụ AWS Bedrock, DynamoDB, S3 và AWS STS AssumeRole. AI Engine **không** có quyền truy cập trực tiếp vào Kubernetes (EKS) API, đảm bảo phân ranh giới rõ ràng: AI Engine là bộ não ra quyết định (Brain), còn CDO Platform là bàn tay thực thi (Hands) hành động trên Kubernetes.
 
 ### B. AWS Secrets Manager Path Conventions
 Tất cả các secret liên quan đến AI Engine phải được lưu trữ theo quy chuẩn đường dẫn sau:
-* Base path: `[task_force_identifier]/ai-engine/*`
-* API Key cho Bedrock: `[task_force_identifier]/ai-engine/bedrock`
-* Kubeconfig cho Sandbox EKS Cluster: `[task_force_identifier]/ai-engine/kubeconfig`
+* Base path: `tf-3/ai-engine/*`
+* API Key cho Bedrock: `tf-3/ai-engine/bedrock`
 
 *Lưu ý*: Nghiêm cấm hardcode thông tin xác thực (Access Key/Secret Key) trong code hoặc Task Definition. Mọi credential rotate tự động thông qua Secrets Manager rotation policy.
 
@@ -123,14 +122,14 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
         "logs:CreateLogStream",
         "logs:PutLogEvents"
       ],
-      "Resource": "arn:aws:logs:us-east-1:*:log-group:/aws/ecs/[task_force_identifier]-ai-engine:*"
+      "Resource": "arn:aws:logs:us-east-1:*:log-group:/aws/ecs/tf-3-ai-engine:*"
     },
     {
       "Effect": "Allow",
       "Action": [
         "secretsmanager:GetSecretValue"
       ],
-      "Resource": "arn:aws:secretsmanager:us-east-1:*:secret:[task_force_identifier]/ai-engine/*"
+      "Resource": "arn:aws:secretsmanager:us-east-1:*:secret:tf-3/ai-engine/*"
     }
   ]
 }
@@ -149,7 +148,7 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
         "dynamodb:PutItem",
         "dynamodb:UpdateItem"
       ],
-      "Resource": "arn:aws:dynamodb:us-east-1:*:table/[task_force_identifier]-aiops-idempotency-lock"
+      "Resource": "arn:aws:dynamodb:us-east-1:*:table/tf-3-aiops-idempotency-lock"
     },
     {
       "Sid": "S3AuditTrailWrite",
@@ -158,7 +157,7 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
         "s3:PutObject",
         "s3:GetObject"
       ],
-      "Resource": "arn:aws:s3:::[task_force_identifier]-aiops-audit-trail/*"
+      "Resource": "arn:aws:s3:::tf-3-aiops-audit-trail/*"
     },
     {
       "Sid": "BedrockInvokeModel",
@@ -170,18 +169,26 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
       "Resource": "arn:aws:bedrock:us-east-1::foundation-model/*"
     },
     {
-      "Sid": "SecretsManagerFetchKubeconfig",
+      "Sid": "STSAssumeTenantRole",
       "Effect": "Allow",
       "Action": [
-        "secretsmanager:GetSecretValue"
+        "sts:AssumeRole",
+        "sts:TagSession"
       ],
-      "Resource": "arn:aws:secretsmanager:us-east-1:*:secret:[task_force_identifier]/ai-engine/kubeconfig-*"
+      "Resource": "arn:aws:iam::*:role/tf-3-tenant-*-role"
     }
   ]
 }
 ```
 
-*Điều khoản cấm (Forbidden Actions)*: Task Role tuyệt đối không được cấp quyền `iam:*`, `ec2:*` hoặc các hành động sửa đổi hạ tầng mạng.
+*Điều khoản cấm (Forbidden Actions)*: Task Role tuyệt đối không được cấp quyền `iam:*`, `ec2:*` hoặc các hành động sửa đổi hạ tầng mạng. Đặc biệt, cấm cấp quyền Kubernetes API (`eks:*`) hoặc lưu trữ `kubeconfig` trực tiếp trong AI Engine, đảm bảo AI Engine không thể tự ý thay đổi trạng thái cụm K8s mà không thông qua sự xác thực của CDO Platform.
+
+### E. Phân lập dữ liệu đa thuê bao qua AWS STS AssumeRole & Session Tags
+Để đảm bảo tính cô lập và bảo mật dữ liệu tuyệt đối giữa hai tenant `cdo-1` và `cdo-2`, AI Engine áp dụng mô hình phân quyền dựa trên thuộc tính (ABAC - Attribute-Based Access Control) thông qua AWS STS:
+1. **AssumeRole theo Tenant**: Khi nhận được request, AI Engine dựa trên `tenant_id` để thực hiện cuộc gọi `AssumeRole` đến IAM Role dành riêng cho tenant đó (`arn:aws:iam::*:role/tf-3-tenant-[tenant_id]-role`).
+2. **Session Tags**: Khi giả lập role, AI Engine bắt buộc phải đính kèm cặp thẻ phiên làm việc (Session Tags) `"TenantID": "[tenant_id]"`.
+3. **Kiểm soát Truy cập ABAC**: Các tài nguyên đám mây thuộc quyền sở hữu của tenant (ví dụ: các S3 Bucket chứa dữ liệu huấn luyện riêng, DynamoDB tables) sẽ cấu hình Resource-based Policy chỉ cho phép truy cập nếu `aws:PrincipalTag/TenantID` của thực thể gọi trùng khớp với nhãn sở hữu tài nguyên.
+4. **Audit Trail**: Mọi hành động AssumeRole và các thao tác tài nguyên sau đó đều được ghi nhận chi tiết trên AWS CloudTrail và được đồng bộ về hệ thống giám sát của CDO phục vụ tuân thủ SOC2.
 
 ---
 
@@ -207,6 +214,19 @@ Trong môi trường phân tán hoặc khi xảy ra sự cố mạng, một hệ
 - **Hạ tầng lưu trữ**: Sử dụng **Amazon S3** được cấu hình chế độ **Object Lock** (WORM - Write Once, Read Many) ở chế độ **Compliance mode** với thời gian giữ tối thiểu **90 ngày**.
 - CDO platform chịu trách nhiệm cung cấp giao diện truy vấn nhật ký kiểm toán (thông qua Amazon Athena hoặc UI quản trị).
 
+### C. Bedrock Cost Cap & Budget Alerting (Quản trị chi phí LLM)
+
+Để ngăn ngừa nguy cơ phát sinh chi phí đột biến ngoài ý muốn (runaway cost) do mô hình LLM (AWS Bedrock) gọi liên tục trong các chu kỳ tự chữa lành (ví dụ: vòng lặp vô hạn khi xảy ra lỗi nghiêm trọng liên tục), hệ thống thiết lập cơ chế quản trị chi phí nghiêm ngặt:
+
+1. **Hạn mức Chi phí Hàng ngày (Cost Cap)**: Thiết lập hạn mức chi phí tối đa cho dịch vụ Bedrock là **$50/ngày** trên mỗi Tenant.
+2. **Cơ chế Cảnh báo Tự động (Alerting)**:
+   * **Ngưỡng 1 (Cảnh báo Sớm - 80%):** Khi chi phí Bedrock tích lũy trong ngày đạt **$40**, hệ thống tự động gửi cảnh báo khẩn cấp (Slack/Teams/CloudWatch Alarm) đến nhóm vận hành của cả AI Team và CDO Team.
+   * **Ngưỡng 2 (Ngắt kết nối - 100%):** Khi chi phí đạt **$50**, hệ thống kích hoạt cơ chế ngắt tự động (Circuit Breaker).
+3. **Cơ chế Dự phòng Không LLM (Fallback Rule-Based Mode)**:
+   * Sau khi vượt hạn mức $50/ngày, cuộc gọi tiếp theo đến `/v1/decide` sẽ tự động chuyển sang chế độ dự phòng rule-based truyền thống (không gọi LLM Bedrock).
+   * Phản hồi từ `/v1/decide` lúc này sẽ chứa thuộc tính cảnh báo `"cost_cap_exceeded": true` kèm theo cảnh báo trong trường giải thích `reasoning`, giúp hệ thống tiếp tục vận hành ở mức cơ bản nhưng không phát sinh thêm chi phí.
+   * Hạn mức chi phí sẽ được tự động thiết lập lại (reset) vào lúc `00:00:00 UTC` hàng ngày.
+
 ---
 
 ## 5. Networking & Security Groups
@@ -217,9 +237,9 @@ AI Engine được triển khai hoàn toàn trong mạng nội bộ bảo mật,
 - **Subnet type**: Private Subnet (Multi-AZ).
 - **Public IP**: Vô hiệu hóa hoàn toàn (`assign_public_ip = false`).
 - **Load Balancer**: Sử dụng Internal Application Load Balancer (Internal ALB) định tuyến trên port 8080.
-- **DNS**: Truy cập nội bộ qua Route 53 Private Hosted Zone với tên miền: `https://ai-engine.[task_force_identifier].internal/`.
+- **DNS**: Truy cập nội bộ qua Route 53 Private Hosted Zone với tên miền: `https://ai-engine.tf-3.internal/`.
 
-### B. Security Group Rules (`[task_force_identifier]-ai-engine-sg`)
+### B. Security Group Rules (`tf-3-ai-engine-sg`)
 
 #### Ingress (Inbound) Rules
 
@@ -233,17 +253,19 @@ AI Engine được triển khai hoàn toàn trong mạng nội bộ bảo mật,
 
 | Destination | Protocol | Port Range | Description |
 |---|---|---|---|
-| AWS Secrets Manager VPC Endpoint | TCP | `443` | Kết nối lấy secrets, credentials, và kubeconfig cấu hình |
+| AWS Secrets Manager VPC Endpoint | TCP | `443` | Kết nối lấy secrets và credentials cấu hình |
 | AWS Bedrock Endpoint | TCP | `443` | Gọi APIs của AWS Bedrock phục vụ phân tích log/context |
 | Amazon DynamoDB VPC Endpoint | TCP | `443` | Kiểm tra và cập nhật khóa chống trùng lặp (Idempotency Lock) |
 | Amazon S3 VPC Endpoint | TCP | `443` | Ghi nhật ký kiểm toán (Audit Trail) phục vụ tuân thủ SOC2 |
+
+*Lưu ý An toàn:* Do mô hình kiến trúc tách biệt trách nhiệm (CDO thực thi), Security Group của AI Engine tuyệt đối không mở cổng egress kết nối đến API Server của cụm Kubernetes (EKS API Server), giảm thiểu tối đa rủi ro bảo mật từ các cuộc tấn công leo thang đặc quyền.
 
 ### C. Deployment Topology Diagram
 
 ```mermaid
 graph TB
     subgraph "AWS Region: us-east-1"
-        subgraph "VPC task_force_identifier"
+        subgraph "VPC tf-3"
             subgraph "Private Subnet (Multi-AZ)"
                 ALB[Internal Application Load Balancer]
                 ECS1[ECS Fargate Task - Replica 1]
@@ -256,25 +278,26 @@ graph TB
                 SM[Secrets Manager VPCe]
                 DDB[(DynamoDB - Idempotency Lock)]
                 S3[(S3 Bucket: Audit Trail<br>Object Lock Compliance Mode 90d)]
-                EKS_API[EKS Sandbox Cluster API Server Temporary POC Target for Self-Heal Actions]
             end
             
-            ECS1 & ECS2 -->|Fetch Kubeconfig| SM
             ECS1 & ECS2 -->|Check / Acquire Lock| DDB
             ECS1 & ECS2 -->|Write Tamper-evident Logs| S3
-            ECS1 & ECS2 -->|Execute Self-Heal Actions| EKS_API
+            ECS1 & ECS2 -.->|Return Action Plan via API| ALB
         end
         
         Bedrock[AWS Bedrock Service]
         ECS1 & ECS2 -->|Call Bedrock APIs| Bedrock
     end
 
-    subgraph "CDO Platforms"
-        CDO1[CDO-1 Platform]
-        CDO2[CDO-2 Platform]
+    subgraph "CDO Platforms & Target Infrastructure"
+        CDO1[cdo-1 Platform]
+        CDO2[cdo-2 Platform]
+        EKS_API[EKS Cluster API Server<br>CDO Managed - Executes Self-Heal]
     end
 
-    CDO1 & CDO2 -->|Call API via Route 53 DNS| ALB
+    CDO1 & CDO2 -->|Call API /v1/decide via Route 53| ALB
+    ALB -.->|Return Action Plan| CDO1 & CDO2
+    CDO1 & CDO2 -->|Validate Blast Radius & Execute| EKS_API
 ```
 
 ---
@@ -291,6 +314,7 @@ Hệ thống giám sát Canary của CDO sẽ tự động dừng rollout và k�
 - Tỷ lệ lỗi API của AI Engine (`5xx` error rate) vượt quá `1.0%`.
 - Độ trễ phản hồi p99 của AI Engine vượt quá `800 ms`.
 - Kiểm tra sức khỏe (Health Check) thất bại liên tiếp quá ngưỡng quy định.
+- **Tốc độ tiêu thụ ngân sách lỗi nhanh (Error Budget Burn Rate Fast Alert):** Tỷ lệ tiêu hao ngân sách lỗi của các dịch vụ nghiệp vụ (do CDO giám sát) vượt quá ngưỡng cảnh báo nhanh (Fast Burn Rate > 14.4 trong cửa sổ 1 giờ, hoặc tiêu thụ quá 2% ngân sách lỗi trong vòng 1 giờ), biểu thị sự cố nghiêm trọng ảnh hưởng trực tiếp đến người dùng cuối.
 
 ### C. Cơ chế Rollback
 - **Phương thức chính**: ArgoCD tự động rollback trạng thái Kubernetes sang Git commit SHA ổn định trước đó.
@@ -417,3 +441,14 @@ AI Engine phải cung cấp các HTTP endpoints sau trên container port `8080` 
 | **Bedrock API Throttling (429)** | Lỗi trả về từ SDK Bedrock | Áp dụng Exponential Backoff + chuyển sang Fallback Rule-Based (chế độ dự phòng không LLM) |
 | **Rò rỉ bộ nhớ (Memory Leak)** | Sử dụng bộ nhớ task vượt > 90% | Kích hoạt cơ chế Rolling Restart các tasks một cách tuần tự |
 | **Mất kết nối DynamoDB/S3** | Alert từ `/ready` endpoint | Ngắt traffic ALB sang task lỗi, kích hoạt luồng fallback của CDO Platform sang static runbook |
+
+---
+
+## 9. Các vấn đề chưa chốt (Open Questions)
+
+Dưới đây là các nội dung kỹ thuật cần tiếp tục thảo luận và thống nhất phương án trong các phiên họp tiếp theo:
+1. **Cơ chế xác thực chéo giữa CDO và AI Engine (Mutual TLS)**: Có nên áp dụng mTLS giữa CDO Platform và ALB của AI Engine để tăng cường bảo mật đường truyền thay vì chỉ dùng IAM SigV4 hay không?
+2. **Tối ưu hóa thời gian khởi chạy Canary**: Việc kiểm thử Canary 50% trong 5 phút có đủ thời gian để phát hiện các lỗi rò rỉ bộ nhớ chậm (slow memory leaks) hay cần kéo dài thời gian giám sát lên 30 phút?
+
+---
+

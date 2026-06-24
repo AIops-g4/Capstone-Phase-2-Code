@@ -293,7 +293,7 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 
 ## 6. Chính sách Quản lý Phiên bản & Quy trình Thay đổi (Versioning & Change-Request)
 
-Hợp đồng telemetry này được đóng băng ("🔒 FREEZE") để bảo đảm tính ổn định vận hành. Mọi thay đổi trong tương lai phải tuân thủ quy trình sau:
+Hợp đồng telemetry này được đóng băng ("FREEZE") để bảo đảm tính ổn định vận hành. Mọi thay đổi trong tương lai phải tuân thủ quy trình sau:
 
 ### A. Phân loại Thay đổi (Change Classification)
 1. **Thay đổi lớn (Breaking Changes)**:
@@ -316,12 +316,3 @@ Dưới đây là các nội dung kỹ thuật cần tiếp tục làm rõ và c
 1. **Cơ chế nén dữ liệu (Data Compression)**: CDO có nên nén log thô (gzip) trước khi gửi qua API `/v1/detect` đối với các sự kiện log lỗi quá lớn hay không để tiết kiệm băng thông mạng?
 2. **Phương án mã hóa lưu trữ lâu dài (Cold Retention Encryption)**: Dữ liệu telemetry lưu trữ cold retention (90 ngày) trên S3 sẽ sử dụng khóa mã hóa do AWS quản lý (SSE-S3) hay khóa KMS riêng của từng Tenant (SSE-KMS) để bảo đảm an toàn dữ liệu?
 
----
-
-## 8. Ký duyệt Song phương (Signatories)
-
-Hợp đồng này đại diện cho cam kết kỹ thuật chính thức giữa các bộ phận. Mọi bên ký duyệt cam kết tuân thủ đầy đủ các điều khoản kỹ thuật và vận hành được nêu trong tài liệu này.
-
-| Đại diện Bộ phận AI (AI Lead) | Đại diện Bộ phận Hạ tầng (CDO Lead) | Hội đồng Đánh giá Kiến trúc (Architecture Reviewer) |
-|---|---|---|
-| <br>**Ký tên:**<br>Bộ phận AI Architect Lead<br>**Ngày ký:** 2026-06-25 | <br>**Ký tên:**<br>CDO Platform Infrastructure Lead<br>**Ngày ký:** 2026-06-25 | <br>**Ký tên:**<br>Principal Enterprise Architect<br>**Ngày ký:** 2026-06-25 |
