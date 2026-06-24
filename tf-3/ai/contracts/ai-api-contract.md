@@ -33,12 +33,17 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 #### A. Request Headers
 * `X-Tenant-Id` (string, Bắt buộc): Định danh duy nhất của Tenant (ví dụ: `"d3b07384-d113-495f-9f58-20d18d357d75"`).
 * `Authorization` (string, Bắt buộc): AWS Signature Version 4.
-* `X-Correlation-Id` (string, Tùy chọn): UUID phục vụ liên kết vết lỗi.
+* `X-Correlation-Id` (string, Tùy chọn): Mã UUID v4 liên kết chuỗi vết lỗi. Nếu không truyền, hệ thống sẽ tự sinh mới.
+* `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến để chống trùng lặp yêu cầu (UUID v4).
+* `X-Dry-Run-Mode` (string, Bắt buộc): Chế độ chạy thử nghiệm (`"true"` hoặc `"false"`).
 
 * **Mô tả trường dữ liệu yêu cầu (Fields Description)**:
 
 | Trường (Field) | Kiểu dữ liệu (Type) | Bắt buộc (Required) | Mô tả (Description) |
 |---|---|---|---|
+| `correlation_id` | string (UUID v4) | optional | Mã UUID v4 để liên kết chuỗi vết lỗi. Nếu không truyền, hệ thống sẽ tự sinh mới |
+| `idempotency_key` | string (UUID v4) | ✓ | Khóa chống trùng lặp xử lý yêu cầu |
+| `dry_run_mode` | boolean | ✓ | Chế độ chạy thử nghiệm để đồng bộ luồng kiểm tra hệ thống |
 | `telemetry_window` | array (of objects) | ✓ | Danh sách các điểm dữ liệu telemetry trong cửa sổ thời gian giám sát. Cấu trúc chi tiết của mỗi phần tử tuân thủ hoàn toàn theo đặc tả [Telemetry Contract](file:///home/duckq1u/Documents/Aiops-g4/capstone/dataset/contracts/telemetry-contract.md#3-lược-đồ-dữ-liệu-telemetry-json-schema--description) |
 
 * **Lược đồ Schema Yêu cầu**:
@@ -48,6 +53,20 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
   "title": "DetectRequest",
   "type": "object",
   "properties": {
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Mã UUID v4 liên kết chuỗi vết lỗi (Tùy chọn ở bước detect)"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Khóa chống trùng lặp xử lý yêu cầu"
+    },
+    "dry_run_mode": {
+      "type": "boolean",
+      "description": "Chế độ chạy thử nghiệm để đồng bộ luồng hệ thống"
+    },
     "telemetry_window": {
       "type": "array",
       "description": "Danh sách các điểm dữ liệu telemetry. Cấu trúc chi tiết của mỗi phần tử tuân thủ hoàn toàn theo hợp đồng telemetry-contract.md",
@@ -57,7 +76,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
       }
     }
   },
-  "required": ["telemetry_window"],
+  "required": ["idempotency_key", "dry_run_mode", "telemetry_window"],
   "additionalProperties": false
 }
 ```
@@ -65,6 +84,9 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 * **Payload Yêu cầu Mẫu**:
 ```json
 {
+  "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "idempotency_key": "d3b07384-d113-495f-9f58-20d18d357d75",
+  "dry_run_mode": false,
   "telemetry_window": [
     {
       "ts": "2026-06-25T10:00:00.123Z",
@@ -170,7 +192,10 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 
 #### A. Request Headers
 * `X-Tenant-Id` (string, Bắt buộc): Định danh Tenant (ví dụ: `"d3b07384-d113-495f-9f58-20d18d357d75"`).
-* `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến (UUID v4).
+* `Authorization` (string, Bắt buộc): AWS Signature Version 4.
+* `X-Correlation-Id` (string, Bắt buộc): Mã UUID v4 liên kết chuỗi vết từ bước `/v1/detect` truyền sang.
+* `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến để chống trùng lặp yêu cầu (UUID v4).
+* `X-Dry-Run-Mode` (string, Bắt buộc): Chế độ chạy thử nghiệm (`"true"` hoặc `"false"`).
 
 #### B. Request Body Schema
 * **Mô tả trường dữ liệu yêu cầu (Fields Description)**:
@@ -178,8 +203,9 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | Trường (Field) | Kiểu dữ liệu (Type) | Bắt buộc (Required) | Mô tả (Description) |
 |---|---|---|---|
 | `correlation_id` | string (UUID v4) | ✓ | Mã UUID v4 liên kết chuỗi vết từ bước phát hiện bất thường `/v1/detect` |
-| `anomaly_context` | object | ✓ | Ngữ cảnh lỗi chi tiết nhận được từ bước phát hiện bất thường |
+| `idempotency_key` | string (UUID v4) | ✓ | Khóa chống trùng lặp xử lý yêu cầu |
 | `dry_run_mode` | boolean | ✓ | Chế độ chạy thử nghiệm (`true` để chỉ sinh log/audit và bỏ qua thực thi thật, `false` để thực thi thật) |
+| `anomaly_context` | object | ✓ | Ngữ cảnh lỗi chi tiết nhận được từ bước phát hiện bất thường |
 
 * **Lược đồ Schema Yêu cầu**:
 ```json
@@ -188,11 +214,26 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
   "title": "DecideRequest",
   "type": "object",
   "properties": {
-    "correlation_id": { "type": "string", "format": "uuid" },
-    "anomaly_context": { "type": "object" },
-    "dry_run_mode": { "type": "boolean" }
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Mã UUID v4 liên kết chuỗi vết từ bước phát hiện bất thường /v1/detect"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Khóa chống trùng lặp xử lý yêu cầu"
+    },
+    "dry_run_mode": {
+      "type": "boolean",
+      "description": "Chế độ chạy thử nghiệm"
+    },
+    "anomaly_context": {
+      "type": "object",
+      "description": "Ngữ cảnh lỗi chi tiết"
+    }
   },
-  "required": ["correlation_id", "anomaly_context", "dry_run_mode"],
+  "required": ["correlation_id", "idempotency_key", "dry_run_mode", "anomaly_context"],
   "additionalProperties": false
 }
 ```
@@ -201,6 +242,8 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 ```json
 {
   "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "idempotency_key": "d3b07384-d113-495f-9f58-20d18d357d75",
+  "dry_run_mode": false,
   "anomaly_context": {
     "target_service": "order-service",
     "suspected_fault_type": "database_connection_failure",
@@ -209,8 +252,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
     "deployment": "order-service",
     "trigger_metric": "service_error_rate",
     "trigger_value": 0.15
-  },
-  "dry_run_mode": false
+  }
 }
 ```
 
@@ -273,9 +315,12 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
         }
       },
       "required": ["max_pod_impact_pct", "circuit_breaker_error_rate", "allowed_namespaces"]
-    }
+    },
+    "correlation_id": { "type": "string", "format": "uuid" },
+    "idempotency_key": { "type": "string", "format": "uuid" },
+    "dry_run_mode": { "type": "boolean" }
   },
-  "required": ["matched_runbook", "action_plan", "blast_radius_config"],
+  "required": ["matched_runbook", "action_plan", "blast_radius_config", "correlation_id", "idempotency_key", "dry_run_mode"],
   "additionalProperties": false
 }
 ```
@@ -299,7 +344,10 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
     "max_pod_impact_pct": 25,
     "circuit_breaker_error_rate": 0.20,
     "allowed_namespaces": ["production"]
-  }
+  },
+  "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "idempotency_key": "d3b07384-d113-495f-9f58-20d18d357d75",
+  "dry_run_mode": false
 }
 ```
 
@@ -311,7 +359,10 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 
 #### A. Request Headers
 * `X-Tenant-Id` (string, Bắt buộc): Định danh Tenant (ví dụ: `"d3b07384-d113-495f-9f58-20d18d357d75"`).
+* `Authorization` (string, Bắt buộc): AWS Signature Version 4.
+* `X-Correlation-Id` (string, Bắt buộc): Mã UUID v4 định danh toàn bộ chu trình tự chữa lành phục vụ truy vết.
 * `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến (UUID v4).
+* `X-Dry-Run-Mode` (string, Bắt buộc): Chế độ chạy thử nghiệm (`"true"` hoặc `"false"`).
 
 #### B. Request Body Schema
 * **Mô tả trường dữ liệu yêu cầu (Fields Description)**:
@@ -319,12 +370,14 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | Trường (Field) | Kiểu dữ liệu (Type) | Bắt buộc (Required) | Mô tả (Description) |
 |---|---|---|---|
 | `correlation_id` | string (UUID v4) | ✓ | Mã UUID v4 định danh toàn bộ chu trình tự chữa lành phục vụ truy vết |
+| `idempotency_key` | string (UUID v4) | ✓ | Khóa chống trùng lặp xử lý yêu cầu |
+| `dry_run_mode` | boolean | ✓ | Chế độ chạy thử nghiệm để đồng bộ trạng thái thực thi với các bước trước |
 | `action_executed` | object | ✓ | Chi tiết hành động tự chữa lành đã được CDO thực thi |
 | `action_executed.action` | string | ✓ | Loại hành động đã thực thi (ví dụ: `RESTART_DEPLOYMENT`) |
 | `action_executed.target` | string | ✓ | Đối tượng hạ tầng chịu tác động thực tế (ví dụ: `deployment/order-service`) |
 | `action_executed.status` | string (Enum) | ✓ | Kết quả thực thi của hành động từ phía CDO (`COMPLETED` hoặc `FAILED`) |
 | `action_executed.execution_time_seconds` | integer | optional | Tổng thời gian thực thi hành động tính bằng giây (Tùy chọn) |
-| `post_telemetry_window` | array (of objects) | ✓ | Chuỗi dữ liệu telemetry thu thập được sau khi hành động khắc phục hoàn tất. Cấu trúc chi tiết của mỗi phần tử tuân thủ hoàn toàn theo đặc tả [Telemetry Contract](file:///home/duckq1u/Documents/Aiops-g4/capstone/dataset/contracts/telemetry-contract.md#3-lược-đồ-dữ-liệu-telemetry-json-schema--description) |
+| `post_telemetry_window` | array | ✓ | Chuỗi dữ liệu telemetry thu thập được sau khi hành động khắc phục hoàn tất. Cấu trúc chi tiết của mỗi phần tử tuân thủ hoàn toàn theo hợp đồng telemetry-contract.md |
 
 * **Lược đồ Schema Yêu cầu**:
 ```json
@@ -333,7 +386,20 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
   "title": "VerifyRequest",
   "type": "object",
   "properties": {
-    "correlation_id": { "type": "string", "format": "uuid" },
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Mã UUID v4 định danh toàn bộ chu trình tự chữa lành phục vụ truy vết"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Khóa chống trùng lặp xử lý yêu cầu"
+    },
+    "dry_run_mode": {
+      "type": "boolean",
+      "description": "Chế độ chạy thử nghiệm"
+    },
     "action_executed": {
       "type": "object",
       "properties": {
