@@ -46,7 +46,7 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 | `ts` | string (RFC3339) | ✓ | Mốc thời gian xảy ra sự kiện theo múi giờ UTC (độ chính xác mili-giây) |
 | `tenant_id` | string (UUID v4) | ✓ | Chuỗi UUID v4 định danh duy nhất cho Tenant/Khách hàng |
 | `service` | string | ✓ | Tên định danh của microservice phát sinh dữ liệu |
-| `signal_name` | string (Enum) | ✓ | Tên tín hiệu thuộc danh mục 5 tín hiệu được định nghĩa bên dưới |
+| `signal_name` | string (Enum) | ✓ | Tên tín hiệu thuộc danh mục các tín hiệu chuẩn hoặc các tín hiệu cảnh báo dẫn xuất (`pod_oom_event`, `service_unhealthy`, `queue_backlog`) |
 | `value` | number / string | ✓ | Giá trị đo lường (đối với metric) hoặc nội dung văn bản log lỗi |
 | `labels` | object | optional | Đối tượng chứa các nhãn bổ sung về topology cụm và định danh trace |
 | `labels.system` | string | ✓ | Tên hoặc mã định danh của hệ thống phần mềm |
@@ -90,9 +90,12 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
         "service_latency_p95",
         "container_resource_usage",
         "application_log_event",
-        "distributed_trace_error_event"
+        "distributed_trace_error_event",
+        "pod_oom_event",
+        "service_unhealthy",
+        "queue_backlog"
       ],
-      "description": "Tên tín hiệu được định nghĩa trong hợp đồng"
+      "description": "Tên tín hiệu được định nghĩa trong hợp đồng (bao gồm các tín hiệu chuẩn và tín hiệu dẫn xuất từ CDOps)"
     },
     "value": {
       "type": [
@@ -275,6 +278,72 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 }
 ```
 
+### Tín hiệu Cảnh báo Dẫn xuất (Derived Infrastructure Alerts)
+
+Để đáp ứng tối đa khả năng phát hiện sự cố nhanh từ CDOps Platform, hệ thống hỗ trợ thêm 3 tín hiệu cảnh báo dẫn xuất trực tiếp từ hạ tầng:
+
+#### Tín hiệu 6: Sự kiện Pod bị OOMKilled (`pod_oom_event`)
+* **Kiểu dữ liệu**: Event (Alert).
+* **Mục đích**: Báo hiệu ngay lập tức khi một container trong pod bị hệ điều hành tắt do vượt quá giới hạn bộ nhớ cấu hình (OOMKilled).
+* **Giá trị**: Chuỗi mô tả sự kiện (ví dụ: `"OOMKilled: Pod order-service-5f8d9b7c-xyz12, Container main, Exit Code 137"`).
+* **Payload mẫu**:
+```json
+{
+  "ts": "2026-06-25T10:30:05.123Z",
+  "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+  "service": "order-service",
+  "signal_name": "pod_oom_event",
+  "value": "OOMKilled: Pod order-service-5f8d9b7c-xyz12, Container main, Exit Code 137",
+  "labels": {
+    "system": "E-COMMERCE",
+    "namespace": "production",
+    "deployment": "order-service",
+    "pod_name": "order-service-5f8d9b7c-xyz12",
+    "container": "main"
+  }
+}
+```
+
+#### Tín hiệu 7: Cảnh báo Dịch vụ Không Khỏe mạnh (`service_unhealthy`)
+* **Kiểu dữ liệu**: Event (Alert).
+* **Mục đích**: Báo hiệu khi một dịch vụ không vượt qua các đợt kiểm tra sức khỏe liên tiếp (Liveness/Readiness probe fail) từ hệ thống giám sát.
+* **Giá trị**: Chuỗi mô tả trạng thái lỗi (ví dụ: `"Readiness probe failed: HTTP 500 Internal Server Error"`).
+* **Payload mẫu**:
+```json
+{
+  "ts": "2026-06-25T10:31:00.000Z",
+  "tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c",
+  "service": "payment-gateway",
+  "signal_name": "service_unhealthy",
+  "value": "Readiness probe failed: HTTP 500 Internal Server Error",
+  "labels": {
+    "system": "E-COMMERCE",
+    "namespace": "production",
+    "deployment": "payment-gateway"
+  }
+}
+```
+
+#### Tín hiệu 8: Hàng đợi Bị Nghẽn (`queue_backlog`)
+* **Kiểu dữ liệu**: Gauge (Metric).
+* **Mục đích**: Đo lường số lượng tin nhắn chưa được xử lý trong hàng đợi (message backlog) để cảnh báo hiện tượng nghẽn cổ chai.
+* **Giá trị**: Số nguyên biểu thị số lượng tin nhắn đang tồn đọng trong hàng đợi.
+* **Payload mẫu**:
+```json
+{
+  "ts": "2026-06-25T10:32:00.000Z",
+  "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+  "service": "notification-service",
+  "signal_name": "queue_backlog",
+  "value": 15000,
+  "labels": {
+    "system": "E-COMMERCE",
+    "namespace": "production",
+    "deployment": "notification-service"
+  }
+}
+```
+
 ---
 
 ## 5. Thuộc tính Vận hành & Cam kết Chất lượng Dữ liệu (Telemetry SLA)
@@ -288,6 +357,9 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 | `container_resource_usage` | Mỗi 15 giây | K8s Metrics Server / Advisor | Hot: 7 ngày <br> Cold: 90 ngày | < 15 giây từ lúc thu thập | Max: 50 events/sec per tenant | Phát hiện Memory Leak và nguy cơ OOMKilled |
 | `application_log_event` | Theo thời gian thực (khi có lỗi) | OTel Log Collector / Fluentd | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc log phát sinh | Max: 200 events/sec per tenant | Phân tích sâu nguyên nhân lỗi qua Stack Trace |
 | `distributed_trace_error_event` | Theo thời gian thực (khi giao dịch lỗi) | OTel Trace Collector / Jaeger | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc giao dịch hoàn tất | Max: 150 events/sec per tenant | Phác họa bản đồ lỗi giao dịch phân tán |
+| `pod_oom_event` | Theo thời gian thực (khi xảy ra OOM) | K8s Node / Container Lifecycle Event | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc container bị terminate | Max: 10 events/sec per tenant | Phát hiện trực tiếp sự cố container bị OOMKilled |
+| `service_unhealthy` | Theo thời gian thực (khi probe fail) | K8s Kubelet / Probe Monitor | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc thay đổi trạng thái | Max: 10 events/sec per tenant | Phát hiện trạng thái không khỏe mạnh (Liveness/Readiness fail) |
+| `queue_backlog` | Mỗi 30 giây | Queue Metrics Collector (SQS/RabbitMQ) | Hot: 7 ngày <br> Cold: 90 ngày | < 10 giây từ lúc đo lường | Max: 50 events/sec per tenant | Phát hiện nghẽn hàng đợi để thực hiện scale up |
 
 ---
 
