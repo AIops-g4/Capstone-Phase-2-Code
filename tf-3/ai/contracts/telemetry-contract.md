@@ -19,9 +19,31 @@ Tài liệu này xác định **Hợp đồng Telemetry (Telemetry Specification
 
 ---
 
-## 3. Lược đồ Dữ liệu Telemetry (JSON Schema)
+## 3. Lược đồ Dữ liệu Telemetry (JSON Schema & Description)
 
-Để đảm bảo tính linh hoạt và dễ dàng kiểm thử tự động, cấu trúc của mọi điểm dữ liệu telemetry được chuẩn hóa bằng lược đồ JSON Schema dưới đây. Định nghĩa này thay thế toàn bộ các bảng thuộc tính thủ công.
+Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ liệu telemetry, theo sau là đặc tả lược đồ JSON Schema chính thức dùng cho kiểm thử và xác thực tự động.
+
+### Bảng mô tả trường dữ liệu (Fields Description)
+
+| Trường (Field) | Kiểu dữ liệu (Type) | Bắt buộc (Required) | Mô tả (Description) |
+|---|---|---|---|
+| `ts` | string (RFC3339) | ✓ | Mốc thời gian xảy ra sự kiện theo múi giờ UTC (độ chính xác mili-giây) |
+| `tenant_id` | string (UUID v4) | ✓ | Chuỗi UUID v4 định danh duy nhất cho Tenant/Khách hàng |
+| `service` | string | ✓ | Tên định danh của microservice phát sinh dữ liệu |
+| `signal_name` | string (Enum) | ✓ | Tên tín hiệu thuộc danh mục 5 tín hiệu được định nghĩa bên dưới |
+| `value` | number / string | ✓ | Giá trị đo lường (đối với metric) hoặc nội dung văn bản log lỗi |
+| `labels` | object | optional | Đối tượng chứa các nhãn bổ sung về topology cụm và định danh trace |
+| `labels.system` | string | ✓ | Tên hoặc mã định danh của hệ thống phần mềm |
+| `labels.namespace` | string | optional | Kubernetes namespace đang chạy tài nguyên (Tùy chọn) |
+| `labels.deployment` | string | optional | Tên đối tượng Kubernetes Deployment quản lý dịch vụ (Tùy chọn) |
+| `labels.pod_name` | string | optional | Tên pod cụ thể xảy ra sự cố (Tùy chọn) |
+| `labels.container` | string | optional | Tên container cụ thể xảy ra sự cố (Tùy chọn) |
+| `labels.endpoint` | string | optional | Tên API endpoint hoặc phương thức gRPC liên quan (Tùy chọn) |
+| `labels.trace_id` | string | optional | Trace ID để liên kết chuỗi vết lỗi giao dịch (Tùy chọn) |
+| `labels.span_id` | string | optional | Span ID của giao dịch cụ thể gặp sự cố (Tùy chọn) |
+| `labels.operation` | string | optional | Tên giao dịch hoặc phương thức của trace span (Tùy chọn) |
+
+### Lược đồ JSON Schema chính thức
 
 ```json
 {

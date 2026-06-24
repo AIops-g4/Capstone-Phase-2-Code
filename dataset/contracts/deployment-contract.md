@@ -305,6 +305,13 @@ AI Engine phải cung cấp các HTTP endpoints sau trên container port `8080` 
 
 ### A. Health Check Endpoint (`GET /health`)
 * **Mục đích**: Kiểm tra trạng thái sống (Liveness) của container. Chỉ chạy các kiểm tra nhanh nội bộ.
+* **Mô tả trường dữ liệu phản hồi (Fields Description)**:
+
+| Trường (Field) | Kiểu dữ liệu (Type) | Bắt buộc (Required) | Mô tả (Description) |
+|---|---|---|---|
+| `status` | string (Enum) | ✓ | Trạng thái sống của container, cố định là `"healthy"` |
+| `timestamp` | string (RFC3339) | ✓ | Mốc thời gian kiểm tra trạng thái theo chuẩn UTC |
+
 * **Lược đồ Schema Phản hồi**:
 ```json
 {
@@ -335,6 +342,16 @@ AI Engine phải cung cấp các HTTP endpoints sau trên container port `8080` 
 
 ### B. Readiness Check Endpoint (`GET /ready`)
 * **Mục đích**: Xác nhận AI Engine đã sẵn sàng tiếp nhận traffic thông qua kiểm tra các kết nối hạ nguồn.
+* **Mô tả trường dữ liệu phản hồi (Fields Description)**:
+
+| Trường (Field) | Kiểu dữ liệu (Type) | Bắt buộc (Required) | Mô tả (Description) |
+|---|---|---|---|
+| `status` | string (Enum) | ✓ | Trạng thái sẵn sàng tiếp nhận traffic (`"ready"` hoặc `"unready"`) |
+| `dependencies` | object | ✓ | Đối tượng chứa thông tin trạng thái chi tiết của các dịch vụ liên kết |
+| `dependencies.bedrock` | string | ✓ | Trạng thái kết nối tới AWS Bedrock (ví dụ: `"connected"`) |
+| `dependencies.dynamodb_lock` | string | ✓ | Trạng thái kết nối tới DynamoDB Idempotency Lock (ví dụ: `"connected"`) |
+| `dependencies.s3_audit_trail` | string | ✓ | Trạng thái kết nối tới S3 Audit Trail (ví dụ: `"connected"`) |
+
 * **Lược đồ Schema Phản hồi**:
 ```json
 {
