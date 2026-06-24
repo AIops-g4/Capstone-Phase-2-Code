@@ -264,6 +264,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | Trường (Field) | Kiểu dữ liệu (Type) | Bắt buộc (Required) | Mô tả (Description) |
 |---|---|---|---|
 | `matched_runbook` | string | ✓ | Tên của Runbook được đối chiếu và kích hoạt để giải quyết sự cố |
+| `pattern_type` | string (Enum) | ✓ | Phân loại luồng xử lý: `"urgent"` (Path B - Vá trực tiếp) hoặc `"deferred"` (Path A - GitOps) |
 | `action_plan` | array | ✓ | Kế hoạch hành động chi tiết chứa các bước tự chữa lành tuần tự |
 | `action_plan[].step` | integer | ✓ | Số thứ tự của bước thực hiện hành động (bắt đầu từ 1) |
 | `action_plan[].action` | string (Enum) | ✓ | Loại hành động tự chữa lành (`RESTART_DEPLOYMENT`, `PATCH_MEMORY_LIMIT`, `SCALE_REPLICAS`, `ROLLOUT_UNDO`, `ROTATE_SECRET`, `DELETE_POD`) |
@@ -290,6 +291,10 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
   "type": "object",
   "properties": {
     "matched_runbook": { "type": "string" },
+    "pattern_type": { 
+      "type": "string", 
+      "enum": ["urgent", "deferred"] 
+    },
     "action_plan": {
       "type": "array",
       "items": {
@@ -335,7 +340,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
     "idempotency_key": { "type": "string", "format": "uuid" },
     "dry_run_mode": { "type": "boolean" }
   },
-  "required": ["matched_runbook", "action_plan", "blast_radius_config", "correlation_id", "idempotency_key", "dry_run_mode"],
+  "required": ["matched_runbook", "pattern_type", "action_plan", "blast_radius_config", "correlation_id", "idempotency_key", "dry_run_mode"],
   "additionalProperties": false
 }
 ```
@@ -344,6 +349,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 ```json
 {
   "matched_runbook": "DatabaseConnectionRecoveryRunbook",
+  "pattern_type": "urgent",
   "action_plan": [
     {
       "step": 1,
