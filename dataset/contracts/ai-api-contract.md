@@ -299,6 +299,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
   >    * **Mục đích**: Áp dụng cho các sự cố mang tính chất tích lũy cấu hình lâu dài (như điều chỉnh giới hạn tài nguyên vĩnh viễn, tăng số lượng replicas do nghẽn hàng đợi `queue_backlog`).
   >    * **Hành vi thực thi**: CDOps Platform **nghiêm cấm** việc ghi đè trực tiếp lên cụm Kubernetes. Thay vào đó, CDOps phải tự động **tạo một Git commit hoặc mở một Pull Request (PR)** cập nhật thông số cấu hình trên Git Repository quản lý manifest của dịch vụ nghiệp vụ (ví dụ: cập nhật file Helm `values.yaml` hoặc Kube manifest). Trạng thái mới sẽ được đồng bộ tự động xuống cụm K8s thông qua công cụ GitOps (như ArgoCD/FluxCD).
   >    * **Quy trình Safety Gate**: Logic an toàn sẽ được tích hợp trực tiếp vào quá trình kiểm thử tự động của CI/CD pipeline hoặc luồng duyệt PR. CDOps chấp nhận độ trễ đồng bộ của GitOps (thường từ 2 - 5 phút).
+  > 
 
 * **Lược đồ Schema Phản hồi**:
 ```json
