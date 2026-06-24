@@ -287,7 +287,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `cost_cap_exceeded` | boolean | optional | Cờ báo hiệu chi phí gọi LLM Bedrock trong ngày của Tenant đã vượt hạn mức $50 (khi bằng `true`, hệ thống tự động chuyển sang chế độ dự phòng rule-based truyền thống, kế hoạch hành động vẫn có thể thực thi bình thường) |
 
 * **Ghi chú quan trọng về `pattern_type` (Quy trình xử lý dành cho CDOps Executor)**:
-  > [!IMPORTANT]
+  > [!warning]
   > CDOps Platform bắt buộc phải tuân thủ nghiêm ngặt quy trình xử lý khác biệt giữa hai loại `pattern_type` dưới đây để đảm bảo tính nhất quán của hạ tầng và tránh xung đột trạng thái (state drift):
   > 
   > 1. **Đối với `"pattern_type": "urgent"` (Path B - Vá trực tiếp / Hotfix)**:
