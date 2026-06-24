@@ -6,27 +6,29 @@ Tài liệu này xác định **quy chuẩn triển khai hạ tầng (Deployment
 
 ---
 
-## 1.5. Target Topology: Namespace & Deployment Mappings
+## 1.5. Target Topology: Namespace & Deployment Mapping Conventions
 
-Để đảm bảo các hành động tự chữa lành (Self-Heal Actions) tác động chính xác đến các tài nguyên trên EKS Sandbox Cluster, quy chuẩn cấu trúc định danh được quy định như sau:
+Mục này định nghĩa cấu trúc thiết lập topology hệ thống đích, thiết lập quy chuẩn ánh xạ giữa các dịch vụ nghiệp vụ và các tài nguyên hạ tầng thực tế trên cụm Kubernetes để phục vụ công tác điều khiển tự chữa lành an toàn.
 
-* **Target Namespace**: Mọi tài nguyên microservice của hệ thống Online Boutique được triển khai duy nhất trong namespace **`onlineboutique`**.
-* **Deployment Mappings**: Tên của Kubernetes Deployment của từng service tương ứng được ánh xạ trực tiếp từ tên dịch vụ (`service`). CDO Platform và AI Engine phải tuân thủ bảng đối chiếu dưới đây:
+### A. Quy tắc cấu trúc định danh
+1. **Target Namespace**: Môi trường chạy các dịch vụ được phân lập theo namespace của Kubernetes. Tên của namespace vận hành dịch vụ (`Target Namespace`) sẽ được cấu hình động dựa trên cấu hình môi trường của từng dự án cụ thể.
+2. **Deployment Resource**: Mọi dịch vụ nghiệp vụ (`service`) bắt buộc phải tương ứng với một đối tượng Kubernetes Deployment quản trị. Định dạng định danh tài nguyên chuẩn là `deployment/<deployment_name>`. 
 
-| Service Name | Kubernetes Namespace | Target K8s Deployment Resource |
+### B. Quy chuẩn cấu trúc dữ liệu yêu cầu
+Trong mọi giao dịch API liên dịch vụ (như gửi telemetry, lập kế hoạch `/v1/decide`, và báo cáo `/v1/verify`), các trường `namespace` và `deployment` phải được truyền tải đầy đủ dưới dạng chuỗi ký tự (`string`) theo quy chuẩn sau:
+* `namespace`: Tên của K8s namespace đang chứa tài nguyên đích (ví dụ: `[operational_namespace_name]`).
+* `deployment`: Tên của đối tượng K8s Deployment quản trị trực tiếp dịch vụ bị lỗi (ví dụ: `[k8s_deployment_resource_name]`).
+
+### C. Bảng cấu trúc ánh xạ đăng ký dịch vụ (Template Registry)
+Dưới đây là cấu trúc bảng mẫu dùng để đăng ký và đối chiếu tài nguyên khi dự án cụ thể được triển khai thực tế:
+
+| Dịch vụ nghiệp vụ (`service`) | K8s Namespace (`namespace`) | Đối tượng Deployment đích (`deployment`) |
 |---|---|---|
-| `adservice` | `onlineboutique` | `deployment/adservice` |
-| `cartservice` | `onlineboutique` | `deployment/cartservice` |
-| `checkoutservice` | `onlineboutique` | `deployment/checkoutservice` |
-| `currencyservice` | `onlineboutique` | `deployment/currencyservice` |
-| `emailservice` | `onlineboutique` | `deployment/emailservice` |
-| `frontend` | `onlineboutique` | `deployment/frontend` |
-| `frontendservice` | `onlineboutique` | `deployment/frontendservice` |
-| `paymentservice` | `onlineboutique` | `deployment/paymentservice` |
-| `productcatalogservice` | `onlineboutique` | `deployment/productcatalogservice` |
-| `recommendationservice` | `onlineboutique` | `deployment/recommendationservice` |
+| `<service_name_1>` | `<target_namespace>` | `deployment/<deployment_name_1>` |
+| `<service_name_2>` | `<target_namespace>` | `deployment/<deployment_name_2>` |
+| ... | ... | ... |
 
-Mọi yêu cầu gọi API lập kế hoạch sửa lỗi (`/v1/decide`) và báo cáo kiểm chứng (`/v1/verify`) bắt buộc phải truyền đầy đủ hai thông tin `namespace` (giá trị `"onlineboutique"`) và `deployment` (tên deployment tương ứng) để phục vụ công tác xác thực an toàn và kiểm toán.
+*Lưu ý an toàn*: CDO Platform có trách nhiệm kiểm tra và xác thực (validate) tính hợp lệ của cặp giá trị `[namespace, deployment]` trước khi thực thi bất kỳ hành động nào lên hạ tầng, đảm bảo hành động nằm hoàn toàn trong phạm vi blast radius cho phép của tenant tương ứng.
 
 ---
 
