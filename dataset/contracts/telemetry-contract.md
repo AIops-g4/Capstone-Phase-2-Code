@@ -308,11 +308,4 @@ Hợp đồng telemetry này được đóng băng ("FREEZE") để bảo đảm
 * Bước 2: Tổ chức họp đánh giá tác động với sự tham gia bắt buộc của AI Lead và các CDO Platform Leads.
 * Bước 3: Sau khi thống nhất, cập nhật schema, chạy bộ test tự động và ký duyệt phiên bản hợp đồng mới.
 
----
-
-## 7. Các vấn đề chưa chốt (Open Questions)
-
-Dưới đây là các nội dung kỹ thuật cần tiếp tục làm rõ và chốt phương án trong các phiên họp tiếp theo:
-1. **Cơ chế nén dữ liệu (Data Compression)**: CDO có nên nén log thô (gzip) trước khi gửi qua API `/v1/detect` đối với các sự kiện log lỗi quá lớn hay không để tiết kiệm băng thông mạng?
-2. **Phương án mã hóa lưu trữ lâu dài (Cold Retention Encryption)**: Dữ liệu telemetry lưu trữ cold retention (90 ngày) trên S3 sẽ sử dụng khóa mã hóa do AWS quản lý (SSE-S3) hay khóa KMS riêng của từng Tenant (SSE-KMS) để bảo đảm an toàn dữ liệu?
 

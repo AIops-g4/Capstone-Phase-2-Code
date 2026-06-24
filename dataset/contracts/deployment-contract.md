@@ -442,13 +442,5 @@ AI Engine phải cung cấp các HTTP endpoints sau trên container port `8080` 
 | **Rò rỉ bộ nhớ (Memory Leak)** | Sử dụng bộ nhớ task vượt > 90% | Kích hoạt cơ chế Rolling Restart các tasks một cách tuần tự |
 | **Mất kết nối DynamoDB/S3** | Alert từ `/ready` endpoint | Ngắt traffic ALB sang task lỗi, kích hoạt luồng fallback của CDO Platform sang static runbook |
 
----
 
-## 9. Các vấn đề chưa chốt (Open Questions)
-
-Dưới đây là các nội dung kỹ thuật cần tiếp tục thảo luận và thống nhất phương án trong các phiên họp tiếp theo:
-1. **Cơ chế xác thực chéo giữa CDO và AI Engine (Mutual TLS)**: Có nên áp dụng mTLS giữa CDO Platform và ALB của AI Engine để tăng cường bảo mật đường truyền thay vì chỉ dùng IAM SigV4 hay không?
-2. **Tối ưu hóa thời gian khởi chạy Canary**: Việc kiểm thử Canary 50% trong 5 phút có đủ thời gian để phát hiện các lỗi rò rỉ bộ nhớ chậm (slow memory leaks) hay cần kéo dài thời gian giám sát lên 30 phút?
-
----
 

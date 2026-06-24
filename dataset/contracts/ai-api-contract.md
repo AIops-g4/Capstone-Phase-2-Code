@@ -589,12 +589,3 @@ Hợp đồng API này được đóng băng ("FREEZE") để bảo đảm tính
 * Bước 2: Tổ chức họp đánh giá tác động với sự tham gia bắt buộc của AI Lead và các CDO Platform Leads.
 * Bước 3: Sau khi thống nhất, cập nhật schema, chạy bộ test tự động và ký duyệt phiên bản hợp đồng mới.
 
----
-
-## 6. Các vấn đề chưa chốt (Open Questions)
-
-Dưới đây là các nội dung kỹ thuật cần tiếp tục thảo luận và thống nhất phương án trong các phiên họp tiếp theo:
-1. **Mô hình Webhook Callback**: Có nên hỗ trợ cơ chế webhook callback cho `/v1/decide` nếu thời gian LLM sinh kế hoạch vượt quá 3000ms ở các kịch bản phức tạp hay không?
-2. **Chế độ mã hóa payload**: Các tham số nhạy cảm trong `action_plan[].params` có cần được mã hóa bằng KMS key của Tenant trước khi gửi qua mạng hay không?
-
----
