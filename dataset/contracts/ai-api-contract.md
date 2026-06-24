@@ -39,13 +39,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 
 | Trường (Field) | Kiểu dữ liệu (Type) | Bắt buộc (Required) | Mô tả (Description) |
 |---|---|---|---|
-| `telemetry_window` | array | ✓ | Danh sách các điểm dữ liệu telemetry trong cửa sổ thời gian giám sát |
-| `telemetry_window[].ts` | string (RFC3339) | ✓ | Mốc thời gian xảy ra sự kiện theo múi giờ UTC (độ chính xác mili-giây) |
-| `telemetry_window[].tenant_id` | string (UUID v4) | ✓ | UUID v4 định danh Tenant phát sinh tín hiệu |
-| `telemetry_window[].service` | string | ✓ | Tên định danh của microservice phát sinh dữ liệu |
-| `telemetry_window[].signal_name` | string | ✓ | Tên tín hiệu giám sát (ví dụ: `service_error_rate`) |
-| `telemetry_window[].value` | number / string | ✓ | Giá trị đo lường metric hoặc nội dung log lỗi |
-| `telemetry_window[].labels` | object | optional | Đối tượng chứa các nhãn bổ sung về topology cụm và định danh trace |
+| `telemetry_window` | array (of objects) | ✓ | Danh sách các điểm dữ liệu telemetry trong cửa sổ thời gian giám sát. Cấu trúc chi tiết của mỗi phần tử tuân thủ hoàn toàn theo đặc tả [Telemetry Contract](file:///home/duckq1u/Documents/Aiops-g4/capstone/dataset/contracts/telemetry-contract.md#3-lược-đồ-dữ-liệu-telemetry-json-schema--description) |
 
 * **Lược đồ Schema Yêu cầu**:
 ```json
@@ -56,17 +50,10 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
   "properties": {
     "telemetry_window": {
       "type": "array",
+      "description": "Danh sách các điểm dữ liệu telemetry. Cấu trúc chi tiết của mỗi phần tử tuân thủ hoàn toàn theo hợp đồng telemetry-contract.md",
       "items": {
         "type": "object",
-        "properties": {
-          "ts": { "type": "string", "format": "date-time" },
-          "tenant_id": { "type": "string", "format": "uuid" },
-          "service": { "type": "string" },
-          "signal_name": { "type": "string" },
-          "value": { "type": ["number", "string"] },
-          "labels": { "type": "object" }
-        },
-        "required": ["ts", "tenant_id", "service", "signal_name", "value"]
+        "description": "Chi tiết cấu trúc và các trường dữ liệu xem tại contracts/telemetry-contract.md"
       }
     }
   },
@@ -337,13 +324,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `action_executed.target` | string | ✓ | Đối tượng hạ tầng chịu tác động thực tế (ví dụ: `deployment/order-service`) |
 | `action_executed.status` | string (Enum) | ✓ | Kết quả thực thi của hành động từ phía CDO (`COMPLETED` hoặc `FAILED`) |
 | `action_executed.execution_time_seconds` | integer | optional | Tổng thời gian thực thi hành động tính bằng giây (Tùy chọn) |
-| `post_telemetry_window` | array | ✓ | Chuỗi dữ liệu telemetry thu thập được sau khi hành động khắc phục hoàn tất |
-| `post_telemetry_window[].ts` | string (RFC3339) | ✓ | Mốc thời gian của điểm dữ liệu telemetry |
-| `post_telemetry_window[].tenant_id` | string (UUID v4) | ✓ | UUID v4 định danh Tenant |
-| `post_telemetry_window[].service` | string | ✓ | Tên dịch vụ phát sinh telemetry |
-| `post_telemetry_window[].signal_name` | string | ✓ | Tên tín hiệu giám sát |
-| `post_telemetry_window[].value` | number / string | ✓ | Giá trị đo lường metric hoặc log lỗi thực tế |
-| `post_telemetry_window[].labels` | object | optional | Đối tượng chứa siêu nhãn topology cụm và trace tương ứng |
+| `post_telemetry_window` | array (of objects) | ✓ | Chuỗi dữ liệu telemetry thu thập được sau khi hành động khắc phục hoàn tất. Cấu trúc chi tiết của mỗi phần tử tuân thủ hoàn toàn theo đặc tả [Telemetry Contract](file:///home/duckq1u/Documents/Aiops-g4/capstone/dataset/contracts/telemetry-contract.md#3-lược-đồ-dữ-liệu-telemetry-json-schema--description) |
 
 * **Lược đồ Schema Yêu cầu**:
 ```json
