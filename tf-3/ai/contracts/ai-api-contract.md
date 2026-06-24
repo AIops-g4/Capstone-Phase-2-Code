@@ -176,7 +176,7 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 |---|---|---|---|
 | `correlation_id` | UUID v4 | ✓ | Khớp phiên xử lý |
 | `action_executed` | object | ✓ | Chi tiết hành động CDO đã chạy |
-| `post_telemetry_window` | array | ✓ | Telemetry thu được sau khi thực thi |
+| `post_telemetry_window` | array | ✓ | Telemetry thu được sau khi thực thi (form telemetry xem trong [telemetry-contract.md](https://github.com/AIops-g4/Capstone-Phase-2-Code/blob/main/tf-3/ai/contracts/telemetry-contract.md) |
 
 **Request Example**:
 ```json
