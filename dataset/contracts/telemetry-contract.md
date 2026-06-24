@@ -46,7 +46,7 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 | `ts` | string (RFC3339) | ✓ | Mốc thời gian xảy ra sự kiện theo múi giờ UTC (độ chính xác mili-giây) |
 | `tenant_id` | string (UUID v4) | ✓ | Chuỗi UUID v4 định danh duy nhất cho Tenant/Khách hàng |
 | `service` | string | ✓ | Tên định danh của microservice phát sinh dữ liệu |
-| `signal_name` | string (Enum) | ✓ | Tên tín hiệu thuộc danh mục các tín hiệu chuẩn hoặc các tín hiệu cảnh báo dẫn xuất (`pod_oom_event`, `service_unhealthy`, `queue_backlog`) |
+| `signal_name` | string (Enum) | ✓ | Tên tín hiệu thuộc danh mục các tín hiệu (phân thành các lớp: Ứng dụng & Dịch vụ, Hạ tầng & Container, Hàng đợi & Tài nguyên liên kết, Bảo mật & An toàn) được định nghĩa bên dưới |
 | `value` | number / string | ✓ | Giá trị đo lường (đối với metric) hoặc nội dung văn bản log lỗi |
 | `labels` | object | optional | Đối tượng chứa các nhãn bổ sung về topology cụm và định danh trace |
 | `labels.system` | string | ✓ | Tên hoặc mã định danh của hệ thống phần mềm |
@@ -93,9 +93,13 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
         "distributed_trace_error_event",
         "pod_oom_event",
         "service_unhealthy",
-        "queue_backlog"
+        "queue_backlog",
+        "service_throughput_rps",
+        "container_restart_count",
+        "secret_expiry_warning",
+        "db_connection_pool_saturation"
       ],
-      "description": "Tên tín hiệu được định nghĩa trong hợp đồng (bao gồm các tín hiệu chuẩn và tín hiệu dẫn xuất từ CDOps)"
+      "description": "Tên tín hiệu được định nghĩa trong hợp đồng (được phân nhóm rõ ràng theo các tầng nghiệp vụ hệ thống)"
     },
     "value": {
       "type": [
@@ -169,7 +173,13 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 
 ## 4. Đặc tả các Tín hiệu Telemetry (Signals Specification)
 
-### Tín hiệu 1: Tỷ lệ Lỗi Dịch vụ (`service_error_rate`)
+Các tín hiệu telemetry được phân chia rõ ràng thành 4 lớp nghiệp vụ để phục vụ công tác giám sát, phân lập vùng ảnh hưởng (Blast Radius) và đưa ra quyết định tự chữa lành chính xác:
+
+### A. Lớp Ứng dụng & Dịch vụ nghiệp vụ (Application & Service Layer)
+
+Lớp này giám sát hiệu năng, lưu lượng và các lỗi phát sinh trực tiếp ở tầng mã nguồn ứng dụng và các điểm cuối API.
+
+#### Tín hiệu 1: Tỷ lệ Lỗi Dịch vụ (`service_error_rate`)
 * **Kiểu dữ liệu**: Gauge (Metric).
 * **Mục đích**: Đo lường tỷ lệ các cuộc gọi dịch vụ bị lỗi (HTTP 5xx hoặc gRPC non-zero status) trên tổng số requests trong một cửa sổ trượt.
 * **Giá trị**: Số thực từ `0.0` đến `1.0` (thể hiện phần trăm từ 0% đến 100%).
@@ -190,7 +200,7 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 }
 ```
 
-### Tín hiệu 2: Độ trễ Phân vị 95 (`service_latency_p95`)
+#### Tín hiệu 2: Độ trễ Phân vị 95 (`service_latency_p95`)
 * **Kiểu dữ liệu**: Gauge (Metric).
 * **Mục đích**: Đo lường độ trễ ở phân vị thứ 95 của các cuộc gọi API để phát hiện hiện tượng nghẽn hoặc treo dịch vụ.
 * **Giá trị**: Số thực thể hiện thời gian phản hồi bằng mili-giây (milliseconds).
@@ -211,29 +221,28 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 }
 ```
 
-### Tín hiệu 3: Bộ nhớ Container sử dụng thực tế (`container_resource_usage`)
+#### Tín hiệu 3: Lưu lượng/Băng thông dịch vụ (`service_throughput_rps`)
 * **Kiểu dữ liệu**: Gauge (Metric).
-* **Mục đích**: Giám sát tài nguyên phần cứng (RAM/CPU) của container để phát hiện rò rỉ bộ nhớ (Memory Leak) hoặc nguy cơ bị OOMKilled.
-* **Giá trị**: Số nguyên thể hiện dung lượng bộ nhớ làm việc thực tế tính bằng Bytes.
+* **Mục đích**: Đo lường tổng số requests xử lý trên mỗi giây (throughput) để phát hiện sự thay đổi bất thường của tải hệ thống và đưa ra quyết định scale-up chính xác.
+* **Giá trị**: Số thực biểu thị số lượng requests/giây (RPS).
 * **Payload mẫu**:
 ```json
 {
-  "ts": "2026-06-25T10:30:00.000Z",
-  "tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c",
-  "service": "inventory-service",
-  "signal_name": "container_resource_usage",
-  "value": 1073741824,
+  "ts": "2026-06-25T10:30:00.123Z",
+  "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+  "service": "order-service",
+  "signal_name": "service_throughput_rps",
+  "value": 145.8,
   "labels": {
     "system": "E-COMMERCE",
-    "pod_name": "inventory-service-68d7f5c9b-abcde",
-    "container": "main",
+    "endpoint": "/v1/orders/checkout",
     "namespace": "production",
-    "deployment": "inventory-service"
+    "deployment": "order-service"
   }
 }
 ```
 
-### Tín hiệu 4: Sự kiện Log lỗi ứng dụng (`application_log_event`)
+#### Tín hiệu 4: Sự kiện Log lỗi ứng dụng (`application_log_event`)
 * **Kiểu dữ liệu**: Event (Log).
 * **Mục đích**: Ghi nhận các log có mức độ nghiêm trọng `ERROR` hoặc chứa nội dung Stack Trace để mô hình AI phân tích sâu nguyên nhân ở cấp độ dòng code.
 * **Giá trị**: Chuỗi văn bản thô chứa nội dung log lỗi và stack trace.
@@ -255,7 +264,7 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 }
 ```
 
-### Tín hiệu 5: Sự kiện lỗi giao dịch phân tán (`distributed_trace_error_event`)
+#### Tín hiệu 5: Sự kiện lỗi giao dịch phân tán (`distributed_trace_error_event`)
 * **Kiểu dữ liệu**: Event (Trace Span).
 * **Mục đích**: Phát hiện các lỗi phát sinh trong chuỗi gọi dịch vụ liên kết (giao dịch phân tán) và xác định điểm đầu tiên phát sinh lỗi.
 * **Giá trị**: Số nguyên thể hiện mã trạng thái lỗi của span giao dịch (ví dụ: HTTP Status Code hoặc gRPC Error Code).
@@ -278,13 +287,37 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 }
 ```
 
-### Tín hiệu Cảnh báo Dẫn xuất (Derived Infrastructure Alerts)
+---
 
-Để đáp ứng tối đa khả năng phát hiện sự cố nhanh từ CDOps Platform, hệ thống hỗ trợ thêm 3 tín hiệu cảnh báo dẫn xuất trực tiếp từ hạ tầng:
+### B. Lớp Hạ tầng & Container (Infrastructure & Container Layer)
 
-#### Tín hiệu 6: Sự kiện Pod bị OOMKilled (`pod_oom_event`)
+Lớp này giám sát sức khỏe, mức độ chiếm dụng tài nguyên phần cứng và các sự kiện vòng đời (lifecycle events) của container chạy trên cụm.
+
+#### Tín hiệu 6: Bộ nhớ Container sử dụng thực tế (`container_resource_usage`)
+* **Kiểu dữ liệu**: Gauge (Metric).
+* **Mục đích**: Giám sát tài nguyên bộ nhớ làm việc thực tế (working set bytes) của container để phát hiện rò rỉ bộ nhớ (Memory Leak) hoặc nguy cơ bị OOMKilled.
+* **Giá trị**: Số nguyên thể hiện dung lượng bộ nhớ sử dụng tính bằng Bytes.
+* **Payload mẫu**:
+```json
+{
+  "ts": "2026-06-25T10:30:00.000Z",
+  "tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c",
+  "service": "inventory-service",
+  "signal_name": "container_resource_usage",
+  "value": 1073741824,
+  "labels": {
+    "system": "E-COMMERCE",
+    "pod_name": "inventory-service-68d7f5c9b-abcde",
+    "container": "main",
+    "namespace": "production",
+    "deployment": "inventory-service"
+  }
+}
+```
+
+#### Tín hiệu 7: Sự kiện Pod bị OOMKilled (`pod_oom_event`)
 * **Kiểu dữ liệu**: Event (Alert).
-* **Mục đích**: Báo hiệu ngay lập tức khi một container trong pod bị hệ điều hành tắt do vượt quá giới hạn bộ nhớ cấu hình (OOMKilled).
+* **Mục đích**: Báo hiệu ngay lập tức khi một container trong pod bị hệ điều hành tắt do vượt quá giới hạn bộ nhớ cấu hình (OOMKilled) để kích hoạt khẩn cấp runbook vá tài nguyên.
 * **Giá trị**: Chuỗi mô tả sự kiện (ví dụ: `"OOMKilled: Pod order-service-5f8d9b7c-xyz12, Container main, Exit Code 137"`).
 * **Payload mẫu**:
 ```json
@@ -304,10 +337,32 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 }
 ```
 
-#### Tín hiệu 7: Cảnh báo Dịch vụ Không Khỏe mạnh (`service_unhealthy`)
+#### Tín hiệu 8: Số lần khởi động lại của container (`container_restart_count`)
+* **Kiểu dữ liệu**: Counter (Metric).
+* **Mục đích**: Giám sát tần suất và số lần khởi động lại tích lũy của container để phát hiện trạng thái CrashLoopBackOff (triển khai mã lỗi, lỗi cấu hình khởi động) nhằm kích hoạt tự động hoàn tác (`ROLLOUT_UNDO`).
+* **Giá trị**: Số nguyên biểu thị số lần restart của container từ lúc khởi tạo.
+* **Payload mẫu**:
+```json
+{
+  "ts": "2026-06-25T10:30:10.000Z",
+  "tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c",
+  "service": "inventory-service",
+  "signal_name": "container_restart_count",
+  "value": 5,
+  "labels": {
+    "system": "E-COMMERCE",
+    "pod_name": "inventory-service-68d7f5c9b-abcde",
+    "container": "main",
+    "namespace": "production",
+    "deployment": "inventory-service"
+  }
+}
+```
+
+#### Tín hiệu 9: Cảnh báo Dịch vụ Không Khỏe mạnh (`service_unhealthy`)
 * **Kiểu dữ liệu**: Event (Alert).
-* **Mục đích**: Báo hiệu khi một dịch vụ không vượt qua các đợt kiểm tra sức khỏe liên tiếp (Liveness/Readiness probe fail) từ hệ thống giám sát.
-* **Giá trị**: Chuỗi mô tả trạng thái lỗi (ví dụ: `"Readiness probe failed: HTTP 500 Internal Server Error"`).
+* **Mục đích**: Báo hiệu khi một dịch vụ không vượt qua các đợt kiểm tra sức khỏe liên tiếp (Liveness/Readiness probe fail) từ Kubernetes Kubelet.
+* **Giá trị**: Chuỗi mô tả trạng thái lỗi probe (ví dụ: `"Readiness probe failed: HTTP 500 Internal Server Error"`).
 * **Payload mẫu**:
 ```json
 {
@@ -324,9 +379,15 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 }
 ```
 
-#### Tín hiệu 8: Hàng đợi Bị Nghẽn (`queue_backlog`)
+---
+
+### C. Lớp Hàng đợi & Tài nguyên liên kết (Middleware & Dependencies Layer)
+
+Lớp này giám sát độ bão hòa của các thành phần trung gian (message brokers, cache) và các kết nối tới hệ quản trị cơ sở dữ liệu.
+
+#### Tín hiệu 10: Hàng đợi Bị Nghẽn (`queue_backlog`)
 * **Kiểu dữ liệu**: Gauge (Metric).
-* **Mục đích**: Đo lường số lượng tin nhắn chưa được xử lý trong hàng đợi (message backlog) để cảnh báo hiện tượng nghẽn cổ chai.
+* **Mục đích**: Đo lường số lượng tin nhắn chưa được xử lý tồn đọng trong hàng đợi (message backlog) để phát hiện hiện tượng nghẽn cổ chai và đưa ra quyết định scale-up replicas cho worker.
 * **Giá trị**: Số nguyên biểu thị số lượng tin nhắn đang tồn đọng trong hàng đợi.
 * **Payload mẫu**:
 ```json
@@ -344,22 +405,72 @@ Bảng dưới đây cung cấp tóm tắt trực quan về cấu trúc dữ li�
 }
 ```
 
+#### Tín hiệu 11: Độ bão hòa kết nối Database (`db_connection_pool_saturation`)
+* **Kiểu dữ liệu**: Gauge (Metric).
+* **Mục đích**: Đo lường tỷ lệ kết nối đang hoạt động trên tổng số kết nối tối đa của connection pool từ microservice đến Database, giúp phát hiện sớm nguy cơ cạn kiệt kết nối DB.
+* **Giá trị**: Số thực từ `0.0` đến `1.0` (tương đương 0% đến 100% độ bão hòa pool).
+* **Payload mẫu**:
+```json
+{
+  "ts": "2026-06-25T10:30:15.000Z",
+  "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+  "service": "order-service",
+  "signal_name": "db_connection_pool_saturation",
+  "value": 0.95,
+  "labels": {
+    "system": "E-COMMERCE",
+    "namespace": "production",
+    "deployment": "order-service"
+  }
+}
+```
+
+---
+
+### D. Lớp Bảo mật & An toàn (Security & Compliance Layer)
+
+Lớp này giám sát thời hạn hiệu lực của các thông tin bí mật (credentials, API keys) và chứng chỉ mật mã sử dụng trong hệ thống để tự động thực hiện xoay vòng khóa.
+
+#### Tín hiệu 12: Cảnh báo hết hạn bí mật/chứng chỉ (`secret_expiry_warning`)
+* **Kiểu dữ liệu**: Event (Alert).
+* **Mục đích**: Phát hiện các chứng chỉ SSL/TLS hoặc API Secrets/Keys sắp hết hạn để kích hoạt tự động xoay vòng an toàn (`ROTATE_SECRET`) tránh gián đoạn dịch vụ nghiệp vụ.
+* **Giá trị**: Số nguyên biểu thị số ngày còn lại trước khi hết hạn (ví dụ: `7` ngày).
+* **Payload mẫu**:
+```json
+{
+  "ts": "2026-06-25T10:30:20.000Z",
+  "tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c",
+  "service": "payment-gateway",
+  "signal_name": "secret_expiry_warning",
+  "value": 7,
+  "labels": {
+    "system": "E-COMMERCE",
+    "namespace": "production",
+    "secret_name": "tf-3/payment-gateway/cert"
+  }
+}
+```
+
 ---
 
 ## 5. Thuộc tính Vận hành & Cam kết Chất lượng Dữ liệu (Telemetry SLA)
 
 Để phục vụ công tác định cỡ tài nguyên (capacity sizing), quản trị chi phí và bảo đảm tính cập nhật của dữ liệu cho mô hình AI, các tín hiệu telemetry phải tuân thủ các chỉ số vận hành sau:
 
-| Tên Tín hiệu (`signal_name`) | Tần suất gửi (Frequency) | Điểm phát (Emit Point) | Thời gian lưu trữ (Retention) | Cam kết độ trễ (Emit SLA) | Hạn mức Lưu lượng (Volume SLA) | Mục đích sử dụng (Used For) |
-|---|---|---|---|---|---|---|
-| `service_error_rate` | Cửa sổ trượt 1 phút | Ingestion Prometheus / OTel | Hot: 7 ngày <br> Cold: 90 ngày | < 10 giây từ lúc tính toán | Max: 100 events/sec per tenant | Phát hiện tăng tỷ lệ lỗi dịch vụ nghiệp vụ |
-| `service_latency_p95` | Cửa sổ trượt 1 phút | Ingestion Prometheus / OTel | Hot: 7 ngày <br> Cold: 90 ngày | < 10 giây từ lúc tính toán | Max: 100 events/sec per tenant | Phát hiện nghẽn hoặc treo API |
-| `container_resource_usage` | Mỗi 15 giây | K8s Metrics Server / Advisor | Hot: 7 ngày <br> Cold: 90 ngày | < 15 giây từ lúc thu thập | Max: 50 events/sec per tenant | Phát hiện Memory Leak và nguy cơ OOMKilled |
-| `application_log_event` | Theo thời gian thực (khi có lỗi) | OTel Log Collector / Fluentd | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc log phát sinh | Max: 200 events/sec per tenant | Phân tích sâu nguyên nhân lỗi qua Stack Trace |
-| `distributed_trace_error_event` | Theo thời gian thực (khi giao dịch lỗi) | OTel Trace Collector / Jaeger | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc giao dịch hoàn tất | Max: 150 events/sec per tenant | Phác họa bản đồ lỗi giao dịch phân tán |
-| `pod_oom_event` | Theo thời gian thực (khi xảy ra OOM) | K8s Node / Container Lifecycle Event | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc container bị terminate | Max: 10 events/sec per tenant | Phát hiện trực tiếp sự cố container bị OOMKilled |
-| `service_unhealthy` | Theo thời gian thực (khi probe fail) | K8s Kubelet / Probe Monitor | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc thay đổi trạng thái | Max: 10 events/sec per tenant | Phát hiện trạng thái không khỏe mạnh (Liveness/Readiness fail) |
-| `queue_backlog` | Mỗi 30 giây | Queue Metrics Collector (SQS/RabbitMQ) | Hot: 7 ngày <br> Cold: 90 ngày | < 10 giây từ lúc đo lường | Max: 50 events/sec per tenant | Phát hiện nghẽn hàng đợi để thực hiện scale up |
+| Lớp tín hiệu (Category) | Tên Tín hiệu (`signal_name`) | Tần suất gửi (Frequency) | Điểm phát (Emit Point) | Thời gian lưu trữ (Retention) | Cam kết độ trễ (Emit SLA) | Hạn mức Lưu lượng (Volume SLA) | Mục đích sử dụng (Used For) |
+|---|---|---|---|---|---|---|---|
+| **Application & Service** | `service_error_rate` | Cửa sổ trượt 1 phút | Ingestion Prometheus / OTel | Hot: 7 ngày <br> Cold: 90 ngày | < 10 giây từ lúc tính toán | Max: 100 events/sec per tenant | Phát hiện tăng tỷ lệ lỗi dịch vụ nghiệp vụ |
+| **Application & Service** | `service_latency_p95` | Cửa sổ trượt 1 phút | Ingestion Prometheus / OTel | Hot: 7 ngày <br> Cold: 90 ngày | < 10 giây từ lúc tính toán | Max: 100 events/sec per tenant | Phát hiện nghẽn hoặc treo API |
+| **Application & Service** | `service_throughput_rps` | Cửa sổ trượt 1 phút | Ingestion Prometheus / OTel | Hot: 7 ngày <br> Cold: 90 ngày | < 10 giây từ lúc tính toán | Max: 100 events/sec per tenant | Đo lường băng thông/tải hệ thống và ra quyết định scale |
+| **Application & Service** | `application_log_event` | Theo thời gian thực (khi có lỗi) | OTel Log Collector / Fluentd | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc log phát sinh | Max: 200 events/sec per tenant | Phân tích sâu nguyên nhân lỗi qua Stack Trace |
+| **Application & Service** | `distributed_trace_error_event` | Theo thời gian thực (khi giao dịch lỗi) | OTel Trace Collector / Jaeger | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc giao dịch hoàn tất | Max: 150 events/sec per tenant | Phác họa bản đồ lỗi giao dịch phân tán |
+| **Infrastructure & Container** | `container_resource_usage` | Mỗi 15 giây | K8s Metrics Server / cAdvisor | Hot: 7 ngày <br> Cold: 90 ngày | < 15 giây từ lúc thu thập | Max: 50 events/sec per tenant | Phát hiện Memory Leak và nguy cơ OOMKilled |
+| **Infrastructure & Container** | `pod_oom_event` | Theo thời gian thực (khi xảy ra OOM) | K8s Node / Container Lifecycle Event | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc container bị terminate | Max: 10 events/sec per tenant | Phát hiện trực tiếp sự cố container bị OOMKilled |
+| **Infrastructure & Container** | `container_restart_count` | Mỗi 15 giây | K8s Metrics Server / kube-state-metrics | Hot: 7 ngày <br> Cold: 90 ngày | < 15 giây từ lúc thu thập | Max: 30 events/sec per tenant | Phát hiện CrashLoopBackOff để thực hiện Rollout Undo |
+| **Infrastructure & Container** | `service_unhealthy` | Theo thời gian thực (khi probe fail) | K8s Kubelet / Probe Monitor | Hot: 14 ngày <br> Cold: 90 ngày | < 5 giây từ lúc thay đổi trạng thái | Max: 10 events/sec per tenant | Phát hiện trạng thái không khỏe mạnh (Liveness/Readiness fail) |
+| **Middleware & Dependencies** | `queue_backlog` | Mỗi 30 giây | Queue Metrics Collector (SQS/RabbitMQ) | Hot: 7 ngày <br> Cold: 90 ngày | < 10 giây từ lúc đo lường | Max: 50 events/sec per tenant | Phát hiện nghẽn hàng đợi để thực hiện scale up |
+| **Middleware & Dependencies** | `db_connection_pool_saturation` | Mỗi 15 giây | Database Monitor / APM Agent | Hot: 7 ngày <br> Cold: 90 ngày | < 10 giây từ lúc đo lường | Max: 50 events/sec per tenant | Phát hiện cạn kiệt connection pool kết nối cơ sở dữ liệu |
+| **Security & Compliance** | `secret_expiry_warning` | Mỗi 1 giờ (hoặc khi có cảnh báo) | Secrets Manager / Cert Manager Event | Hot: 7 ngày <br> Cold: 90 ngày | < 60 giây từ lúc kích hoạt | Max: 5 events/sec per tenant | Phát hiện hết hạn chứng chỉ/secret để xoay vòng khóa |
 
 ---
 
