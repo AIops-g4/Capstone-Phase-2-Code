@@ -221,8 +221,6 @@ AI Engine được triển khai hoàn toàn trong mạng nội bộ bảo mật,
 | AWS Bedrock Endpoint | TCP | `443` | Gọi APIs của AWS Bedrock phục vụ phân tích log/context |
 | Amazon DynamoDB VPC Endpoint | TCP | `443` | Kiểm tra và cập nhật khóa chống trùng lặp (Idempotency Lock) |
 | Amazon S3 VPC Endpoint | TCP | `443` | Ghi nhật ký kiểm toán (Audit Trail) phục vụ tuân thủ SOC2 |
-| EKS Sandbox Cluster API Server | TCP | `443` / `6443` | Thực thi các hành động chữa lành (Self-Heal Actions) trên EKS cluster |
-
 
 ### C. Deployment Topology Diagram
 
