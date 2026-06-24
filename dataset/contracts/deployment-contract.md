@@ -81,60 +81,7 @@ AI Engine chạy một instance duy nhất (shared backend) cho cả hai CDO pla
 
 ---
 
-## 3. Kubernetes RBAC & Safety Constraints (Least Privilege)
-
-Để thực thi các kịch bản tự chữa lành (Self-Heal Actions) trên EKS Sandbox Cluster chạy các dịch vụ RE2 và RE3 (Online Boutique) mà vẫn bảo đảm chính sách an toàn (**Zero unsafe actions**):
-
-- **Không** cấp quyền quản trị cụm (`ClusterAdmin`).
-- **Không** cấp quyền chỉnh sửa cấu hình phân quyền K8s (`ClusterRole`, `RoleBinding`).
-- **Không** cấp quyền sửa đổi tài khoản IAM hoặc AWS credentials.
-- Chỉ cho phép thao tác trong namespace thực tế tương ứng với hệ thống Online Boutique: `onlineboutique`.
-
-### Định nghĩa K8s Role (RBAC YAML Specification)
-
-Nhóm CDO chịu trách nhiệm apply `Role` và `RoleBinding` trên sandbox cluster cho namespace `onlineboutique`:
-
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  namespace: onlineboutique
-  name: self-heal-executor-role
-rules:
-  # 1. Quyền restart deployment (patch template.metadata.annotations)
-  # 2. Quyền scale deployment (patch spec.replicas)
-  - apiGroups: ["apps"]
-    resources: ["deployments", "deployments/scale"]
-    verbs: ["get", "list", "patch", "update"]
-
-  # 3. Quyền restart/delete pods trực tiếp hoặc get log để đính kèm context bundle
-  - apiGroups: [""]
-    resources: ["pods", "pods/log"]
-    verbs: ["get", "list", "delete"]
-
-  # 4. Quyền rotate secrets hoặc update configmaps (rotate TLS cert, update env secret)
-  - apiGroups: [""]
-    resources: ["secrets", "configmaps"]
-    verbs: ["get", "list", "patch", "update"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  namespace: onlineboutique
-  name: self-heal-executor-binding
-subjects:
-  - kind: ServiceAccount
-    name: self-heal-engine-sa
-    namespace: onlineboutique
-roleRef:
-  kind: Role
-  name: self-heal-executor-role
-  apiGroup: rbac.authorization.k8s.io
-```
-
----
-
-## 4. ECS IAM Roles & Secrets Management
+## 3. ECS IAM Roles & Secrets Management
 
 Để bảo đảm an toàn hạ tầng và tuân thủ các nguyên tắc đặc quyền tối thiểu (Least Privilege), phân quyền IAM được chia tách rõ ràng giữa giai đoạn khởi tạo (Execution) và giai đoạn chạy (Task).
 
@@ -233,7 +180,7 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
 
 ---
 
-## 5. Idempotency Lock & Audit Logging (SOC2 Compliance)
+## 4. Idempotency Lock & Audit Logging (SOC2 Compliance)
 
 ### A. Idempotency Lock
 - Mọi action plan được quyết định tại `/v1/decide` phải có `Idempotency-Key`.
@@ -246,7 +193,7 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
 
 ---
 
-## 6. Networking & Security Groups
+## 5. Networking & Security Groups
 
 AI Engine được triển khai hoàn toàn trong mạng nội bộ bảo mật, không tiếp xúc trực tiếp với Internet công cộng.
 
@@ -318,7 +265,7 @@ graph TB
 
 ---
 
-## 7. Rollback & Canary Rollout
+## 6. Rollback & Canary Rollout
 
 ### A. Rollout Strategy (Canary)
 - **Bước 1**: Điều hướng 10% lưu lượng sang phiên bản AI Engine mới. Giữ trong 5 phút để theo dõi.
@@ -338,7 +285,7 @@ Hệ thống giám sát Canary của CDO sẽ tự động dừng rollout và k�
 
 ---
 
-## 8. Health Check & Readiness Endpoints
+## 7. Health Check & Readiness Endpoints
 
 AI Engine phải cung cấp các HTTP endpoints sau trên container port `8080` để phục vụ công tác giám sát trạng thái và định tuyến của ALB:
 
@@ -380,7 +327,7 @@ AI Engine phải cung cấp các HTTP endpoints sau trên container port `8080` 
 
 ---
 
-## 9. Failure Modes & Response & Observability
+## 8. Failure Modes & Response & Observability
 
 ### A. Observability
 - **OTel Endpoint**: Cấu hình URL của OTel Collector tương ứng với từng CDO platform thông qua environment variables.
