@@ -27,7 +27,7 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
 | Attribute | Value |
 |---|---|
 | **Type** | Gauge |
-| **Labels** | `service`, `endpoint`, `tenant_id` (Bắt buộc) |
+| **Labels** | `service`, `endpoint`, `tenant_id`, `namespace`, `deployment` (Bắt buộc) |
 | **Unit** | Percentage (0.0 to 1.0) |
 | **Frequency** | 5 giây (Cửa sổ trượt) |
 | **Emit point** | CDO Platform Preprocessor (đọc metrics.csv -> tính toán -> gửi qua SQS) |
@@ -45,7 +45,9 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
   "value": 0.45,
   "labels": {
     "system": "OB",
-    "deployment_version": "v2.3.1"
+    "deployment_version": "v2.3.1",
+    "namespace": "onlineboutique",
+    "deployment": "adservice"
   }
 }
 ```
@@ -60,7 +62,7 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
 | Attribute | Value |
 |---|---|
 | **Type** | Gauge |
-| **Labels** | `service`, `endpoint`, `tenant_id` (Bắt buộc) |
+| **Labels** | `service`, `endpoint`, `tenant_id`, `namespace`, `deployment` (Bắt buộc) |
 | **Unit** | Milliseconds |
 | **Frequency** | 5 giây |
 | **Emit point** | CDO Platform (Trích xuất từ metrics.csv -> gửi qua SQS) |
@@ -78,7 +80,9 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
   "value": 245.0,
   "labels": {
     "system": "OB",
-    "deployment_version": "v1.0.4"
+    "deployment_version": "v1.0.4",
+    "namespace": "onlineboutique",
+    "deployment": "checkoutservice"
   }
 }
 ```
@@ -93,7 +97,7 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
 | Attribute | Value |
 |---|---|
 | **Type** | Gauge |
-| **Labels** | `service`, `pod_name`, `container`, `tenant_id` (Bắt buộc) |
+| **Labels** | `service`, `pod_name`, `container`, `tenant_id`, `namespace`, `deployment` (Bắt buộc) |
 | **Unit** | Bytes |
 | **Frequency** | 10 giây |
 | **Emit point** | CDO Platform (Trích xuất từ metrics.csv -> gửi qua SQS) |
@@ -110,7 +114,9 @@ Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Plat
   "container": "main",
   "value": 419430400,
   "labels": {
-    "system": "OB"
+    "system": "OB",
+    "namespace": "onlineboutique",
+    "deployment": "emailservice"
   }
 }
 ```
@@ -124,7 +130,7 @@ Sự kiện log lỗi của ứng dụng khi phát hiện log có mức độ `E
 | Attribute | Value |
 |---|---|
 | **Type** | Event |
-| **Labels** | `service`, `pod_name`, `level`, `tenant_id` (Bắt buộc) |
+| **Labels** | `service`, `pod_name`, `level`, `tenant_id`, `namespace`, `deployment` (Bắt buộc) |
 | **Frequency** | Real-time (On-event) |
 | **Emit point** | CDO Platform Log Parser (đọc logs.csv -> lọc log ERROR -> gửi qua SQS) |
 | **Retention** | 30 ngày hot |
@@ -141,7 +147,9 @@ Sự kiện log lỗi của ứng dụng khi phát hiện log có mức độ `E
   "level": "ERROR",
   "message": "java.lang.NullPointerException: Cannot invoke 'String.length()' because 'param' is null\n\tat com.hipstershop.adservice.AdService.getAds(AdService.java:45)",
   "labels": {
-    "system": "OB"
+    "system": "OB",
+    "namespace": "onlineboutique",
+    "deployment": "adservice"
   }
 }
 ```
@@ -155,7 +163,7 @@ Sự kiện được phát sinh khi có cuộc gọi giao dịch (trace span) k�
 | Attribute | Value |
 |---|---|
 | **Type** | Event |
-| **Labels** | `service`, `operation`, `trace_id`, `span_id`, `status_code`, `tenant_id` (Bắt buộc) |
+| **Labels** | `service`, `operation`, `trace_id`, `span_id`, `status_code`, `tenant_id`, `namespace`, `deployment` (Bắt buộc) |
 | **Frequency** | Real-time (On-event) |
 | **Emit point** | CDO Platform Trace Parser (đọc traces.csv -> lọc span statusCode != 0.0 -> gửi qua SQS) |
 | **Retention** | 7 ngày hot |
@@ -174,7 +182,9 @@ Sự kiện được phát sinh khi có cuộc gọi giao dịch (trace span) k�
   "status_code": 2.0,
   "duration_ms": 150.5,
   "labels": {
-    "system": "OB"
+    "system": "OB",
+    "namespace": "onlineboutique",
+    "deployment": "frontend"
   }
 }
 ```

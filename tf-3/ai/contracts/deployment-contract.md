@@ -6,6 +6,30 @@ Tài liệu này xác định **quy chuẩn triển khai hạ tầng (Deployment
 
 ---
 
+## 1.5. Target Topology: Namespace & Deployment Mappings
+
+Để đảm bảo các hành động tự chữa lành (Self-Heal Actions) tác động chính xác đến các tài nguyên trên EKS Sandbox Cluster, quy chuẩn cấu trúc định danh được quy định như sau:
+
+* **Target Namespace**: Mọi tài nguyên microservice của hệ thống Online Boutique được triển khai duy nhất trong namespace **`onlineboutique`**.
+* **Deployment Mappings**: Tên của Kubernetes Deployment của từng service tương ứng được ánh xạ trực tiếp từ tên dịch vụ (`service`). CDO Platform và AI Engine phải tuân thủ bảng đối chiếu dưới đây:
+
+| Service Name | Kubernetes Namespace | Target K8s Deployment Resource |
+|---|---|---|
+| `adservice` | `onlineboutique` | `deployment/adservice` |
+| `cartservice` | `onlineboutique` | `deployment/cartservice` |
+| `checkoutservice` | `onlineboutique` | `deployment/checkoutservice` |
+| `currencyservice` | `onlineboutique` | `deployment/currencyservice` |
+| `emailservice` | `onlineboutique` | `deployment/emailservice` |
+| `frontend` | `onlineboutique` | `deployment/frontend` |
+| `frontendservice` | `onlineboutique` | `deployment/frontendservice` |
+| `paymentservice` | `onlineboutique` | `deployment/paymentservice` |
+| `productcatalogservice` | `onlineboutique` | `deployment/productcatalogservice` |
+| `recommendationservice` | `onlineboutique` | `deployment/recommendationservice` |
+
+Mọi yêu cầu gọi API lập kế hoạch sửa lỗi (`/v1/decide`) và báo cáo kiểm chứng (`/v1/verify`) bắt buộc phải truyền đầy đủ hai thông tin `namespace` (giá trị `"onlineboutique"`) và `deployment` (tên deployment tương ứng) để phục vụ công tác xác thực an toàn và kiểm toán.
+
+---
+
 ## 2. Infrastructure Hosting & Offline Testing Strategy
 
 AI Engine được triển khai dưới dạng **shared backend service** chạy trên ECS Fargate tasks độc lập. Nhóm AI chịu trách nhiệm quản lý, build image, task definition, runtime và scale, trong khi các CDO platform tích hợp bằng cách gọi vào endpoint nội bộ được cung cấp dưới đây.
@@ -49,14 +73,66 @@ AI Engine chạy một instance duy nhất (shared backend) cho cả hai CDO pla
 | **Simulation (RE2)** | `tnt-re2-simulation` | (Internal simulation routing) | IAM SigV4 / Local |
 | **Simulation (RE3)** | `tnt-re3-simulation` | (Internal simulation routing) | IAM SigV4 / Local |
 
-
 ### D. Chiến lược chạy thử nghiệm mô phỏng (Offline Simulation Mode)
 * Vì RE2 và RE3 dataset là dữ liệu offline đã thu thập dưới dạng CSV tĩnh, các hành động sửa đổi hạ tầng thật (`RESTART_DEPLOYMENT`, `SCALE_UP_PODS`,...) sẽ được **chạy ở chế độ giả lập (Mock Mode)** trong môi trường sandbox của CDO.
 * CDO Platform sẽ ghi nhận lệnh gọi từ AI Engine, ghi log kiểm toán tương ứng, và mô phỏng phản hồi thành công. Dữ liệu telemetry phản hồi tiếp theo sẽ được trích xuất từ dữ liệu tĩnh lịch sử (sau mốc thời gian lỗi của dataset) để gửi verify.
 
 ---
 
-## 3. ECS IAM Roles & Secrets Management
+## 3. Kubernetes RBAC & Safety Constraints (Least Privilege)
+
+Để thực thi các kịch bản tự chữa lành (Self-Heal Actions) trên EKS Sandbox Cluster chạy các dịch vụ RE2 và RE3 (Online Boutique) mà vẫn bảo đảm chính sách an toàn (**Zero unsafe actions**):
+
+- **Không** cấp quyền quản trị cụm (`ClusterAdmin`).
+- **Không** cấp quyền chỉnh sửa cấu hình phân quyền K8s (`ClusterRole`, `RoleBinding`).
+- **Không** cấp quyền sửa đổi tài khoản IAM hoặc AWS credentials.
+- Chỉ cho phép thao tác trong namespace thực tế tương ứng với hệ thống Online Boutique: `onlineboutique`.
+
+### Định nghĩa K8s Role (RBAC YAML Specification)
+
+Nhóm CDO chịu trách nhiệm apply `Role` và `RoleBinding` trên sandbox cluster cho namespace `onlineboutique`:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: onlineboutique
+  name: self-heal-executor-role
+rules:
+  # 1. Quyền restart deployment (patch template.metadata.annotations)
+  # 2. Quyền scale deployment (patch spec.replicas)
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "patch", "update"]
+
+  # 3. Quyền restart/delete pods trực tiếp hoặc get log để đính kèm context bundle
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "delete"]
+
+  # 4. Quyền rotate secrets hoặc update configmaps (rotate TLS cert, update env secret)
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: onlineboutique
+  name: self-heal-executor-binding
+subjects:
+  - kind: ServiceAccount
+    name: self-heal-engine-sa
+    namespace: onlineboutique
+roleRef:
+  kind: Role
+  name: self-heal-executor-role
+  apiGroup: rbac.authorization.k8s.io
+```
+
+---
+
+## 4. ECS IAM Roles & Secrets Management
 
 Để bảo đảm an toàn hạ tầng và tuân thủ các nguyên tắc đặc quyền tối thiểu (Least Privilege), phân quyền IAM được chia tách rõ ràng giữa giai đoạn khởi tạo (Execution) và giai đoạn chạy (Task).
 
@@ -155,20 +231,9 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
 
 ---
 
-## 4. Idempotency Lock & Audit Logging (SOC2 Compliance)
+## 5. Idempotency Lock & Audit Logging (SOC2 Compliance)
 
 ### A. Idempotency Lock
-
-#### 1. Tại sao cần Idempotency Lock?
-Trong môi trường phân tán hoặc khi xảy ra sự cố mạng, một hệ thống giám sát (CDO) có thể gửi yêu cầu gọi API `/v1/decide` hoặc thực thi hành động nhiều lần do cơ chế tự động thử lại (Retry).
-* Nếu không có Idempotency Lock, hạ tầng có thể thực hiện một hành động sửa lỗi **2 lần liên tiếp** (ví dụ: Khởi động lại deployment 2 lần liên tục, hoặc tăng số lượng pod gấp đôi 2 lần), gây mất ổn định nghiêm trọng hơn và lãng phí tài nguyên hạ tầng.
-
-#### 2. Nguyên lý hoạt động
-1. Mỗi quyết định hành động tự chữa lành được sinh ra tại `/v1/decide` bắt buộc phải kèm theo một `Idempotency-Key` (UUID v4 duy nhất).
-2. Khi bắt đầu thực thi hành động, CDO Platform sẽ kiểm tra khóa này trong cơ sở dữ liệu khóa (Lock database).
-3. Nếu khóa **chưa tồn tại**: Hệ thống sẽ ghi nhận khóa và tiến hành thực thi hành động.
-4. Nếu khóa **đã tồn tại** (đang chạy hoặc đã hoàn thành gần đây): Hệ thống sẽ từ chối và trả về mã lỗi **`409 Conflict`** cho các yêu cầu trùng lặp, bảo đảm hành động chỉ được thực hiện duy nhất 1 lần.
-
 - Mọi action plan được quyết định tại `/v1/decide` phải có `Idempotency-Key`.
 - Nhóm CDO platform sử dụng **DynamoDB với Conditional Writes** (hoặc **Redis lock** với TTL = 5 phút) để khóa trùng lặp lệnh. Nếu một action đang chạy, mọi request trùng `Idempotency-Key` sẽ bị từ chối với mã lỗi `409 Conflict`.
 
@@ -179,7 +244,7 @@ Trong môi trường phân tán hoặc khi xảy ra sự cố mạng, một hệ
 
 ---
 
-## 5. Networking & Security Groups
+## 6. Networking & Security Groups
 
 AI Engine được triển khai hoàn toàn trong mạng nội bộ bảo mật, không tiếp xúc trực tiếp với Internet công cộng.
 
@@ -207,6 +272,8 @@ AI Engine được triển khai hoàn toàn trong mạng nội bộ bảo mật,
 | AWS Bedrock Endpoint | TCP | `443` | Gọi APIs của AWS Bedrock phục vụ phân tích log/context |
 | Amazon DynamoDB VPC Endpoint | TCP | `443` | Kiểm tra và cập nhật khóa chống trùng lặp (Idempotency Lock) |
 | Amazon S3 VPC Endpoint | TCP | `443` | Ghi nhật ký kiểm toán (Audit Trail) phục vụ tuân thủ SOC2 |
+| EKS Sandbox Cluster API Server | TCP | `443` / `6443` | Thực thi các hành động chữa lành (Self-Heal Actions) trên EKS cluster |
+
 
 ### C. Deployment Topology Diagram
 
@@ -226,7 +293,7 @@ graph TB
                 SM[Secrets Manager VPCe]
                 DDB[(DynamoDB - Idempotency Lock)]
                 S3[(S3 Bucket: Audit Trail<br>Object Lock Compliance Mode 90d)]
-                EKS_API[EKS Sandbox Cluster API Server Temporary POC Target for Self-Heal Actions]
+                EKS_API[EKS Sandbox Cluster API Server]
             end
             
             ECS1 & ECS2 -->|Fetch Kubeconfig| SM
@@ -249,7 +316,7 @@ graph TB
 
 ---
 
-## 6. Rollback & Canary Rollout
+## 7. Rollback & Canary Rollout
 
 ### A. Rollout Strategy (Canary)
 - **Bước 1**: Điều hướng 10% lưu lượng sang phiên bản AI Engine mới. Giữ trong 5 phút để theo dõi.
@@ -269,7 +336,7 @@ Hệ thống giám sát Canary của CDO sẽ tự động dừng rollout và k�
 
 ---
 
-## 7. Health Check & Readiness Endpoints
+## 8. Health Check & Readiness Endpoints
 
 AI Engine phải cung cấp các HTTP endpoints sau trên container port `8080` để phục vụ công tác giám sát trạng thái và định tuyến của ALB:
 
@@ -311,7 +378,7 @@ AI Engine phải cung cấp các HTTP endpoints sau trên container port `8080` 
 
 ---
 
-## 8. Failure Modes & Response & Observability
+## 9. Failure Modes & Response & Observability
 
 ### A. Observability
 - **OTel Endpoint**: Cấu hình URL của OTel Collector tương ứng với từng CDO platform thông qua environment variables.

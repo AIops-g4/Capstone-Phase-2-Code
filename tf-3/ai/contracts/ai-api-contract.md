@@ -40,7 +40,7 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 | `telemetry_window[].ts` | RFC3339 | ✓ | Timestamp của sự kiện (UTC) |
 | `telemetry_window[].signal_name` | string | ✓ | Tên tín hiệu (Khớp với Telemetry Contract) |
 | `telemetry_window[].value` | float/string | ✓ | Đo lường hoặc nội dung log |
-| `telemetry_window[].labels` | object | optional | Metadata nhãn bổ sung (ví dụ: service, pod_name) |
+| `telemetry_window[].labels` | object | optional | Metadata nhãn bổ sung (Ví dụ: `service`, `pod_name`, `endpoint`, `container`, `namespace`, `deployment` theo Telemetry Contract) |
 
 **Request Example (Online Boutique System)**:
 ```json
@@ -50,13 +50,22 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
       "ts": "2026-06-25T10:00:00.123Z",
       "signal_name": "istio_request_error_rate",
       "value": 0.45,
-      "labels": { "service": "adservice" }
+      "labels": { 
+        "service": "adservice",
+        "namespace": "onlineboutique",
+        "deployment": "adservice"
+      }
     },
     {
       "ts": "2026-06-25T10:00:01.456Z",
       "signal_name": "app_log_error_event",
       "value": "java.lang.NullPointerException: Cannot invoke 'String.length()' because 'param' is null\n\tat com.hipstershop.adservice.AdService.getAds(AdService.java:45)",
-      "labels": { "service": "adservice", "pod_name": "adservice-5f8d9b7c-xyz12" }
+      "labels": { 
+        "service": "adservice", 
+        "pod_name": "adservice-5f8d9b7c-xyz12",
+        "namespace": "onlineboutique",
+        "deployment": "adservice"
+      }
     }
   ]
 }
@@ -68,6 +77,11 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 | `anomaly_detected` | bool | `true` nếu phát hiện bất thường |
 | `severity` | float | Điểm số độ nghiêm trọng (0.0 đến 1.0) |
 | `anomaly_context` | object | Chi tiết lỗi: dịch vụ bị ảnh hưởng, loại lỗi nghi ngờ |
+| `anomaly_context.target_service` | string | Tên service bị lỗi (Phải thuộc 10 services của Online Boutique) |
+| `anomaly_context.suspected_fault_type` | string | Loại lỗi nghi ngờ. Đối với lỗi code RE3: `f1` đến `f5`. Đối với lỗi tài nguyên/mạng RE2: `cpu`, `mem`, `disk`, `loss`, `delay`, `socket`. |
+| `anomaly_context.system` | string | Luôn là `"OB"` (Online Boutique) |
+| `anomaly_context.namespace` | string | Namespace xảy ra lỗi (Luôn là `"onlineboutique"`) |
+| `anomaly_context.deployment` | string | Tên Kubernetes Deployment của service bị lỗi (Ví dụ: `"adservice"`) |
 | `confidence` | float | Độ tin cậy của mô hình AI (0.0 đến 1.0) |
 | `correlation_id` | UUID | Định danh correlation để liên kết sang decide step |
 
@@ -80,6 +94,8 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
     "target_service": "adservice",
     "suspected_fault_type": "f3",
     "system": "OB",
+    "namespace": "onlineboutique",
+    "deployment": "adservice",
     "trigger_metric": "istio_request_error_rate",
     "trigger_value": 0.45
   },
@@ -193,7 +209,11 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
       "ts": "2026-06-25T10:02:00.000Z",
       "signal_name": "istio_request_error_rate",
       "value": 0.00,
-      "labels": { "service": "adservice" }
+      "labels": { 
+        "service": "adservice",
+        "namespace": "onlineboutique",
+        "deployment": "adservice"
+      }
     }
   ]
 }

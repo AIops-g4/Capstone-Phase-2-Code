@@ -1,13 +1,32 @@
 # Deployment Contract - Task Force 3 (Self-Heal Engine)
 
-<!-- Owner: Nhóm AI Task Force 3
-     Signed by: AI Lead + CDO Leads x 2 + Reviewer panel
-     Date signed: 2026-06-25 (W11 T5)
-     🔒 FREEZE - no change without formal change request -->
-
 ## 1. Mục đích
 
 Tài liệu này xác định **quy chuẩn triển khai hạ tầng (Deployment Specification)** của AI Engine và các phân quyền Kubernetes đi kèm để thực thi các hành động khắc phục lỗi. Các phân quyền và hạ tầng được thiết kế tương thích với các ứng dụng microservice có trong **RE2 và RE3 dataset** (Online Boutique) và phục vụ multi-tenant cho hai nền tảng CDO.
+
+---
+
+## 1.5. Target Topology: Namespace & Deployment Mappings
+
+Để đảm bảo các hành động tự chữa lành (Self-Heal Actions) tác động chính xác đến các tài nguyên trên EKS Sandbox Cluster, quy chuẩn cấu trúc định danh được quy định như sau:
+
+* **Target Namespace**: Mọi tài nguyên microservice của hệ thống Online Boutique được triển khai duy nhất trong namespace **`onlineboutique`**.
+* **Deployment Mappings**: Tên của Kubernetes Deployment của từng service tương ứng được ánh xạ trực tiếp từ tên dịch vụ (`service`). CDO Platform và AI Engine phải tuân thủ bảng đối chiếu dưới đây:
+
+| Service Name | Kubernetes Namespace | Target K8s Deployment Resource |
+|---|---|---|
+| `adservice` | `onlineboutique` | `deployment/adservice` |
+| `cartservice` | `onlineboutique` | `deployment/cartservice` |
+| `checkoutservice` | `onlineboutique` | `deployment/checkoutservice` |
+| `currencyservice` | `onlineboutique` | `deployment/currencyservice` |
+| `emailservice` | `onlineboutique` | `deployment/emailservice` |
+| `frontend` | `onlineboutique` | `deployment/frontend` |
+| `frontendservice` | `onlineboutique` | `deployment/frontendservice` |
+| `paymentservice` | `onlineboutique` | `deployment/paymentservice` |
+| `productcatalogservice` | `onlineboutique` | `deployment/productcatalogservice` |
+| `recommendationservice` | `onlineboutique` | `deployment/recommendationservice` |
+
+Mọi yêu cầu gọi API lập kế hoạch sửa lỗi (`/v1/decide`) và báo cáo kiểm chứng (`/v1/verify`) bắt buộc phải truyền đầy đủ hai thông tin `namespace` (giá trị `"onlineboutique"`) và `deployment` (tên deployment tương ứng) để phục vụ công tác xác thực an toàn và kiểm toán.
 
 ---
 
