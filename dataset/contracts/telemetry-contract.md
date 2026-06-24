@@ -96,6 +96,10 @@ Tài liệu này xác định **Hợp đồng Telemetry (Telemetry Specification
         "span_id": {
           "type": "string",
           "description": "Mã định danh span lỗi cụ thể"
+        },
+        "operation": {
+          "type": "string",
+          "description": "Tên giao dịch hoặc phương thức của trace span (Ví dụ: GET /checkout)"
         }
       },
       "required": [
