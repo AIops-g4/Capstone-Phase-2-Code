@@ -1,103 +1,143 @@
-# AI API Contract - Task Force 3 (Self-Heal Engine)
+# AI API Contract - Generic Multi-Tenant Self-Heal Platform
+
+<!-- Owner: Architecture & Platform Infrastructure Team
+     Signed by: Principal AI Architect + Lead Platform Engineers
+     Date signed: 2026-06-25
+     🔒 FREEZE - no change without formal change request -->
 
 ## 1. Mục đích
 
-Tài liệu này định nghĩa **giao diện lập trình ứng dụng (API Endpoints)** do nhóm AI cung cấp (expose) và nhóm CDO tích hợp tiêu thụ (consume). Đây là cam kết kỹ thuật cho việc vận hành luồng xử lý tự động khắc phục lỗi của **Self-Heal Engine**:
+Tài liệu này định nghĩa **Giao diện lập trình ứng dụng (API Endpoints)** do bộ phận AI cung cấp (expose) và bộ phận hạ tầng CDO tích hợp tiêu thụ (consume). Cam kết kỹ thuật này đảm bảo chu trình tự động khắc phục lỗi tự động (Self-Healing Loop) hoạt động an toàn và đồng bộ giữa các hệ thống:
 
 ```text
-Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ──> CDO Execute ──> Post-Verify State (v1/verify)
+Phát hiện Bất thường (/v1/detect) ──> Lập Kế hoạch (/v1/decide) ──> CDO Thực thi ──> Xác thực kết quả (/v1/verify)
 ```
-
-## 2. Versioning & Offline Simulation Rules
-
-- **API Path**: `/v1/`
-- **Authentication**: Sử dụng **IAM SigV4** cho inter-service calls.
-- **Idempotency**: Các yêu cầu thay đổi trạng thái (như `/v1/decide` và `/v1/verify`) bắt buộc gửi kèm header `Idempotency-Key` (UUID v4).
-- **Quy tắc chạy mô phỏng (Offline Simulation Mode)**:
-  * Vì RE2 và RE3 dataset là dữ liệu offline tĩnh, luồng hành động chữa lành của CDO và kiểm chứng của AI sẽ chạy ở dạng **giả lập**.
-  * CDO Platform sẽ gửi thông tin hành động giả định đã thực hiện sang `/v1/verify`, đồng thời trích xuất dữ liệu telemetry ở các mốc thời gian kế tiếp (sau thời điểm tiêm lỗi) trong file CSV của ca lỗi đó để gửi làm `post_telemetry_window`. AI Engine sẽ phân tích cửa sổ này để xác định xem lỗi đã tự hết (hoặc mô hình giả lập hết lỗi) chưa.
-  * Các tham chiếu `tenant_id` sẽ sử dụng giá trị chèn `tnt-re2-simulation` hoặc `tnt-re3-simulation` (tương ứng với dataset nguồn) để đồng bộ.
 
 ---
 
-## 3. Endpoints Specification
+## 2. Quy tắc chung & Bảo mật
 
-### Endpoint 1: `POST /v1/detect`
+* **Đường dẫn cơ sở (API Path)**: `/v1/`
+* **Xác thực (Authentication)**: Sử dụng **IAM SigV4** cho toàn bộ các cuộc gọi liên dịch vụ (inter-service calls).
+* **Tính bất biến (Idempotency)**: Các yêu cầu ghi/thay đổi trạng thái (`/v1/decide` và `/v1/verify`) bắt buộc gửi kèm header `Idempotency-Key` (định dạng UUID v4) để chống xử lý trùng lặp.
+* **Chế độ thử nghiệm (Simulation Mode)**: Khi chạy mô phỏng ngoại tuyến, CDO Platform sẽ gửi dữ liệu telemetry trích xuất từ lịch sử sau thời điểm lỗi xảy ra và truyền vào cửa sổ `post_telemetry_window` của `/v1/verify` để kiểm chứng.
 
-**Mục đích**: Nhận dữ liệu telemetry thời gian thực từ CDO (hoặc từ preprocessor đọc dataset), chạy mô hình phát hiện bất thường và phân loại mức độ nghiêm trọng.
+---
 
-#### Request Headers
-| Header | Type | Required | Description |
-|---|---|---|---|
-| `X-Tenant-Id` | string | ✓ | Định danh khách hàng (Có thể là `"d3b07384-d113-495f-9f58-20d18d357d75"`, `"6c8b4b2b-4d45-4209-a1b4-4b532d56a31c"`, hoặc giá trị giả lập) |
-| `Authorization` | IAM SigV4 | ✓ | Xác thực liên dịch vụ |
-| `X-Correlation-Id` | UUID | optional | Trace correlation ID |
+## 3. Đặc tả các API Endpoints (JSON Schema Specification)
 
-#### Request Body
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `telemetry_window` | array | ✓ | Danh sách các datapoints telemetry trong cửa sổ phân tích |
-| `telemetry_window[].ts` | RFC3339 | ✓ | Timestamp của sự kiện (UTC) |
-| `telemetry_window[].signal_name` | string | ✓ | Tên tín hiệu (Khớp với Telemetry Contract) |
-| `telemetry_window[].value` | float/string | ✓ | Đo lường hoặc nội dung log |
-| `telemetry_window[].labels` | object | optional | Metadata nhãn bổ sung (Ví dụ: `service`, `pod_name`, `endpoint`, `container`, `namespace`, `deployment` theo Telemetry Contract) |
+### 3.1. Endpoint Phát hiện Bất thường: `POST /v1/detect`
 
-**Request Example (Online Boutique System)**:
+Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hiện bất thường và đánh giá mức độ nghiêm trọng.
+
+#### A. Request Headers
+* `X-Tenant-Id` (string, Bắt buộc): Định danh duy nhất của Tenant (ví dụ: `"d3b07384-d113-495f-9f58-20d18d357d75"`).
+* `Authorization` (string, Bắt buộc): AWS Signature Version 4.
+* `X-Correlation-Id` (string, Tùy chọn): UUID phục vụ liên kết vết lỗi.
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DetectRequest",
+  "type": "object",
+  "properties": {
+    "telemetry_window": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ts": { "type": "string", "format": "date-time" },
+          "tenant_id": { "type": "string", "format": "uuid" },
+          "service": { "type": "string" },
+          "signal_name": { "type": "string" },
+          "value": { "type": ["number", "string"] },
+          "labels": { "type": "object" }
+        },
+        "required": ["ts", "tenant_id", "service", "signal_name", "value"]
+      }
+    }
+  },
+  "required": ["telemetry_window"],
+  "additionalProperties": false
+}
+```
+
+* **Payload Yêu cầu Mẫu**:
 ```json
 {
   "telemetry_window": [
     {
       "ts": "2026-06-25T10:00:00.123Z",
-      "signal_name": "istio_request_error_rate",
-      "value": 0.45,
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "order-service",
+      "signal_name": "service_error_rate",
+      "value": 0.15,
       "labels": { 
-        "service": "adservice",
-        "namespace": "onlineboutique",
-        "deployment": "adservice"
+        "system": "E-COMMERCE",
+        "namespace": "production",
+        "deployment": "order-service"
       }
     },
     {
       "ts": "2026-06-25T10:00:01.456Z",
-      "signal_name": "app_log_error_event",
-      "value": "java.lang.NullPointerException: Cannot invoke 'String.length()' because 'param' is null\n\tat com.hipstershop.adservice.AdService.getAds(AdService.java:45)",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "order-service",
+      "signal_name": "application_log_event",
+      "value": "NullPointerException: Conn timed out\n\tat com.ecommerce.OrderService.save(OrderService.java:45)",
       "labels": { 
-        "service": "adservice", 
-        "pod_name": "adservice-5f8d9b7c-xyz12",
-        "namespace": "onlineboutique",
-        "deployment": "adservice"
+        "system": "E-COMMERCE",
+        "pod_name": "order-service-5f8d9b7c-xyz12",
+        "namespace": "production",
+        "deployment": "order-service"
       }
     }
   ]
 }
 ```
 
-#### Response Body
-| Field | Type | Description |
-|---|---|---|
-| `anomaly_detected` | bool | `true` nếu phát hiện bất thường |
-| `severity` | float | Điểm số độ nghiêm trọng (0.0 đến 1.0) |
-| `anomaly_context` | object | Chi tiết lỗi: dịch vụ bị ảnh hưởng, loại lỗi nghi ngờ |
-| `anomaly_context.target_service` | string | Tên service bị lỗi (Phải thuộc 10 services của Online Boutique) |
-| `anomaly_context.suspected_fault_type` | string | Loại lỗi nghi ngờ. Đối với lỗi code RE3: `f1` đến `f5`. Đối với lỗi tài nguyên/mạng RE2: `cpu`, `mem`, `disk`, `loss`, `delay`, `socket`. |
-| `anomaly_context.system` | string | Luôn là `"OB"` (Online Boutique) |
-| `anomaly_context.namespace` | string | Namespace xảy ra lỗi (Tùy chọn, ví dụ: `"onlineboutique"`) |
-| `anomaly_context.deployment` | string | Tên Kubernetes Deployment của service bị lỗi (Tùy chọn, ví dụ: `"adservice"`) |
-| `confidence` | float | Độ tin cậy của mô hình AI (0.0 đến 1.0) |
-| `correlation_id` | UUID | Định danh correlation để liên kết sang decide step |
+#### C. Response Body Schema
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DetectResponse",
+  "type": "object",
+  "properties": {
+    "anomaly_detected": { "type": "boolean" },
+    "severity": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "anomaly_context": {
+      "type": "object",
+      "properties": {
+        "target_service": { "type": "string" },
+        "suspected_fault_type": { "type": "string" },
+        "system": { "type": "string" },
+        "namespace": { "type": "string" },
+        "deployment": { "type": "string" },
+        "trigger_metric": { "type": "string" },
+        "trigger_value": { "type": "number" }
+      },
+      "required": ["target_service", "suspected_fault_type", "system"]
+    },
+    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "correlation_id": { "type": "string", "format": "uuid" }
+  },
+  "required": ["anomaly_detected", "severity", "confidence", "correlation_id"],
+  "additionalProperties": false
+}
+```
 
-**Response Example**:
+* **Payload Phản hồi Mẫu**:
 ```json
 {
   "anomaly_detected": true,
   "severity": 0.85,
   "anomaly_context": {
-    "target_service": "adservice",
-    "suspected_fault_type": "f3",
-    "system": "OB",
-    "namespace": "onlineboutique",
-    "deployment": "adservice",
-    "trigger_metric": "istio_request_error_rate",
-    "trigger_value": 0.45
+    "target_service": "order-service",
+    "suspected_fault_type": "database_connection_failure",
+    "system": "E-COMMERCE",
+    "namespace": "production",
+    "deployment": "order-service",
+    "trigger_metric": "service_error_rate",
+    "trigger_value": 0.15
   },
   "confidence": 0.92,
   "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
@@ -106,66 +146,106 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
 
 ---
 
-### Endpoint 2: `POST /v1/decide`
+### 3.2. Endpoint Lập Kế hoạch: `POST /v1/decide`
 
-**Mục đích**: Đối chiếu bất thường với thư viện Runbook chuẩn để đưa ra kịch bản tự chữa lành (Action Plan) kèm theo cấu hình giới hạn vùng ảnh hưởng (Blast Radius).
+Đối chiếu ngữ cảnh lỗi với thư viện Runbook để đưa ra kịch bản khắc phục tuần tự (Action Plan) cùng các giới hạn an toàn (Blast Radius).
 
-#### Request Headers
-| Header | Type | Required | Description |
-|---|---|---|---|
-| `X-Tenant-Id` | string | ✓ | Định danh khách hàng (`"d3b07384-d113-495f-9f58-20d18d357d75"`, `"6c8b4b2b-4d45-4209-a1b4-4b532d56a31c"`, hoặc giá trị giả lập)  |
-| `Idempotency-Key` | UUID v4 | ✓ | Tránh chạy lặp kịch bản quyết định |
+#### A. Request Headers
+* `X-Tenant-Id` (string, Bắt buộc): Định danh Tenant (ví dụ: `"d3b07384-d113-495f-9f58-20d18d357d75"`).
+* `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến (UUID v4).
 
-#### Request Body
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `correlation_id` | UUID v4 | ✓ | Lấy từ kết quả `/v1/detect` |
-| `anomaly_context` | object | ✓ | Thông tin ngữ cảnh lỗi (phản hồi từ detect step) |
-| `dry_run_mode` | bool | ✓ | Nếu `true`, chỉ trả về plan mà không ghi nhận thực thi thật |
+#### B. Request Body Schema
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DecideRequest",
+  "type": "object",
+  "properties": {
+    "correlation_id": { "type": "string", "format": "uuid" },
+    "anomaly_context": { "type": "object" },
+    "dry_run_mode": { "type": "boolean" }
+  },
+  "required": ["correlation_id", "anomaly_context", "dry_run_mode"],
+  "additionalProperties": false
+}
+```
 
-**Request Example**:
+* **Payload Yêu cầu Mẫu**:
 ```json
 {
   "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
   "anomaly_context": {
-    "target_service": "adservice",
-    "suspected_fault_type": "f3",
-    "system": "OB",
-    "namespace": "onlineboutique",
-    "deployment": "adservice",
-    "trigger_metric": "istio_request_error_rate",
-    "trigger_value": 0.45
+    "target_service": "order-service",
+    "suspected_fault_type": "database_connection_failure",
+    "system": "E-COMMERCE",
+    "namespace": "production",
+    "deployment": "order-service",
+    "trigger_metric": "service_error_rate",
+    "trigger_value": 0.15
   },
   "dry_run_mode": false
 }
 ```
 
-#### Response Body
-| Field | Type | Description |
-|---|---|---|
-| `matched_runbook` | string | Tên runbook được khớp |
-| `action_plan` | array | Danh sách các bước lệnh tuần tự để CDO infra thực thi |
-| `action_plan[].step` | integer | Thứ tự thực hiện lệnh |
-| `action_plan[].action` | enum | Lệnh: `RESTART_DEPLOYMENT`, `SCALE_UP_PODS`, `UPDATE_ENV_SECRET`, `ADJUST_MEMORY_LIMIT`, `DELETE_POD` |
-| `action_plan[].target` | string | Target resource (ví dụ: `deployment/adservice` hoặc `pod/adservice-abc-123`) |
-| `action_plan[].params` | object | Tham số đi kèm lệnh |
-| `action_plan[].params.namespace` | string | Namespace thực hiện hành động (Tùy chọn, ví dụ: `"onlineboutique"`) |
-| `blast_radius_config` | object | Giới hạn vùng ảnh hưởng cho phép CDO áp dụng |
-| `blast_radius_config.max_pod_impact_pct` | integer | Tỷ lệ pod tối đa được phép khởi động lại cùng lúc |
-| `blast_radius_config.circuit_breaker_error_rate` | float | Ngưỡng ngắt mạch tự động dừng rollback/action |
-| `blast_radius_config.allowed_namespaces` | array | Danh sách các namespaces được phép tác động (Ví dụ: `["onlineboutique"]`) |
-
-**Response Example**:
+#### C. Response Body Schema
 ```json
 {
-  "matched_runbook": "RestartDeploymentRunbook",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DecideResponse",
+  "type": "object",
+  "properties": {
+    "matched_runbook": { "type": "string" },
+    "action_plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "step": { "type": "integer" },
+          "action": { 
+            "type": "string", 
+            "enum": ["RESTART_DEPLOYMENT", "SCALE_UP_PODS", "UPDATE_ENV_SECRET", "ADJUST_MEMORY_LIMIT", "DELETE_POD"] 
+          },
+          "target": { "type": "string" },
+          "params": {
+            "type": "object",
+            "properties": {
+              "namespace": { "type": "string" },
+              "grace_period_seconds": { "type": "integer" }
+            }
+          }
+        },
+        "required": ["step", "action", "target"]
+      }
+    },
+    "blast_radius_config": {
+      "type": "object",
+      "properties": {
+        "max_pod_impact_pct": { "type": "integer" },
+        "circuit_breaker_error_rate": { "type": "number" },
+        "allowed_namespaces": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["max_pod_impact_pct", "circuit_breaker_error_rate", "allowed_namespaces"]
+    }
+  },
+  "required": ["matched_runbook", "action_plan", "blast_radius_config"],
+  "additionalProperties": false
+}
+```
+
+* **Payload Phản hồi Mẫu**:
+```json
+{
+  "matched_runbook": "DatabaseConnectionRecoveryRunbook",
   "action_plan": [
     {
       "step": 1,
       "action": "RESTART_DEPLOYMENT",
-      "target": "deployment/adservice",
+      "target": "deployment/order-service",
       "params": {
-        "namespace": "onlineboutique",
+        "namespace": "production",
         "grace_period_seconds": 30
       }
     }
@@ -173,65 +253,115 @@ Detect Anomaly (v1/detect) ──> Match Runbook & Decide Action (v1/decide) ─
   "blast_radius_config": {
     "max_pod_impact_pct": 25,
     "circuit_breaker_error_rate": 0.20,
-    "allowed_namespaces": ["onlineboutique"]
+    "allowed_namespaces": ["production"]
   }
 }
 ```
 
 ---
 
-### Endpoint 3: `POST /v1/verify`
+### 3.3. Endpoint Xác thực: `POST /v1/verify`
 
-**Mục đích**: Nhận thông tin từ CDO sau khi đã thực thi xong action, tiến hành phân tích telemetry hậu sự kiện để xác định xem lỗi đã được xử lý triệt để hay chưa.
+Đánh giá hiệu quả của hành động khắc phục lỗi dựa trên dữ liệu telemetry thu được sau sự kiện.
 
-#### Request Headers
-| Header | Type | Required | Description |
-|---|---|---|---|
-| `X-Tenant-Id` | string | ✓ | Định danh khách hàng (`"d3b07384-d113-495f-9f58-20d18d357d75"`, `"6c8b4b2b-4d45-4209-a1b4-4b532d56a31c"`, hoặc giá trị giả lập) |
-| `Idempotency-Key` | UUID v4 | ✓ | Tránh chạy lặp kịch bản kiểm chứng (Verify) |
+#### A. Request Headers
+* `X-Tenant-Id` (string, Bắt buộc): Định danh Tenant (ví dụ: `"d3b07384-d113-495f-9f58-20d18d357d75"`).
+* `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến (UUID v4).
 
+#### B. Request Body Schema
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VerifyRequest",
+  "type": "object",
+  "properties": {
+    "correlation_id": { "type": "string", "format": "uuid" },
+    "action_executed": {
+      "type": "object",
+      "properties": {
+        "action": { "type": "string" },
+        "target": { "type": "string" },
+        "status": { "type": "string", "enum": ["COMPLETED", "FAILED"] },
+        "execution_time_seconds": { "type": "integer" }
+      },
+      "required": ["action", "target", "status"]
+    },
+    "post_telemetry_window": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ts": { "type": "string", "format": "date-time" },
+          "tenant_id": { "type": "string", "format": "uuid" },
+          "service": { "type": "string" },
+          "signal_name": { "type": "string" },
+          "value": { "type": ["number", "string"] },
+          "labels": { "type": "object" }
+        },
+        "required": ["ts", "tenant_id", "service", "signal_name", "value"]
+      }
+    }
+  },
+  "required": ["correlation_id", "action_executed", "post_telemetry_window"],
+  "additionalProperties": false
+}
+```
 
-#### Request Body
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `correlation_id` | UUID v4 | ✓ | Khớp phiên xử lý |
-| `action_executed` | object | ✓ | Chi tiết hành động CDO đã chạy |
-| `post_telemetry_window` | array | ✓ | Telemetry thu được sau khi thực thi (form telemetry xem trong [telemetry-contract.md](https://github.com/AIops-g4/Capstone-Phase-2-Code/blob/main/tf-3/ai/contracts/telemetry-contract.md) |
-
-**Request Example**:
+* **Payload Yêu cầu Mẫu**:
 ```json
 {
   "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
   "action_executed": {
     "action": "RESTART_DEPLOYMENT",
-    "target": "deployment/adservice",
+    "target": "deployment/order-service",
     "status": "COMPLETED",
     "execution_time_seconds": 45
   },
   "post_telemetry_window": [
     {
       "ts": "2026-06-25T10:02:00.000Z",
-      "signal_name": "istio_request_error_rate",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "order-service",
+      "signal_name": "service_error_rate",
       "value": 0.00,
       "labels": { 
-        "service": "adservice",
-        "namespace": "onlineboutique",
-        "deployment": "adservice"
+        "system": "E-COMMERCE",
+        "namespace": "production",
+        "deployment": "order-service"
       }
     }
   ]
 }
 ```
 
-#### Response Body
-| Field | Type | Description |
-|---|---|---|
-| `success` | bool | `true` nếu hệ thống trở về trạng thái bình thường (hết lỗi) |
-| `regression_detected` | bool | `true` nếu phát hiện có sự suy giảm hiệu năng khác phát sinh |
-| `next_action` | enum | `DONE` (Xong), `RETRY` (Thử lại), `ROLLBACK` (Lùi phiên bản), `ESCALATE` (Gửi cảnh báo đến kỹ sư) |
-| `escalation_bundle` | object | Gói context bundle AI sinh ra để gửi cho on-call engineer (khi `next_action = ESCALATE`). |
+#### C. Response Body Schema
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VerifyResponse",
+  "type": "object",
+  "properties": {
+    "success": { "type": "boolean" },
+    "regression_detected": { "type": "boolean" },
+    "next_action": { 
+      "type": "string", 
+      "enum": ["DONE", "RETRY", "ROLLBACK", "ESCALATE"] 
+    },
+    "escalation_bundle": {
+      "type": "object",
+      "properties": {
+        "reason": { "type": "string" },
+        "logs": { "type": "array", "items": { "type": "string" } },
+        "metrics": { "type": "object" }
+      }
+    }
+  },
+  "required": ["success", "regression_detected", "next_action"],
+  "additionalProperties": false
+}
+```
 
-**Response Example**:
+* **Payload Phản hồi Mẫu**:
 ```json
 {
   "success": true,

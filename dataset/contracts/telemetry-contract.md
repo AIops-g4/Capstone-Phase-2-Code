@@ -1,198 +1,229 @@
-# Telemetry Contract - Task Force 3 (Self-Heal Engine)
+# Telemetry Contract - Generic Multi-Tenant Self-Heal Platform
 
+<!-- Owner: Architecture & Platform Infrastructure Team
+     Signed by: Principal AI Architect + Lead Platform Engineers
+     Date signed: 2026-06-25
+     🔒 FREEZE - no change without formal change request -->
 
 ## 1. Mục đích
 
-Hợp đồng này định nghĩa các **telemetry signals** mà nhóm CDO (Platform Infrastructure) có nhiệm vụ phải thu thập, chuẩn hóa từ EKS Sandbox Cluster (hoặc mô phỏng từ offline dataset) và gửi cho AI Engine (Intelligence Layer) tiêu thụ. Các signals này được điều chỉnh để khớp chính xác với cấu trúc dữ liệu của **RE2 (Resource & Network Faults)** và **RE3 (Code-Level Faults)** nhằm đảm bảo phát hiện các lỗi của hệ thống Online Boutique.
+Tài liệu này xác định **Hợp đồng Telemetry (Telemetry Specification)**. Hợp đồng định nghĩa cấu trúc, định dạng và quy chuẩn các tín hiệu giám sát (signals) mà bộ phận hạ tầng (Platform Infrastructure) có nhiệm vụ thu thập, chuẩn hóa từ cụm ứng dụng và truyền tải sang hệ thống trí tuệ nhân tạo (AI Engine) để phục vụ chẩn đoán lỗi tự động.
 
 ---
 
-## 2. Versioning & Simulation Rules
+## 2. Quy tắc chung & Phân lập Tenant
 
-- **Current version**: `v1.0`
-- **Quy tắc chạy mô phỏng (Offline Simulation Mode)**:
-  * **Chèn Tenant ID**: Vì dữ liệu telemetry thô của hệ thống không chứa thông tin tenant, nhóm CDO Platform khi gửi dữ liệu mô phỏng bắt buộc phải **tự động chèn (inject)** trường `"tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75"` hoặc `"tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c"` (tương ứng với từng nguồn kịch bản lỗi) vào mọi payload gửi sang AI Engine để đáp ứng cơ chế phân vùng multi-tenant.
-  * **Tính toán chỉ số phái sinh**: CDO Platform có nhiệm vụ tiền xử lý (pre-processing) các chỉ số cộng dồn (Counter) trong dataset gốc thành dạng chỉ số tức thời (Gauge) theo đúng tần suất yêu cầu của hợp đồng.
+* **Định danh Tenant (Tenant Scoping)**: Mọi điểm dữ liệu telemetry bắt buộc phải đính kèm định danh khách hàng (`tenant_id`) dưới dạng chuỗi UUID v4 để phục vụ cô lập dữ liệu.
+* **Độ chính xác thời gian (Time Precision)**: Tất cả mốc thời gian (`ts`) bắt buộc phải tuân thủ định dạng RFC3339 UTC với độ chính xác đến mili-giây (ví dụ: `2026-06-25T10:30:00.123Z`).
+* **Đóng gói dữ liệu (Payload Enrichment)**: Hệ thống tiền xử lý hạ tầng có trách nhiệm làm giàu (enrich) các siêu dữ liệu cấu trúc như Kubernetes namespace và deployment vào trường nhãn (`labels`) của telemetry trước khi truyền đi.
 
 ---
 
-## 3. Signals Specification
+## 3. Lược đồ Dữ liệu Telemetry (JSON Schema)
 
-### Signal 1: `istio_request_error_rate` (Tính từ metrics thực tế)
+Để đảm bảo tính linh hoạt và dễ dàng kiểm thử tự động, cấu trúc của mọi điểm dữ liệu telemetry được chuẩn hóa bằng lược đồ JSON Schema dưới đây. Định nghĩa này thay thế toàn bộ các bảng thuộc tính thủ công.
 
-Đo lường tỷ lệ các cuộc gọi dịch vụ bị lỗi trên tổng số requests. 
-* **Nguồn dữ liệu gốc trong RE3**: CDO Platform đọc hai chỉ số counter là `<service>_istio-error-total` và `<service>_istio-request-total` từ file `metrics.csv`, sau đó tính toán tỷ lệ lỗi bằng công thức:
-  $$\text{value} = \frac{\Delta(\text{istio-error-total})}{\Delta(\text{istio-request-total})}$$
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TelemetryDataPoint",
+  "description": "Lược đồ chuẩn hóa cho một điểm dữ liệu telemetry gửi sang AI Engine",
+  "type": "object",
+  "properties": {
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp xảy ra sự kiện theo chuẩn RFC3339 UTC"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID v4 định danh duy nhất của Tenant/Khách hàng"
+    },
+    "service": {
+      "type": "string",
+      "description": "Tên định danh của microservice phát sinh dữ liệu"
+    },
+    "signal_name": {
+      "type": "string",
+      "enum": [
+        "service_error_rate",
+        "service_latency_p95",
+        "container_resource_usage",
+        "application_log_event",
+        "distributed_trace_error_event"
+      ],
+      "description": "Tên tín hiệu được định nghĩa trong hợp đồng"
+    },
+    "value": {
+      "type": [
+        "number",
+        "string"
+      ],
+      "description": "Giá trị đo lường (đối với metric) hoặc thông điệp lỗi (đối với log/event)"
+    },
+    "labels": {
+      "type": "object",
+      "properties": {
+        "system": {
+          "type": "string",
+          "description": "Mã định danh hệ thống phần mềm"
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Kubernetes namespace đang chạy tài nguyên (Tùy chọn)"
+        },
+        "deployment": {
+          "type": "string",
+          "description": "Tên đối tượng Kubernetes Deployment (Tùy chọn)"
+        },
+        "pod_name": {
+          "type": "string",
+          "description": "Tên pod phát sinh lỗi (đối với logs/resource metrics)"
+        },
+        "container": {
+          "type": "string",
+          "description": "Tên container phát sinh lỗi"
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "Tên API endpoint hoặc phương thức gRPC"
+        },
+        "trace_id": {
+          "type": "string",
+          "description": "Mã định danh trace phục vụ liên kết vết lỗi"
+        },
+        "span_id": {
+          "type": "string",
+          "description": "Mã định danh span lỗi cụ thể"
+        }
+      },
+      "required": [
+        "system"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "ts",
+    "tenant_id",
+    "service",
+    "signal_name",
+    "value"
+  ],
+  "additionalProperties": false
+}
+```
 
-| Attribute | Value |
-|---|---|
-| **Type** | Gauge |
-| **Labels** | `service`, `endpoint`, `tenant_id` (Bắt buộc); `namespace`, `deployment` (Tùy chọn) |
-| **Unit** | Percentage (0.0 to 1.0) |
-| **Frequency** | 5 giây (Cửa sổ trượt) |
-| **Emit point** | CDO Platform Preprocessor (đọc metrics.csv -> tính toán -> gửi qua SQS) |
-| **Retention** | 7 ngày hot, 30 ngày cold |
-| **Used for** | Anomaly detection và verify post-action |
-| **Emit SLA** | p99 latency < 15 giây |
+---
 
-**Schema example (Hệ thống Online Boutique - OB)**:
+## 4. Đặc tả các Tín hiệu Telemetry (Signals Specification)
+
+### Tín hiệu 1: Tỷ lệ Lỗi Dịch vụ (`service_error_rate`)
+* **Kiểu dữ liệu**: Gauge (Metric).
+* **Mục đích**: Đo lường tỷ lệ các cuộc gọi dịch vụ bị lỗi (HTTP 5xx hoặc gRPC non-zero status) trên tổng số requests trong một cửa sổ trượt.
+* **Giá trị**: Số thực từ `0.0` đến `1.0` (thể hiện phần trăm từ 0% đến 100%).
+* **Payload mẫu**:
 ```json
 {
   "ts": "2026-06-25T10:30:00.123Z",
   "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
-  "service": "adservice",
-  "endpoint": "hipstershop.AdService/GetAds",
-  "value": 0.45,
+  "service": "order-service",
+  "signal_name": "service_error_rate",
+  "value": 0.085,
   "labels": {
-    "system": "OB",
-    "deployment_version": "v2.3.1",
-    "namespace": "onlineboutique",
-    "deployment": "adservice"
+    "system": "E-COMMERCE",
+    "endpoint": "/v1/orders/checkout",
+    "namespace": "production",
+    "deployment": "order-service"
   }
 }
 ```
 
----
-
-### Signal 2: `istio_request_latency_p95` (Khớp metrics thực tế)
-
-Đo lường độ trễ ở phân vị thứ 95 của các cuộc gọi gRPC/HTTP qua Istio.
-* **Nguồn dữ liệu gốc trong RE3**: CDO Platform lấy trực tiếp từ chỉ số `<service>_istio-latency-95` trong file `metrics.csv`.
-
-| Attribute | Value |
-|---|---|
-| **Type** | Gauge |
-| **Labels** | `service`, `endpoint`, `tenant_id` (Bắt buộc); `namespace`, `deployment` (Tùy chọn) |
-| **Unit** | Milliseconds |
-| **Frequency** | 5 giây |
-| **Emit point** | CDO Platform (Trích xuất từ metrics.csv -> gửi qua SQS) |
-| **Retention** | 7 ngày hot, 30 ngày cold |
-| **Used for** | Phát hiện treo dịch vụ (Service stuck / Latency spike) |
-| **Emit SLA** | p99 latency < 15 giây |
-
-**Schema example (Hệ thống Online Boutique - OB)**:
+### Tín hiệu 2: Độ trễ Phân vị 95 (`service_latency_p95`)
+* **Kiểu dữ liệu**: Gauge (Metric).
+* **Mục đích**: Đo lường độ trễ ở phân vị thứ 95 của các cuộc gọi API để phát hiện hiện tượng nghẽn hoặc treo dịch vụ.
+* **Giá trị**: Số thực thể hiện thời gian phản hồi bằng mili-giây (milliseconds).
+* **Payload mẫu**:
 ```json
 {
   "ts": "2026-06-25T10:30:00.123Z",
   "tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c",
-  "service": "checkoutservice",
-  "endpoint": "hipstershop.CheckoutService/PlaceOrder",
-  "value": 245.0,
+  "service": "payment-gateway",
+  "signal_name": "service_latency_p95",
+  "value": 450.5,
   "labels": {
-    "system": "OB",
-    "deployment_version": "v1.0.4",
-    "namespace": "onlineboutique",
-    "deployment": "checkoutservice"
+    "system": "E-COMMERCE",
+    "endpoint": "/v1/charge",
+    "namespace": "production",
+    "deployment": "payment-gateway"
   }
 }
 ```
 
----
-
-### Signal 3: `container_memory_working_set_bytes` (Khớp metrics thực tế)
-
-Đo lường lượng bộ nhớ thực tế container đang sử dụng.
-* **Nguồn dữ liệu gốc trong RE3**: CDO Platform lấy trực tiếp từ chỉ số `<service>_container-memory-working-set-bytes` trong file `metrics.csv`.
-
-| Attribute | Value |
-|---|---|
-| **Type** | Gauge |
-| **Labels** | `service`, `pod_name`, `container`, `tenant_id` (Bắt buộc); `namespace`, `deployment` (Tùy chọn) |
-| **Unit** | Bytes |
-| **Frequency** | 10 giây |
-| **Emit point** | CDO Platform (Trích xuất từ metrics.csv -> gửi qua SQS) |
-| **Used for** | Phát hiện rò rỉ bộ nhớ (Memory leak / OOM prevention) |
-| **Emit SLA** | p99 latency < 20 giây |
-
-**Schema example (Hệ thống Online Boutique - OB)**:
+### Tín hiệu 3: Bộ nhớ Container sử dụng thực tế (`container_resource_usage`)
+* **Kiểu dữ liệu**: Gauge (Metric).
+* **Mục đích**: Giám sát tài nguyên phần cứng (RAM/CPU) của container để phát hiện rò rỉ bộ nhớ (Memory Leak) hoặc nguy cơ bị OOMKilled.
+* **Giá trị**: Số nguyên thể hiện dung lượng bộ nhớ làm việc thực tế tính bằng Bytes.
+* **Payload mẫu**:
 ```json
 {
   "ts": "2026-06-25T10:30:00.000Z",
   "tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c",
-  "service": "emailservice",
-  "pod_name": "emailservice-68d7f5c9b-abcde",
-  "container": "main",
-  "value": 419430400,
+  "service": "inventory-service",
+  "signal_name": "container_resource_usage",
+  "value": 1073741824,
   "labels": {
-    "system": "OB",
-    "namespace": "onlineboutique",
-    "deployment": "emailservice"
+    "system": "E-COMMERCE",
+    "pod_name": "inventory-service-68d7f5c9b-abcde",
+    "container": "main",
+    "namespace": "production",
+    "deployment": "inventory-service"
   }
 }
 ```
 
----
-
-### Signal 4: `app_log_error_event` (Khớp logs thực tế)
-
-Sự kiện log lỗi của ứng dụng khi phát hiện log có mức độ `ERROR` hoặc chứa nội dung stack trace trong file `logs.csv`.
-
-| Attribute | Value |
-|---|---|
-| **Type** | Event |
-| **Labels** | `service`, `pod_name`, `level`, `tenant_id` (Bắt buộc); `namespace`, `deployment` (Tùy chọn) |
-| **Frequency** | Real-time (On-event) |
-| **Emit point** | CDO Platform Log Parser (đọc logs.csv -> lọc log ERROR -> gửi qua SQS) |
-| **Retention** | 30 ngày hot |
-| **Used for** | AI Engine phân tích ngữ cảnh stack trace để chẩn đoán chính xác dòng code lỗi (f1-f5) |
-| **Emit SLA** | p99 latency < 5 giây |
-
-**Schema example (Hệ thống Online Boutique - OB)**:
+### Tín hiệu 4: Sự kiện Log lỗi ứng dụng (`application_log_event`)
+* **Kiểu dữ liệu**: Event (Log).
+* **Mục đích**: Ghi nhận các log có mức độ nghiêm trọng `ERROR` hoặc chứa nội dung Stack Trace để mô hình AI phân tích sâu nguyên nhân ở cấp độ dòng code.
+* **Giá trị**: Chuỗi văn bản thô chứa nội dung log lỗi và stack trace.
+* **Payload mẫu**:
 ```json
 {
   "ts": "2026-06-25T10:30:05.456Z",
   "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
-  "service": "adservice",
-  "pod_name": "adservice-5f8d9b7c-xyz12",
-  "level": "ERROR",
-  "message": "java.lang.NullPointerException: Cannot invoke 'String.length()' because 'param' is null\n\tat com.hipstershop.adservice.AdService.getAds(AdService.java:45)",
+  "service": "order-service",
+  "signal_name": "application_log_event",
+  "value": "NullPointerException: Cannot invoke 'Database.connect()' because 'conn' is null\n\tat com.ecommerce.OrderService.saveOrder(OrderService.java:102)",
   "labels": {
-    "system": "OB",
-    "namespace": "onlineboutique",
-    "deployment": "adservice"
+    "system": "E-COMMERCE",
+    "pod_name": "order-service-5f8d9b7c-xyz12",
+    "level": "ERROR",
+    "namespace": "production",
+    "deployment": "order-service"
   }
 }
 ```
 
----
-
-### Signal 5: `trace_span_error_event` (Khớp traces thực tế)
-
-Sự kiện được phát sinh khi có cuộc gọi giao dịch (trace span) kết thúc với lỗi (`statusCode != 0.0`) trong file `traces.csv`.
-
-| Attribute | Value |
-|---|---|
-| **Type** | Event |
-| **Labels** | `service`, `operation`, `trace_id`, `span_id`, `status_code`, `tenant_id` (Bắt buộc); `namespace`, `deployment` (Tùy chọn) |
-| **Frequency** | Real-time (On-event) |
-| **Emit point** | CDO Platform Trace Parser (đọc traces.csv -> lọc span statusCode != 0.0 -> gửi qua SQS) |
-| **Retention** | 7 ngày hot |
-| **Used for** | Chẩn đoán lỗi liên dịch vụ và xác định điểm đầu tiên phát sinh lỗi |
-| **Emit SLA** | p99 latency < 10 giây |
-
-**Schema example (Hệ thống Online Boutique - OB)**:
+### Tín hiệu 5: Sự kiện lỗi giao dịch phân tán (`distributed_trace_error_event`)
+* **Kiểu dữ liệu**: Event (Trace Span).
+* **Mục đích**: Phát hiện các lỗi phát sinh trong chuỗi gọi dịch vụ liên kết (giao dịch phân tán) và xác định điểm đầu tiên phát sinh lỗi.
+* **Giá trị**: Số nguyên thể hiện mã trạng thái lỗi của span giao dịch (ví dụ: HTTP Status Code hoặc gRPC Error Code).
+* **Payload mẫu**:
 ```json
 {
   "ts": "2026-06-25T10:30:04.999Z",
   "tenant_id": "6c8b4b2b-4d45-4209-a1b4-4b532d56a31c",
-  "service": "frontend",
-  "operation": "grpc.hipstershop.ProductCatalogService/GetProduct",
-  "trace_id": "d472bd0a6bda79d8d0b2852d8165cb97",
-  "span_id": "cc3118e92762c87f",
-  "status_code": 2.0,
-  "duration_ms": 150.5,
+  "service": "frontend-web",
+  "signal_name": "distributed_trace_error_event",
+  "value": 503,
   "labels": {
-    "system": "OB",
-    "namespace": "onlineboutique",
-    "deployment": "frontend"
+    "system": "E-COMMERCE",
+    "operation": "GET /v1/checkout",
+    "trace_id": "d472bd0a6bda79d8d0b2852d8165cb97",
+    "span_id": "cc3118e92762c87f",
+    "namespace": "production",
+    "deployment": "frontend-web"
   }
 }
 ```
-
----
-
-## 4. Các yêu cầu chung (Cross-cutting Requirements)
-
-- **Tenant Scoping (Bắt buộc)**: Mọi signal payload **phải** chứa trường `tenant_id` (với dữ liệu mô phỏng sẽ sử dụng giá trị chèn tương ứng là `"d3b07384-d113-495f-9f58-20d18d357d75"` hoặc `"6c8b4b2b-4d45-4209-a1b4-4b532d56a31c"`).
-- **Time Precision**: Tất cả timestamps phải tuân thủ chuẩn RFC3339 UTC, độ chính xác ở mức millisecond.
-- **Anonymization**: Nhóm CDO có trách nhiệm lọc bỏ hoặc mã hóa toàn bộ dữ liệu nhạy cảm (PII) xuất hiện trong log trước khi đẩy qua AI Engine.

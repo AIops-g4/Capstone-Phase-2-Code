@@ -1,8 +1,13 @@
-# Deployment Contract - Task Force 3 (Self-Heal Engine)
+# Deployment Contract - Generic Multi-Tenant Self-Heal Platform
+
+<!-- Owner: Architecture & Platform Infrastructure Team
+     Signed by: Principal AI Architect + Lead Platform Engineers
+     Date signed: 2026-06-25
+     🔒 FREEZE - no change without formal change request -->
 
 ## 1. Mục đích
 
-Tài liệu này xác định **quy chuẩn triển khai hạ tầng (Deployment Specification)** của AI Engine và các phân quyền Kubernetes đi kèm để thực thi các hành động khắc phục lỗi. Các phân quyền và hạ tầng được thiết kế tương thích với các ứng dụng microservice có trong **RE2 và RE3 dataset** (Online Boutique) và phục vụ multi-tenant cho hai nền tảng CDO.
+Tài liệu này xác định **Hợp đồng Triển khai (Deployment Specification)**. Hợp đồng quy định cách thức thiết lập hạ tầng ảo hóa, cơ chế định tuyến, quản lý định danh/bí mật (Secrets), chính sách an toàn Kubernetes RBAC, cơ chế khóa trùng lặp (Idempotency Lock), và các tiêu chuẩn kiểm tra sức khỏe của AI Engine khi tích hợp vào các nền tảng hạ tầng (CDO Platforms).
 
 ---
 
@@ -12,7 +17,7 @@ Mục này định nghĩa cấu trúc thiết lập topology hệ thống đích
 
 ### A. Quy tắc cấu trúc định danh
 1. **Target Namespace**: Môi trường chạy các dịch vụ được phân lập theo namespace của Kubernetes. Tên của namespace vận hành dịch vụ (`Target Namespace`) sẽ được cấu hình động dựa trên cấu hình môi trường của từng dự án cụ thể.
-2. **Deployment Resource**: Mọi dịch vụ nghiệp vụ (`service`) bắt buộc phải tương ứng với một đối tượng Kubernetes Deployment quản trị. Định dạng định danh tài nguyên chuẩn là `deployment/<deployment_name>`. 
+2. **Deployment Resource**: Mọi dịch vụ nghiệp vụ (`service`) bắt buộc phải tương ứng với một đối tượng Kubernetes Deployment quản trị. Định dạng định danh tài nguyên chuẩn là `deployment/<deployment_name>`.
 
 ### B. Quy chuẩn cấu trúc dữ liệu yêu cầu
 Trong mọi giao dịch API liên dịch vụ (như gửi telemetry, lập kế hoạch `/v1/decide`, và báo cáo `/v1/verify`), các trường `namespace` và `deployment` là tùy chọn (optional) và có thể được truyền tải dưới dạng chuỗi ký tự (`string`) theo quy chuẩn sau:
@@ -43,9 +48,9 @@ Bảng dưới đây mô tả các thông số triển khai tối thiểu mà AI
 | Aspect | Configuration |
 |---|---|
 | **Target Compute** | ECS Fargate |
-| **Cluster name** | `tf-3-aiops-cluster` |
+| **Cluster name** | `[task_force_identifier]-aiops-cluster` |
 | **Service name** | `ai-engine` |
-| **Task definition family** | `tf-3-ai-engine` |
+| **Task definition family** | `[task_force_identifier]-ai-engine` |
 | **Container name** | `ai-engine` |
 | **Container port** | `8080` |
 | **Image source** | ECR repo URI + immutable image tag |
@@ -66,7 +71,7 @@ Hệ thống hỗ trợ scaling tự động để bảo đảm hiệu năng ph�
 
 ### C. CDO Platform Integration & Routing
 
-AI Engine chạy một instance duy nhất (shared backend) cho cả hai CDO platform thuộc Task Force 3:
+AI Engine chạy một instance duy nhất (shared backend) cho cả hai CDO platform:
 
 | CDO platform | Tenant ID | Endpoint URL | Auth |
 |---|---|---|---|
@@ -76,8 +81,8 @@ AI Engine chạy một instance duy nhất (shared backend) cho cả hai CDO pla
 | **Simulation (Scenario Type 2)** | `6c8b4b2b-4d45-4209-a1b4-4b532d56a31c` | (Internal simulation routing) | IAM SigV4 / Local |
 
 ### D. Chiến lược chạy thử nghiệm mô phỏng (Offline Simulation Mode)
-* Vì RE2 và RE3 dataset là dữ liệu offline đã thu thập dưới dạng CSV tĩnh, các hành động sửa đổi hạ tầng thật (`RESTART_DEPLOYMENT`, `SCALE_UP_PODS`,...) sẽ được **chạy ở chế độ giả lập (Mock Mode)** trong môi trường sandbox của CDO.
-* CDO Platform sẽ ghi nhận lệnh gọi từ AI Engine, ghi log kiểm toán tương ứng, và mô phỏng phản hồi thành công. Dữ liệu telemetry phản hồi tiếp theo sẽ được trích xuất từ dữ liệu tĩnh lịch sử (sau mốc thời gian lỗi của dataset) để gửi verify.
+* Vì dữ liệu thử nghiệm ngoại tuyến được tổ chức dưới dạng tệp dữ liệu tĩnh lịch sử, các hành động thay đổi trạng thái thật (`RESTART_DEPLOYMENT`, `SCALE_UP_PODS`,...) sẽ được **chạy ở chế độ giả lập (Mock Mode)** trong môi trường sandbox của CDO.
+* CDO Platform sẽ ghi nhận lệnh gọi từ AI Engine, ghi log kiểm toán tương ứng, và mô phỏng phản hồi thành công. Dữ liệu telemetry phản hồi tiếp theo sẽ được trích xuất từ dữ liệu tĩnh lịch sử sau mốc thời gian lỗi để gửi xác thực.
 
 ---
 
@@ -91,13 +96,13 @@ AI Engine chạy một instance duy nhất (shared backend) cho cả hai CDO pla
 
 ### B. AWS Secrets Manager Path Conventions
 Tất cả các secret liên quan đến AI Engine phải được lưu trữ theo quy chuẩn đường dẫn sau:
-* Base path: `tf-3/ai-engine/*`
-* API Key cho Bedrock: `tf-3/ai-engine/bedrock`
-* Kubeconfig cho Sandbox EKS Cluster: `tf-3/ai-engine/kubeconfig`
+* Base path: `[task_force_identifier]/ai-engine/*`
+* API Key cho Bedrock: `[task_force_identifier]/ai-engine/bedrock`
+* Kubeconfig cho Sandbox EKS Cluster: `[task_force_identifier]/ai-engine/kubeconfig`
 
 *Lưu ý*: Nghiêm cấm hardcode thông tin xác thực (Access Key/Secret Key) trong code hoặc Task Definition. Mọi credential rotate tự động thông qua Secrets Manager rotation policy.
 
-### C. Task Execution Role IAM Policy
+### C. Task Execution Role IAM Policy (Ví dụ tham chiếu)
 ```json
 {
   "Version": "2012-10-17",
@@ -118,20 +123,20 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
         "logs:CreateLogStream",
         "logs:PutLogEvents"
       ],
-      "Resource": "arn:aws:logs:us-east-1:*:log-group:/aws/ecs/tf-3-ai-engine:*"
+      "Resource": "arn:aws:logs:us-east-1:*:log-group:/aws/ecs/[task_force_identifier]-ai-engine:*"
     },
     {
       "Effect": "Allow",
       "Action": [
         "secretsmanager:GetSecretValue"
       ],
-      "Resource": "arn:aws:secretsmanager:us-east-1:*:secret:tf-3/ai-engine/*"
+      "Resource": "arn:aws:secretsmanager:us-east-1:*:secret:[task_force_identifier]/ai-engine/*"
     }
   ]
 }
 ```
 
-### D. Task Role IAM Policy (Runtime)
+### D. Task Role IAM Policy (Runtime - Ví dụ tham chiếu)
 ```json
 {
   "Version": "2012-10-17",
@@ -144,7 +149,7 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
         "dynamodb:PutItem",
         "dynamodb:UpdateItem"
       ],
-      "Resource": "arn:aws:dynamodb:us-east-1:*:table/tf-3-aiops-idempotency-lock"
+      "Resource": "arn:aws:dynamodb:us-east-1:*:table/[task_force_identifier]-aiops-idempotency-lock"
     },
     {
       "Sid": "S3AuditTrailWrite",
@@ -153,7 +158,7 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
         "s3:PutObject",
         "s3:GetObject"
       ],
-      "Resource": "arn:aws:s3:::tf-3-aiops-audit-trail/*"
+      "Resource": "arn:aws:s3:::[task_force_identifier]-aiops-audit-trail/*"
     },
     {
       "Sid": "BedrockInvokeModel",
@@ -170,7 +175,7 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
       "Action": [
         "secretsmanager:GetSecretValue"
       ],
-      "Resource": "arn:aws:secretsmanager:us-east-1:*:secret:tf-3/ai-engine/kubeconfig-*"
+      "Resource": "arn:aws:secretsmanager:us-east-1:*:secret:[task_force_identifier]/ai-engine/kubeconfig-*"
     }
   ]
 }
@@ -183,6 +188,17 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
 ## 4. Idempotency Lock & Audit Logging (SOC2 Compliance)
 
 ### A. Idempotency Lock
+
+#### 1. Tại sao cần Idempotency Lock?
+Trong môi trường phân tán hoặc khi xảy ra sự cố mạng, một hệ thống giám sát (CDO) có thể gửi yêu cầu gọi API `/v1/decide` hoặc thực thi hành động nhiều lần do cơ chế tự động thử lại (Retry).
+* Nếu không có Idempotency Lock, hạ tầng có thể thực hiện một hành động sửa lỗi **2 lần liên tiếp** (ví dụ: Khởi động lại deployment 2 lần liên tục, hoặc tăng số lượng pod gấp đôi 2 lần), gây mất ổn định nghiêm trọng hơn và lãng phí tài nguyên hạ tầng.
+
+#### 2. Nguyên lý hoạt động
+1. Mỗi quyết định hành động tự chữa lành được sinh ra tại `/v1/decide` bắt buộc phải kèm theo một `Idempotency-Key` (UUID v4 duy nhất).
+2. Khi bắt đầu thực thi hành động, CDO Platform sẽ kiểm tra khóa này trong cơ sở dữ liệu khóa (Lock database).
+3. Nếu khóa **chưa tồn tại**: Hệ thống sẽ ghi nhận khóa và tiến hành thực thi hành động.
+4. Nếu khóa **đã tồn tại** (đang chạy hoặc đã hoàn thành gần đây): Hệ thống sẽ từ chối và trả về mã lỗi **`409 Conflict`** cho các yêu cầu trùng lặp, bảo đảm hành động chỉ được thực hiện duy nhất 1 lần.
+
 - Mọi action plan được quyết định tại `/v1/decide` phải có `Idempotency-Key`.
 - Nhóm CDO platform sử dụng **DynamoDB với Conditional Writes** (hoặc **Redis lock** với TTL = 5 phút) để khóa trùng lặp lệnh. Nếu một action đang chạy, mọi request trùng `Idempotency-Key` sẽ bị từ chối với mã lỗi `409 Conflict`.
 
@@ -201,9 +217,9 @@ AI Engine được triển khai hoàn toàn trong mạng nội bộ bảo mật,
 - **Subnet type**: Private Subnet (Multi-AZ).
 - **Public IP**: Vô hiệu hóa hoàn toàn (`assign_public_ip = false`).
 - **Load Balancer**: Sử dụng Internal Application Load Balancer (Internal ALB) định tuyến trên port 8080.
-- **DNS**: Truy cập nội bộ qua Route 53 Private Hosted Zone với tên miền: `https://ai-engine.tf-3.internal/`.
+- **DNS**: Truy cập nội bộ qua Route 53 Private Hosted Zone với tên miền: `https://ai-engine.[task_force_identifier].internal/`.
 
-### B. Security Group Rules (`tf-3-ai-engine-sg`)
+### B. Security Group Rules (`[task_force_identifier]-ai-engine-sg`)
 
 #### Ingress (Inbound) Rules
 
@@ -227,7 +243,7 @@ AI Engine được triển khai hoàn toàn trong mạng nội bộ bảo mật,
 ```mermaid
 graph TB
     subgraph "AWS Region: us-east-1"
-        subgraph "VPC Task Force 3"
+        subgraph "VPC task_force_identifier"
             subgraph "Private Subnet (Multi-AZ)"
                 ALB[Internal Application Load Balancer]
                 ECS1[ECS Fargate Task - Replica 1]
@@ -240,7 +256,7 @@ graph TB
                 SM[Secrets Manager VPCe]
                 DDB[(DynamoDB - Idempotency Lock)]
                 S3[(S3 Bucket: Audit Trail<br>Object Lock Compliance Mode 90d)]
-                EKS_API[EKS Sandbox Cluster API Server]
+                EKS_API[EKS Sandbox Cluster API Server Temporary POC Target for Self-Heal Actions]
             end
             
             ECS1 & ECS2 -->|Fetch Kubeconfig| SM
@@ -288,9 +304,28 @@ Hệ thống giám sát Canary của CDO sẽ tự động dừng rollout và k�
 AI Engine phải cung cấp các HTTP endpoints sau trên container port `8080` để phục vụ công tác giám sát trạng thái và định tuyến của ALB:
 
 ### A. Health Check Endpoint (`GET /health`)
-- **Mục đích**: Kiểm tra trạng thái sống (Liveness) của container. Chỉ chạy các kiểm tra nhanh nội bộ (cpu/memory/process).
-- **Response**: HTTP 200 OK
-- **Example Payload**:
+* **Mục đích**: Kiểm tra trạng thái sống (Liveness) của container. Chỉ chạy các kiểm tra nhanh nội bộ.
+* **Lược đồ Schema Phản hồi**:
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HealthCheckResponse",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["healthy"]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": ["status", "timestamp"],
+  "additionalProperties": false
+}
+```
+* **Payload mẫu**:
   ```json
   {
     "status": "healthy",
@@ -299,9 +334,33 @@ AI Engine phải cung cấp các HTTP endpoints sau trên container port `8080` 
   ```
 
 ### B. Readiness Check Endpoint (`GET /ready`)
-- **Mục đích**: Xác nhận AI Engine đã sẵn sàng tiếp nhận traffic. Kiểm tra các kết nối hạ nguồn (S3, DynamoDB, Bedrock, Secrets Manager).
-- **Response**: HTTP 200 OK (nếu tất cả kết nối tốt) hoặc HTTP 503 Service Unavailable (nếu có kết nối lỗi).
-- **Example Payload**:
+* **Mục đích**: Xác nhận AI Engine đã sẵn sàng tiếp nhận traffic thông qua kiểm tra các kết nối hạ nguồn.
+* **Lược đồ Schema Phản hồi**:
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReadinessCheckResponse",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["ready", "unready"]
+    },
+    "dependencies": {
+      "type": "object",
+      "properties": {
+        "bedrock": { "type": "string" },
+        "dynamodb_lock": { "type": "string" },
+        "s3_audit_trail": { "type": "string" }
+      },
+      "required": ["bedrock", "dynamodb_lock", "s3_audit_trail"]
+    }
+  },
+  "required": ["status", "dependencies"],
+  "additionalProperties": false
+}
+```
+* **Payload mẫu**:
   ```json
   {
     "status": "ready",
