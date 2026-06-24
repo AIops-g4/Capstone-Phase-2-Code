@@ -44,7 +44,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `correlation_id` | string (UUID v4) | optional | Mã UUID v4 để liên kết chuỗi vết lỗi. Nếu không truyền, hệ thống sẽ tự sinh mới |
 | `idempotency_key` | string (UUID v4) | ✓ | Khóa chống trùng lặp xử lý yêu cầu |
 | `dry_run_mode` | boolean | ✓ | Chế độ chạy thử nghiệm để đồng bộ luồng kiểm tra hệ thống |
-| `telemetry_window` | array (of objects) | ✓ | Danh sách các điểm dữ liệu telemetry trong cửa sổ thời gian giám sát. Cấu trúc chi tiết của mỗi phần tử tuân thủ hoàn toàn theo đặc tả [Telemetry Contract](file:///home/duckq1u/Documents/Aiops-g4/capstone/dataset/contracts/telemetry-contract.md#3-lược-đồ-dữ-liệu-telemetry-json-schema--description) |
+| `telemetry_window` | array (of objects) | ✓ | Danh sách các điểm dữ liệu telemetry trong cửa sổ thời gian giám sát. Cấu trúc chi tiết của mỗi phần tử tuân thủ hoàn toàn theo đặc tả [Telemetry Contract](./telemetry-contract.md#3-lược-đồ-dữ-liệu-telemetry-json-schema--description) |
 
 * **Lược đồ Schema Yêu cầu**:
 ```json
@@ -133,6 +133,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `anomaly_context.trigger_metric` | string | optional | Tên tín hiệu telemetry trực tiếp kích hoạt cảnh báo lỗi (Tùy chọn) |
 | `anomaly_context.trigger_value` | number | optional | Giá trị cụ thể của tín hiệu kích hoạt cảnh báo lỗi (Tùy chọn) |
 | `confidence` | number | ✓ | Độ tin cậy của phân tích dự đoán lỗi, giá trị từ `0.0` đến `1.0` |
+| `reasoning` | string (max 300 chars) | ✓ | Giải thích tóm tắt nguyên nhân hoặc logic phân tích phát hiện lỗi |
 | `correlation_id` | string (UUID v4) | ✓ | Mã UUID v4 dùng để theo vết toàn bộ chu trình xử lý lỗi này |
 
 * **Lược đồ Schema Phản hồi**:
@@ -158,9 +159,14 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
       "required": ["target_service", "suspected_fault_type", "system"]
     },
     "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "reasoning": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "Giải thích ngắn gọn lý do phát hiện bất thường hoặc dự đoán lỗi"
+    },
     "correlation_id": { "type": "string", "format": "uuid" }
   },
-  "required": ["anomaly_detected", "severity", "confidence", "correlation_id"],
+  "required": ["anomaly_detected", "severity", "confidence", "reasoning", "correlation_id"],
   "additionalProperties": false
 }
 ```
@@ -180,6 +186,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
     "trigger_value": 0.15
   },
   "confidence": 0.92,
+  "reasoning": "Tỷ lệ lỗi của order-service (15%) vượt ngưỡng an toàn 5% đồng thời xuất hiện lỗi NullPointerException liên tục trong stack trace.",
   "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
 }
 ```
@@ -412,21 +419,14 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
     },
     "post_telemetry_window": {
       "type": "array",
+      "description": "Chuỗi dữ liệu telemetry thu thập được sau khi hành động khắc phục hoàn tất. Cấu trúc chi tiết của mỗi phần tử tuân thủ hoàn toàn theo hợp đồng telemetry-contract.md",
       "items": {
         "type": "object",
-        "properties": {
-          "ts": { "type": "string", "format": "date-time" },
-          "tenant_id": { "type": "string", "format": "uuid" },
-          "service": { "type": "string" },
-          "signal_name": { "type": "string" },
-          "value": { "type": ["number", "string"] },
-          "labels": { "type": "object" }
-        },
-        "required": ["ts", "tenant_id", "service", "signal_name", "value"]
+        "description": "Chi tiết cấu trúc và các trường dữ liệu xem tại contracts/telemetry-contract.md"
       }
     }
   },
-  "required": ["correlation_id", "action_executed", "post_telemetry_window"],
+  "required": ["correlation_id", "idempotency_key", "dry_run_mode", "action_executed", "post_telemetry_window"],
   "additionalProperties": false
 }
 ```
@@ -435,6 +435,8 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 ```json
 {
   "correlation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "idempotency_key": "d3b07384-d113-495f-9f58-20d18d357d75",
+  "dry_run_mode": false,
   "action_executed": {
     "action": "RESTART_DEPLOYMENT",
     "target": "deployment/order-service",
@@ -511,16 +513,58 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 
 ## 4. Cam kết chất lượng dịch vụ (SLA) & Mã lỗi
 
-### KPI Target
+### KPI Target & Throughput SLAs
 - **p99 Latency**:
   - `/v1/detect`: < 300 ms
-  - `/v1/decide`: < 500 ms
+  - `/v1/decide`: < 3000 ms (Nới lỏng độ trễ khi gọi LLM AWS Bedrock; các kịch bản fallback rule-based bắt buộc < 500 ms)
   - `/v1/verify`: < 500 ms
 - **Availability**: 99.9%
-- **Rate Limit**: Tối đa 120 requests/minute per tenant.
+- **Hạn mức Lưu lượng (Throughput SLAs & Rate Limit)**:
+  - `/v1/detect`: Hạn mức 100 RPS (Requests Per Second) per tenant.
+  - `/v1/decide`: Hạn mức 10 RPS per tenant.
+  - `/v1/verify`: Hạn mức 10 RPS per tenant.
+  - Vượt quá hạn mức trên sẽ kích hoạt cơ chế giới hạn tần suất (Rate Limiting).
 
 ### API Error Codes
 - **`400 Bad Request`**: Dữ liệu gửi lên không đúng định dạng schema. CDO cần log và kiểm tra code, **không tự động retry**.
-- **`409 Conflict`**: Trùng lặp `Idempotency-Key` cho cùng một hành động đang xử lý.
-- **`429 Too Many Requests`**: Vượt quá hạn mức rate limit. CDO cần thực hiện **Exponential Backoff** trước khi gọi lại.
-- **`503 Service Unavailable`**: AI Engine bị sập hoặc quá tải. CDO **bắt buộc phải có luồng fallback nội bộ** (ví dụ: chuyển sang execute runbook tĩnh mặc định hoặc gửi thẳng escalation cho SRE).
+- **`401 Unauthorized`**: Mã xác thực IAM SigV4 không hợp lệ hoặc phiên làm việc đã hết hạn. CDO cần refresh credentials và gọi lại.
+- **`409 Conflict`**: Trùng lặp `Idempotency-Key` cho cùng một hành động đang xử lý hoặc đã xử lý gần đây.
+- **`429 Too Many Requests`**: Vượt quá hạn mức lưu lượng (RPS/RPM) được cam kết. Phản hồi sẽ đi kèm HTTP header **`Retry-After`** chỉ định rõ số giây cần chờ trước khi CDO thực hiện gọi lại (Exponential Backoff).
+- **`503 Service Unavailable`**: AI Engine bị lỗi hệ thống hoặc quá tải. CDO **bắt buộc phải có luồng fallback nội bộ** (ví dụ: chuyển sang execute runbook tĩnh mặc định hoặc gửi thẳng escalation cho SRE).
+
+---
+
+## 5. Chính sách Quản lý Phiên bản & Quy trình Thay đổi (Versioning & Change-Request)
+
+Hợp đồng API này được đóng băng ("🔒 FREEZE") để bảo đảm tính ổn định tích hợp. Mọi thay đổi trong tương lai phải tuân thủ quy trình sau:
+
+### A. Phân loại Thay đổi (Change Classification)
+1. **Thay đổi lớn (Breaking Changes)**:
+   * Định nghĩa: Xóa trường bắt buộc, thay đổi kiểu dữ liệu của trường hiện tại, thay đổi định dạng phản hồi, hoặc xóa/thay đổi ý nghĩa mã lỗi.
+   * Quy trình: Bắt buộc nâng cấp phiên bản hợp đồng lên `/v2`. Hệ thống phải hỗ trợ song song cả hai phiên bản (Dual-support) tối thiểu **30 ngày** để các bên hoàn tất chuyển đổi.
+2. **Thay đổi nhỏ (Non-breaking Changes)**:
+   * Định nghĩa: Thêm trường tùy chọn (optional) trong request/response, hoặc bổ sung mã lỗi mới không ảnh hưởng logic cũ.
+   * Quy trình: Tăng số phiên bản phụ (minor bump), triển khai trực tiếp sau khi thông báo trước 5 ngày làm việc.
+
+### B. Quy trình Thay đổi (Change-Request Process)
+* Bước 1: Bên đề xuất gửi yêu cầu thay đổi hợp đồng (RFC - Request for Comments) bằng văn bản cho hội đồng kỹ thuật.
+* Bước 2: Tổ chức họp đánh giá tác động với sự tham gia bắt buộc của AI Lead và các CDO Platform Leads.
+* Bước 3: Sau khi thống nhất, cập nhật schema, chạy bộ test tự động và ký duyệt phiên bản hợp đồng mới.
+
+---
+
+## 6. Các vấn đề chưa chốt (Open Questions)
+
+Dưới đây là các nội dung kỹ thuật cần tiếp tục thảo luận và thống nhất phương án trong các phiên họp tiếp theo:
+1. **Mô hình Webhook Callback**: Có nên hỗ trợ cơ chế webhook callback cho `/v1/decide` nếu thời gian LLM sinh kế hoạch vượt quá 3000ms ở các kịch bản phức tạp hay không?
+2. **Chế độ mã hóa payload**: Các tham số nhạy cảm trong `action_plan[].params` có cần được mã hóa bằng KMS key của Tenant trước khi gửi qua mạng hay không?
+
+---
+
+## 7. Ký duyệt Song phương (Signatories)
+
+Hợp đồng này đại diện cho cam kết kỹ thuật chính thức giữa các bộ phận. Mọi bên ký duyệt cam kết tuân thủ đầy đủ các điều khoản kỹ thuật và vận hành được nêu trong tài liệu này.
+
+| Đại diện Bộ phận AI (AI Lead) | Đại diện Bộ phận Hạ tầng (CDO Lead) | Hội đồng Đánh giá Kiến trúc (Architecture Reviewer) |
+|---|---|---|
+| <br>**Ký tên:**<br>Bộ phận AI Architect Lead<br>**Ngày ký:** 2026-06-25 | <br>**Ký tên:**<br>CDO Platform Infrastructure Lead<br>**Ngày ký:** 2026-06-25 | <br>**Ký tên:**<br>Principal Enterprise Architect<br>**Ngày ký:** 2026-06-25 |
