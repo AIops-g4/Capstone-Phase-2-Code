@@ -33,7 +33,9 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 #### A. Request Headers
 * `X-Tenant-Id` (string, Bắt buộc): Định danh duy nhất của Tenant (ví dụ: `"d3b07384-d113-495f-9f58-20d18d357d75"`).
 * `Authorization` (string, Bắt buộc): AWS Signature Version 4.
-* `X-Correlation-Id` (string, Tùy chọn): UUID phục vụ liên kết vết lỗi.
+* `X-Correlation-Id` (string, Tùy chọn): Mã UUID v4 liên kết chuỗi vết lỗi. Nếu không truyền, hệ thống sẽ tự sinh mới.
+* `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến để chống trùng lặp yêu cầu (UUID v4).
+* `X-Dry-Run-Mode` (string, Bắt buộc): Chế độ chạy thử nghiệm (`"true"` hoặc `"false"`).
 
 * **Mô tả trường dữ liệu yêu cầu (Fields Description)**:
 
@@ -190,7 +192,10 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 
 #### A. Request Headers
 * `X-Tenant-Id` (string, Bắt buộc): Định danh Tenant (ví dụ: `"d3b07384-d113-495f-9f58-20d18d357d75"`).
-* `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến (UUID v4).
+* `Authorization` (string, Bắt buộc): AWS Signature Version 4.
+* `X-Correlation-Id` (string, Bắt buộc): Mã UUID v4 liên kết chuỗi vết từ bước `/v1/detect` truyền sang.
+* `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến để chống trùng lặp yêu cầu (UUID v4).
+* `X-Dry-Run-Mode` (string, Bắt buộc): Chế độ chạy thử nghiệm (`"true"` hoặc `"false"`).
 
 #### B. Request Body Schema
 * **Mô tả trường dữ liệu yêu cầu (Fields Description)**:
@@ -354,7 +359,10 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 
 #### A. Request Headers
 * `X-Tenant-Id` (string, Bắt buộc): Định danh Tenant (ví dụ: `"d3b07384-d113-495f-9f58-20d18d357d75"`).
+* `Authorization` (string, Bắt buộc): AWS Signature Version 4.
+* `X-Correlation-Id` (string, Bắt buộc): Mã UUID v4 định danh toàn bộ chu trình tự chữa lành phục vụ truy vết.
 * `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến (UUID v4).
+* `X-Dry-Run-Mode` (string, Bắt buộc): Chế độ chạy thử nghiệm (`"true"` hoặc `"false"`).
 
 #### B. Request Body Schema
 * **Mô tả trường dữ liệu yêu cầu (Fields Description)**:
@@ -369,7 +377,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `action_executed.target` | string | ✓ | Đối tượng hạ tầng chịu tác động thực tế (ví dụ: `deployment/order-service`) |
 | `action_executed.status` | string (Enum) | ✓ | Kết quả thực thi của hành động từ phía CDO (`COMPLETED` hoặc `FAILED`) |
 | `action_executed.execution_time_seconds` | integer | optional | Tổng thời gian thực thi hành động tính bằng giây (Tùy chọn) |
-| `post_telemetry_window` | array (of objects) | ✓ | Chuỗi dữ liệu telemetry thu thập được sau khi hành động khắc phục hoàn tất. Cấu trúc chi tiết của mỗi phần tử tuân thủ hoàn toàn theo đặc tả [Telemetry Contract](file:///home/duckq1u/Documents/Aiops-g4/capstone/dataset/contracts/telemetry-contract.md#3-lược-đồ-dữ-liệu-telemetry-json-schema--description) |
+| `post_telemetry_window` | array | ✓ | Chuỗi dữ liệu telemetry thu thập được sau khi hành động khắc phục hoàn tất. Cấu trúc chi tiết của mỗi phần tử tuân thủ hoàn toàn theo hợp đồng telemetry-contract.md |
 
 * **Lược đồ Schema Yêu cầu**:
 ```json
