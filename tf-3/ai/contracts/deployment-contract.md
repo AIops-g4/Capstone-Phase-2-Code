@@ -1,10 +1,5 @@
 # Deployment Contract - Generic Multi-Tenant Self-Heal Platform
 
-<!-- Owner: Architecture & Platform Infrastructure Team
-     Signed by: Principal AI Architect + Lead Platform Engineers
-     Date signed: 2026-06-25
-     🔒 FREEZE - no change without formal change request -->
-
 ## 1. Mục đích
 
 Tài liệu này xác định **Hợp đồng Triển khai (Deployment Specification)**. Hợp đồng quy định cách thức thiết lập hạ tầng ảo hóa, cơ chế định tuyến, quản lý định danh/bí mật (Secrets), chính sách an toàn Kubernetes RBAC, cơ chế khóa trùng lặp (Idempotency Lock), và các tiêu chuẩn kiểm tra sức khỏe của AI Engine khi tích hợp vào các nền tảng hạ tầng (CDO Platforms).

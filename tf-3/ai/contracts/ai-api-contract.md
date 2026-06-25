@@ -286,6 +286,22 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `verify_policy.success_conditions` | array (of strings) | optional | Danh sách các điều kiện kiểm tra thành công (ví dụ: `pod_ready == true`) |
 | `cost_cap_exceeded` | boolean | optional | Cờ báo hiệu chi phí gọi LLM Bedrock trong ngày của Tenant đã vượt hạn mức $50 (khi bằng `true`, hệ thống tự động chuyển sang chế độ dự phòng rule-based truyền thống, kế hoạch hành động vẫn có thể thực thi bình thường) |
 
+* **Ghi chú quan trọng về `pattern_type` (Quy trình xử lý dành cho CDOps Executor)**:
+
+> [!warning] 
+> 
+> CDOps Platform bắt buộc phải tuân thủ nghiêm ngặt quy trình xử lý khác biệt giữa hai loại `pattern_type` dưới đây để đảm bảo tính nhất quán của hạ tầng và tránh xung đột trạng thái (state drift):
+> 
+> 1. **Đối với `"pattern_type": "urgent"` (Path B - Vá trực tiếp / Hotfix)**:
+>    * **Mục đích**: Áp dụng cho các sự cố khẩn cấp đe dọa trực tiếp tính liên tục của dịch vụ (như `pod_oom_event`, `service_unhealthy`).
+>    * **Hành vi thực thi**: CDOps Executor thực thi hành động tự chữa lành **ngay lập tức** bằng cách gọi trực tiếp vào Kubernetes API Server (ví dụ: chạy lệnh patch tài nguyên, restart deployment trực tiếp).
+>    * **Quy trình Safety Gate**: Kiểm tra giới hạn vùng ảnh hưởng (Blast Radius) theo thời gian thực trước khi thực thi. Bỏ qua luồng duyệt thủ công để tối ưu hóa thời gian phục hồi (RTO < 60 giây).
+> 
+> 2. **Đối với `"pattern_type": "deferred"` (Path A - Luồng đồng bộ GitOps)**:
+>    * **Mục đích**: Áp dụng cho các sự cố mang tính chất tích lũy cấu hình lâu dài (như điều chỉnh giới hạn tài nguyên vĩnh viễn, tăng số lượng replicas do nghẽn hàng đợi `queue_backlog`).
+>    * **Hành vi thực thi**: CDOps Platform **nghiêm cấm** việc ghi đè trực tiếp lên cụm Kubernetes. Thay vào đó, CDOps phải tự động **tạo một Git commit hoặc mở một Pull Request (PR)** cập nhật thông số cấu hình trên Git Repository quản lý manifest của dịch vụ nghiệp vụ (ví dụ: cập nhật file Helm `values.yaml` hoặc Kube manifest). Trạng thái mới sẽ được đồng bộ tự động xuống cụm K8s thông qua công cụ GitOps (như ArgoCD/FluxCD).
+>    * **Quy trình Safety Gate**: Logic an toàn sẽ được tích hợp trực tiếp vào quá trình kiểm thử tự động của CI/CD pipeline hoặc luồng duyệt PR. CDOps chấp nhận độ trễ đồng bộ của GitOps (thường từ 2 - 5 phút).
+
 * **Lược đồ Schema Phản hồi**:
 ```json
 {
@@ -557,6 +573,14 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
   - `/v1/detect`: < 300 ms
   - `/v1/decide`: < 3000 ms (Nới lỏng độ trễ khi gọi LLM AWS Bedrock; các kịch bản fallback rule-based bắt buộc < 500 ms)
   - `/v1/verify`: < 500 ms
+
+#### Quy trình và Điều kiện Kích hoạt Chế độ Dự phòng Rule-Based (Fallback Rule-Based)
+Để đảm bảo thời gian xử lý sự cố toàn trình (End-to-End SLO) của CDOps Platform luôn nằm trong giới hạn dưới 5 phút, AI Engine thiết lập cơ chế tự động chuyển đổi sang chế độ dự phòng Rule-Based (thời gian phản hồi p99 < 500 ms, dựa trên cây quyết định tĩnh thay vì gọi LLM Bedrock) khi xảy ra các điều kiện sau:
+1. **Vượt hạn mức chi phí (Cost Cap Exceeded)**: Chi phí sử dụng AWS Bedrock tích lũy trong ngày của Tenant vượt quá **$50/ngày** (reset vào lúc 00:00:00 UTC). Phản hồi trả về sẽ chứa thuộc tính `"cost_cap_exceeded": true`.
+2. **AWS Bedrock API bị giới hạn tần suất (Rate Limiting - HTTP 429)**: Khi dịch vụ AWS Bedrock trả về lỗi `429 Too Many Requests` và việc thực hiện thử lại (retry với exponential backoff) có nguy cơ đẩy tổng thời gian xử lý vượt quá ngân sách thời gian nội bộ (2000 ms).
+3. **Lỗi hệ thống hoặc Thời gian chờ dịch vụ LLM Bedrock (Downtime & Timeouts)**: Khi dịch vụ AWS Bedrock gặp sự cố kết nối, phản hồi chậm (hơn 2500 ms) hoặc trả về các mã lỗi `5xx`.
+4. **Lỗi phân tích cú pháp phản hồi (LLM Response Parse Failure)**: Khi mô hình LLM phản hồi dữ liệu không đúng cấu trúc JSON hoặc không vượt qua bộ kiểm tra schema nghiêm ngặt của `DecideResponse`. Hệ thống sẽ tự động dùng bộ rule engine tĩnh để sinh ra kế hoạch hành động an toàn và hợp lệ.
+
 - **Availability**: 99.9%
 - **Hạn mức Lưu lượng (Throughput SLAs & Rate Limit)**:
   - `/v1/detect`: Hạn mức 100 RPS (Requests Per Second) per tenant.
