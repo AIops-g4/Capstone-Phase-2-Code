@@ -2,5 +2,6 @@ dataset/compress/*
 dataset/raw/*
 dataset/filtered/*
 tf-3/ai/ai-engine/dataset
+__pycache__
 
 
