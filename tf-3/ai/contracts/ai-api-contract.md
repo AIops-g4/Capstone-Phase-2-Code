@@ -13,7 +13,7 @@ Phát hiện Bất thường (/v1/detect) ──> Lập Kế hoạch (/v1/decide
 ## 2. Quy tắc chung & Bảo mật
 
 * **Đường dẫn cơ sở (API Path)**: `/v1/`
-* **Xác thực (Authentication)**: Sử dụng **IAM SigV4** cho toàn bộ các cuộc gọi liên dịch vụ (inter-service calls).
+* **Xác thực (Authentication)**: Xác thực nội bộ trong cụm EKS thông qua **Local Trust (mTLS tùy chọn)** và K8s Network Policies.
 * **Tính bất biến (Idempotency)**: Tất cả các endpoint (`/v1/detect`, `/v1/decide` và `/v1/verify`) bắt buộc gửi kèm header `Idempotency-Key` (định dạng UUID v4) để chống xử lý trùng lặp.
 * **Chế độ thử nghiệm (Simulation Mode)**: Khi chạy mô phỏng ngoại tuyến, CDO Platform sẽ gửi dữ liệu telemetry trích xuất từ lịch sử sau thời điểm lỗi xảy ra và truyền vào cửa sổ `post_telemetry_window` của `/v1/verify` để kiểm chứng.
 
@@ -590,7 +590,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 
 ### API Error Codes
 - **`400 Bad Request`**: Dữ liệu gửi lên không đúng định dạng schema. CDO cần log và kiểm tra code, **không tự động retry**.
-- **`401 Unauthorized`**: Mã xác thực IAM SigV4 không hợp lệ hoặc phiên làm việc đã hết hạn. CDO cần refresh credentials và gọi lại.
+- **`401 Unauthorized`**: Yêu cầu bị từ chối do cấu hình Local Trust/mTLS không hợp lệ hoặc thiếu/sai phân quyền Tenant.
 - **`409 Conflict`**: Trùng lặp `Idempotency-Key` cho cùng một hành động đang xử lý hoặc đã xử lý gần đây.
 - **`429 Too Many Requests`**: Vượt quá hạn mức lưu lượng (RPS/RPM) được cam kết. Phản hồi sẽ đi kèm HTTP header **`Retry-After`** chỉ định rõ số giây cần chờ trước khi CDO thực hiện gọi lại (Exponential Backoff).
 - **`503 Service Unavailable`**: AI Engine bị lỗi hệ thống hoặc quá tải. CDO **bắt buộc phải có luồng fallback nội bộ** (ví dụ: chuyển sang execute runbook tĩnh mặc định hoặc gửi thẳng escalation cho SRE).

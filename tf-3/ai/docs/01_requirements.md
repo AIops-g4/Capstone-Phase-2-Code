@@ -60,7 +60,7 @@ Các hạng mục sau đây nằm ngoài phạm vi thực hiện của dự án 
 * SLO Platform: Độ trễ phản hồi p99 của API detect dưới 300ms, decide dưới 3000ms (khi gọi LLM) và verify dưới 500ms. Khả năng sẵn sàng hệ thống đạt 99.9%.
 * Multi-tenant Scale: Hệ thống thiết kế dạng shared backend hỗ trợ đồng thời ít nhất 2 tenants độc lập (cdo-1 và cdo-2) trên cùng một EKS Deployment mà không bị lẫn lộn dữ liệu nhờ cơ chế định tuyến theo header `X-Tenant-Id` và AssumeRole động theo Tenant ID.
 * Security Baseline:
-  * Toàn bộ kết nối API phải được xác thực qua AWS IAM SigV4.
+  * Toàn bộ kết nối API nội bộ trong cụm EKS sử dụng Local Trust (mTLS tùy chọn) kết hợp Kubernetes Network Policies.
   * Mọi secret, credential và API key phải được lưu trữ trong AWS Secrets Manager và cấu hình chính sách xoay vòng tự động (rotation policy).
   * Sử dụng DynamoDB conditional writes để thiết lập khóa chống trùng lặp (Idempotency Lock) với thời gian sống (TTL) là 5 phút cho mỗi Idempotency-Key.
   * Ghi nhật ký kiểm toán bất biến lên S3 Object Lock ở Compliance Mode trong vòng 90 ngày.
