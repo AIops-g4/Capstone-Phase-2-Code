@@ -11,24 +11,91 @@ from .anomaly_detector import run_metric_anomaly_detection, IsolationForestDetec
 from .log_parser import Drain3LogParser
 from .correlation_analyzer import CorrelationAnalyzer
 from .self_healer import SelfHealer
+from .config import RUNBOOKS_PATH, API_HOST, API_PORT, ANALYSIS_WINDOW_SIZE
 
 app = FastAPI(
     title="AIOps AI Engine Service",
-    description="Generic Multi-Tenant Self-Heal Platform AI Engine complying with TF-3 Contracts.",
-    version="1.0.0"
+    description="Generic Multi-Tenant Self-Heal Platform AI Engine with Alert Correlation & Deduplication.",
+    version="1.1.0"
 )
 
-from .config import RUNBOOKS_PATH
+# --- Alert Correlation & Deduplication Engine ---
 
-# Initialize paths and modules
+class AlertCorrelationEngine:
+    """
+    Correlates concurrent alerts across the service dependency graph
+    to deduplicate alarms and prevent redundant self-healing loops.
+    """
+    def __init__(self, healing_window_seconds=120):
+        self.healing_window_seconds = healing_window_seconds
+        self.active_incidents = {}  # correlation_id -> incident_dict
+        
+        # Microservices dependency graph (downstream service -> list of direct/indirect upstream dependencies)
+        self.dependency_graph = {
+            "frontend": ["checkoutservice", "recommendationservice", "productcatalogservice", "cartservice", "shippingservice", "currencyservice", "adservice", "paymentservice", "emailservice"],
+            "checkoutservice": ["shippingservice", "emailservice", "paymentservice", "cartservice", "currencyservice", "productcatalogservice"]
+        }
 
+    def correlate(self, target_service: str, fault_type: str, current_time: int):
+        """
+        Correlates a newly detected service anomaly against active incidents.
+        Returns (correlation_id, is_symptom_or_duplicate).
+        """
+        self._cleanup_expired(current_time)
+        
+        # 1. Check if there is an active incident on the exact same root-cause service
+        for corr_id, inc in self.active_incidents.items():
+            if inc["root_cause_service"] == target_service:
+                print(f"  [ALERT CORRELATION] Alert on {target_service} correlated as DUPLICATE of active incident {corr_id}.")
+                return corr_id, True
+                
+        # 2. Check if the newly flagged service is a downstream symptom of an active upstream incident
+        for corr_id, inc in self.active_incidents.items():
+            upstream_service = inc["root_cause_service"]
+            
+            # If target_service is downstream of the upstream_service, it's a symptom
+            if target_service in self.dependency_graph and upstream_service in self.dependency_graph[target_service]:
+                inc["symptoms"].append(target_service)
+                print(f"  [ALERT CORRELATION] Alert on downstream {target_service} correlated as SYMPTOM of upstream incident {corr_id} ({upstream_service}).")
+                return corr_id, True
+                
+        # 3. No correlation found -> Create new primary incident
+        new_corr_id = str(uuid.uuid4())
+        self.active_incidents[new_corr_id] = {
+            "root_cause_service": target_service,
+            "fault_type": fault_type,
+            "start_time": current_time,
+            "symptoms": [],
+            "status": "HEALING"
+        }
+        print(f"  [ALERT CORRELATION] Created new primary incident {new_corr_id} for root cause service {target_service} ({fault_type}).")
+        return new_corr_id, False
+
+    def close_incident(self, correlation_id: str):
+        if correlation_id in self.active_incidents:
+            print(f"  [ALERT CORRELATION] Closing active incident {correlation_id}.")
+            del self.active_incidents[correlation_id]
+
+    def _cleanup_expired(self, current_time: int):
+        expired = []
+        for corr_id, inc in self.active_incidents.items():
+            # Auto-expire after healing window + 60s buffer
+            if current_time - inc["start_time"] > self.healing_window_seconds + 60:
+                expired.append(corr_id)
+        for corr_id in expired:
+            print(f"  [ALERT CORRELATION] Expired active incident {corr_id} from registry.")
+            del self.active_incidents[corr_id]
+
+
+# Initialize modules
 healer = SelfHealer(RUNBOOKS_PATH)
 log_parser = Drain3LogParser(service_aware=True)
-correlation_analyzer = CorrelationAnalyzer(correlation_threshold=0.5)
+correlation_analyzer = CorrelationAnalyzer(correlation_threshold=0.4)
+alert_correlator = AlertCorrelationEngine(healing_window_seconds=120)
+
 
 # --- Pydantic Models for Schema Validation ---
 
-# 1. Telemetry Point Schema (telemetry-contract)
 class TelemetryPoint(BaseModel):
     ts: str = Field(..., description="ISO 8601 timestamp")
     tenant_id: str = Field(..., description="Tenant UUID")
@@ -37,7 +104,6 @@ class TelemetryPoint(BaseModel):
     value: Any = Field(..., description="Numerical value or log string message")
     labels: Optional[Dict[str, Any]] = Field(default=None, description="Optional labels")
 
-# 2. Detect API Schemas
 class DetectRequest(BaseModel):
     correlation_id: Optional[str] = Field(None, description="UUID v4 tracing correlation ID")
     idempotency_key: str = Field(..., description="UUID v4 idempotency key")
@@ -52,6 +118,7 @@ class AnomalyContext(BaseModel):
     deployment: Optional[str] = Field(None, description="Kubernetes deployment")
     trigger_metric: Optional[str] = Field(None, description="Metric triggering the alert")
     trigger_value: Optional[float] = Field(None, description="Metric value triggering the alert")
+    is_correlated_symptom: bool = Field(default=False, description="Flag indicating this is a downstream symptom")
 
 class DetectResponse(BaseModel):
     anomaly_detected: bool
@@ -61,7 +128,6 @@ class DetectResponse(BaseModel):
     reasoning: str = Field(..., max_length=300)
     correlation_id: str
 
-# 3. Decide API Schemas
 class DecideRequest(BaseModel):
     correlation_id: str
     idempotency_key: str
@@ -70,7 +136,7 @@ class DecideRequest(BaseModel):
 
 class ActionPlanStep(BaseModel):
     step: int
-    action: str = Field(..., description="RESTART_DEPLOYMENT, PATCH_MEMORY_LIMIT, SCALE_REPLICAS, etc.")
+    action: str
     target: str
     params: Dict[str, Any]
 
@@ -85,7 +151,7 @@ class VerifyPolicy(BaseModel):
 
 class DecideResponse(BaseModel):
     matched_runbook: str
-    pattern_type: str = Field(..., description="urgent or deferred")
+    pattern_type: str
     action_plan: List[ActionPlanStep]
     blast_radius_config: BlastRadiusConfig
     verify_policy: VerifyPolicy
@@ -94,11 +160,10 @@ class DecideResponse(BaseModel):
     dry_run_mode: bool
     cost_cap_exceeded: bool = False
 
-# 4. Verify API Schemas
 class ActionExecuted(BaseModel):
     action: str
     target: str
-    status: str = Field(..., description="COMPLETED or FAILED")
+    status: str
     execution_time_seconds: Optional[int] = None
 
 class VerifyRequest(BaseModel):
@@ -116,7 +181,7 @@ class EscalationBundle(BaseModel):
 class VerifyResponse(BaseModel):
     success: bool
     regression_detected: bool
-    next_action: str = Field(..., description="DONE, RETRY, ROLLBACK, or ESCALATE")
+    next_action: str
     escalation_bundle: Optional[EscalationBundle] = None
 
 
@@ -126,33 +191,26 @@ class VerifyResponse(BaseModel):
 async def detect_anomalies(request: DetectRequest):
     """
     Endpoint: POST /v1/detect
-    Parses incoming telemetry window (both metrics and logs), runs anomaly detection,
-    correlates metrics with logs using a Pearson correlation matrix, and returns anomalies.
+    Detects anomalies, correlates alerts across dependencies, and deduplicates.
     """
-    corr_id = request.correlation_id or str(uuid.uuid4())
-    
-    # 1. Reconstruct metrics and logs from the telemetry window
+    # 1. Reconstruct metrics and logs
     metrics_records = {}
     log_messages = []
     
     for point in request.telemetry_window:
         ts_sec = int(pd.to_datetime(point.ts).timestamp())
         
-        # Check if it is a log event
         if point.signal_name == "application_log_event":
             log_messages.append({
-                "timestamp": ts_sec * 1000000000,  # Convert to nanoseconds
+                "timestamp": ts_sec * 1000000000,
                 "container_name": point.service,
                 "message": str(point.value),
                 "level": point.labels.get("level", "info") if point.labels else "info"
             })
         else:
-            # It's a metric point
             if ts_sec not in metrics_records:
                 metrics_records[ts_sec] = {"time": ts_sec}
             
-            # The column name in simple_metrics is typically <service>_<metric_name>
-            # If the signal_name already has service prefix, use it, otherwise join
             col_name = point.signal_name
             if not any(point.signal_name.startswith(s) for s in ["checkout", "currency", "email", "product", "recommendation"]):
                 col_name = f"{point.service}_{point.signal_name}"
@@ -165,37 +223,28 @@ async def detect_anomalies(request: DetectRequest):
             severity=0.0,
             confidence=1.0,
             reasoning="No metrics data found in telemetry window.",
-            correlation_id=corr_id
+            correlation_id=request.correlation_id or str(uuid.uuid4())
         )
         
-    # Create DataFrames
     df_metrics = pd.DataFrame(list(metrics_records.values())).sort_values("time").reset_index(drop=True)
     df_logs = pd.DataFrame(log_messages)
     
-    # Ensure time starts and ends correctly
     time_start = int(df_metrics["time"].min())
     time_end = int(df_metrics["time"].max())
     
-    # Parse logs using Drain3
     df_log_ts, temp_info = log_parser.parse_logs(df_logs, time_start, time_end)
-    
-    # Fill missing values in metrics (forward fill then zero fill)
     df_metrics = df_metrics.ffill().fillna(0)
     
     # 2. Run Anomaly Detection
-    # For a real-time window, we can fit our Isolation Forest on the first 80% of the data
-    # (assuming it represents baseline) and predict on the rest.
     baseline_len = max(10, int(len(df_metrics) * 0.8))
     detection_results = run_metric_anomaly_detection(df_metrics, baseline_len)
     
     mif_anoms = detection_results["multivariate"]["anomalies"]
     mif_scores = detection_results["multivariate"]["scores"]
     
-    # Find if there is an anomaly in the last 10 seconds of the window
     anomaly_detected = False
     anomaly_idx = -1
     
-    # Check multivariate anomalies in the last 10 rows
     check_window = 10
     start_check = max(0, len(df_metrics) - check_window)
     for i in range(start_check, len(df_metrics)):
@@ -204,7 +253,6 @@ async def detect_anomalies(request: DetectRequest):
             anomaly_idx = i
             break
             
-    # Also check if any key service error or latency has EWMA anomalies in the last 10 rows
     for col, results in detection_results["ewma"].items():
         ewma_anoms = results["anomalies"]
         for i in range(start_check, len(df_metrics)):
@@ -220,10 +268,10 @@ async def detect_anomalies(request: DetectRequest):
             severity=0.0,
             confidence=0.90,
             reasoning="No anomalies detected in the current telemetry window.",
-            correlation_id=corr_id
+            correlation_id=request.correlation_id or str(uuid.uuid4())
         )
         
-    # 3. Anomaly detected! Run correlation analysis to localize root cause
+    # Anomaly found! Localize root cause
     if anomaly_idx == -1:
         anomaly_idx = len(df_metrics) - 1
         
@@ -232,19 +280,14 @@ async def detect_anomalies(request: DetectRequest):
         df_logs=df_log_ts,
         template_info=temp_info,
         anomaly_idx=anomaly_idx,
-        window_size=120
+        window_size=ANALYSIS_WINDOW_SIZE
     )
     
-    # Compute severity based on anomaly score or metric deviation
     raw_severity = mif_scores[anomaly_idx]
-    # Map score to [0.0, 1.0]
     severity = float(np.clip(abs(raw_severity) * 2.0, 0.4, 0.95))
     
-    # Extract trigger metric details
     trigger_metric = None
     trigger_val = None
-    
-    # Look for the metric that deviates the most of target_service
     max_dev = 0.0
     for col in df_metrics.columns:
         if col.startswith(target_service) and col != "time":
@@ -258,6 +301,14 @@ async def detect_anomalies(request: DetectRequest):
                     trigger_metric = col
                     trigger_val = float(curr_val)
                     
+    # 3. Apply Alert Correlation & Deduplication
+    corr_id, is_correlated = alert_correlator.correlate(target_service, suspected_fault_type, time_end)
+    
+    if is_correlated:
+        reasoning = f"[CORRELATED ALERT] {reasoning}"
+        if len(reasoning) > 300:
+            reasoning = reasoning[:297] + "..."
+            
     context = AnomalyContext(
         target_service=target_service,
         suspected_fault_type=suspected_fault_type,
@@ -265,7 +316,8 @@ async def detect_anomalies(request: DetectRequest):
         namespace="production",
         deployment=target_service,
         trigger_metric=trigger_metric,
-        trigger_value=trigger_val
+        trigger_value=trigger_val,
+        is_correlated_symptom=is_correlated
     )
     
     return DetectResponse(
@@ -281,13 +333,32 @@ async def detect_anomalies(request: DetectRequest):
 async def decide_action_plan(request: DecideRequest):
     """
     Endpoint: POST /v1/decide
-    Determines the self-healing action plan based on the anomaly context.
+    Suppresses actions for downstream symptoms or redundant healing requests.
     """
     ctx = request.anomaly_context
     target_service = ctx.target_service
     suspected_fault_type = ctx.suspected_fault_type
     
-    # Run the self-healing decision engine
+    # 1. If this is a correlated downstream symptom, return an empty action plan to avoid spamming restarts!
+    if ctx.is_correlated_symptom:
+        print(f"  [DEDUPLICATION] Suppressing healing action plan for correlated symptom {target_service} ({suspected_fault_type}).")
+        return DecideResponse(
+            matched_runbook="CorrelatedSymptomSuppression",
+            pattern_type="urgent",
+            action_plan=[],  # Empty action plan = do nothing!
+            blast_radius_config=BlastRadiusConfig(
+                max_pod_impact_pct=0,
+                circuit_breaker_error_rate=0.0,
+                allowed_namespaces=["production"]
+            ),
+            verify_policy=VerifyPolicy(window_seconds=10, success_conditions=[]),
+            correlation_id=request.correlation_id,
+            idempotency_key=request.idempotency_key,
+            dry_run_mode=request.dry_run_mode,
+            cost_cap_exceeded=False
+        )
+        
+    # 2. Execute healing plan for primary root cause
     decision = healer.decide(target_service, suspected_fault_type)
     
     return DecideResponse(
@@ -306,11 +377,11 @@ async def decide_action_plan(request: DecideRequest):
 async def verify_healing(request: VerifyRequest):
     """
     Endpoint: POST /v1/verify
-    Analyzes post-healing telemetry window to check if healing succeeded.
+    Verifies and closes the correlated incident upon successful recovery.
     """
     action = request.action_executed
+    corr_id = request.correlation_id
     
-    # If the action failed from CDO side, we escalate
     if action.status == "FAILED":
         return VerifyResponse(
             success=False,
@@ -321,28 +392,21 @@ async def verify_healing(request: VerifyRequest):
             )
         )
         
-    # Analyze post-healing telemetry window
-    # We look at the metrics to see if the values have returned to normal
-    # For example, if there is no error rate or latency spike anymore.
     success = True
     regression_detected = False
     reasons = []
     
-    # Map target deployment to service name
     target_service = action.target.split("/")[-1]
-    
-    # Filter telemetry for target service
     service_points = [p for p in request.post_telemetry_window if p.service == target_service]
     
     for p in service_points:
         if "error" in p.signal_name and float(p.value) > 0.05:
             success = False
             reasons.append(f"High error rate detected: {p.signal_name} = {p.value}")
-        if "latency" in p.signal_name and float(p.value) > 0.5:  # e.g. latency > 500ms
+        if "latency" in p.signal_name and float(p.value) > 0.5:
             success = False
             reasons.append(f"High latency detected: {p.signal_name} = {p.value}")
             
-    # Check if there's any other service showing regression (new errors)
     other_points = [p for p in request.post_telemetry_window if p.service != target_service]
     for p in other_points:
         if "error" in p.signal_name and float(p.value) > 0.10:
@@ -350,6 +414,8 @@ async def verify_healing(request: VerifyRequest):
             reasons.append(f"Regression detected in other service '{p.service}': {p.signal_name} = {p.value}")
             
     if success and not regression_detected:
+        # Close the incident in the correlation engine
+        alert_correlator.close_incident(corr_id)
         return VerifyResponse(
             success=True,
             regression_detected=False,
@@ -368,7 +434,6 @@ async def verify_healing(request: VerifyRequest):
         return VerifyResponse(
             success=False,
             regression_detected=False,
-            # If it failed to recover within the window, escalate to manual SRE
             next_action="ESCALATE",
             escalation_bundle=EscalationBundle(
                 reason=f"Healing executed successfully but indicators failed to recover: {'; '.join(reasons)}"
