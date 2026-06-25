@@ -21,7 +21,7 @@ class AIOpsBenchmark:
 
     def __init__(self, settings: Settings = None):
         self.settings = settings or Settings()
-        self.ingestor = AIOpsIngestor()
+        self.ingestor = AIOpsIngestor(settings=self.settings)
         self.detector = AIOpsDetector(self.settings)
         
         # Select decider

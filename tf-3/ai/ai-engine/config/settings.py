@@ -9,6 +9,10 @@ class Settings:
     # Directories
     BASE_DIR = Path(__file__).resolve().parent.parent
     DATASET_PATH = Path(os.getenv("DATASET_PATH", str(BASE_DIR / "dataset")))
+    TOPOLOGY_GRAPH_PATH = Path(os.getenv("TOPOLOGY_GRAPH_PATH", str(BASE_DIR / "topology_graph.json")))
+
+    # Benchmark settings
+    BENCHMARK_USE_HINTS = os.getenv("BENCHMARK_USE_HINTS", "False").lower() in ("true", "1", "t")
 
     # Decider settings
     DECIDER_TYPE = os.getenv("DECIDER_TYPE", "rule-based").lower()
@@ -35,6 +39,16 @@ class Settings:
     DRAIN3_DEPTH = int(os.getenv("DRAIN3_DEPTH", "4"))
     DRAIN3_MAX_CHILDREN = int(os.getenv("DRAIN3_MAX_CHILDREN", "100"))
     DRAIN3_MAX_CLUSTERS = int(os.getenv("DRAIN3_MAX_CLUSTERS", "1000"))
+
+    # Specific Detector Thresholds
+    DETECTOR_Z_THRESHOLD = float(os.getenv("DETECTOR_Z_THRESHOLD", "3.0"))
+    DETECTOR_IF_SCALE = float(os.getenv("DETECTOR_IF_SCALE", "15.0"))
+    DETECTOR_COMBINED_THRESHOLD = float(os.getenv("DETECTOR_COMBINED_THRESHOLD", "3.0"))
+    DETECTOR_BEST_SCORE_THRESHOLD = float(os.getenv("DETECTOR_BEST_SCORE_THRESHOLD", "5.0"))
+
+    # Alert Correlation Parameters
+    CORRELATION_TIME_WINDOW_SEC = int(os.getenv("CORRELATION_TIME_WINDOW_SEC", "60"))
+    CORRELATION_SEMANTIC_WEIGHT = float(os.getenv("CORRELATION_SEMANTIC_WEIGHT", "0.7"))
 
     # Cost settings
     COST_LIMIT_DAILY = float(os.getenv("COST_LIMIT_DAILY", "50.0"))
