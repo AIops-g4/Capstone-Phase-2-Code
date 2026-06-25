@@ -34,46 +34,40 @@ Dưới đây là cấu trúc bảng mẫu dùng để đăng ký và đối chi
 
 ## 2. Infrastructure Hosting & Offline Testing Strategy
 
-AI Engine được triển khai dưới dạng **shared backend service** chạy trên ECS Fargate tasks độc lập. Nhóm AI chịu trách nhiệm quản lý, build image, task definition, runtime và scale, trong khi các CDO platform tích hợp bằng cách gọi vào endpoint nội bộ được cung cấp dưới đây.
+AI Engine được triển khai theo mô hình **Self-Hosted (In-Cluster)**. Nhóm AI chịu trách nhiệm đóng gói ứng dụng thành **OCI-compliant Container Image** và cung cấp tài liệu cấu hình môi trường. Nhóm CDO sẽ tự kéo (pull) image này và triển khai trực tiếp vào bên trong cụm EKS Sandbox của họ.
 
-### A. Compute Configuration
+### A. Compute Configuration (EKS Deployment)
 
-Bảng dưới đây mô tả các thông số triển khai tối thiểu mà AI team phải cung cấp và duy trì cho AI Engine:
+Bảng dưới đây mô tả các thông số triển khai tối thiểu (Resource Requests & Limits) mà CDO team cần cấp phát cho EKS Deployment của AI Engine:
 
 | Aspect | Configuration |
 |---|---|
-| **Target Compute** | ECS Fargate |
-| **Cluster name** | `tf-3-aiops-cluster` |
-| **Service name** | `ai-engine` |
-| **Task definition family** | `tf-3-ai-engine` |
+| **Target Compute** | EKS Worker Nodes (hoặc EKS Fargate Profile) |
+| **Target Namespace** | `self-heal-system` |
+| **K8s Resource Type** | `Deployment` |
 | **Container name** | `ai-engine` |
 | **Container port** | `8080` |
 | **Image source** | ECR repo URI + immutable image tag |
-| **CPU per task** | 1024 CPU units (1.0 vCPU) |
-| **Memory per task** | 2048 MB (2.0 GB) |
+| **CPU Requests / Limits** | 500m / 1000m (0.5 - 1.0 vCPU) |
+| **Memory Requests / Limits**| 1024Mi / 2048Mi (1.0 - 2.0 GB) |
 
 ### B. Per-Tenant Capacity & Scaling Guardrails
 
-Hệ thống hỗ trợ scaling tự động để bảo đảm hiệu năng phục vụ multi-tenant:
+CDO Platform cấu hình Horizontal Pod Autoscaler (HPA) để tự động mở rộng AI Engine:
 
 | Aspect | Value |
 |---|---|
-| **Replicas** | Min: 2 tasks, Max: 10 tasks |
-| **Autoscale trigger 1** | Target CPU >= 70% |
-| **Autoscale trigger 2** | Target request count 100 per task |
-| **Scale-up cooldown** | 60 giây |
-| **Scale-down cooldown** | 300 giây |
+| **Replicas** | Min: 2 pods, Max: 10 pods |
+| **HPA trigger 1** | Target CPU Utilization >= 70% |
+| **HPA trigger 2** | Target Memory Utilization >= 80% |
 
 ### C. CDO Platform Integration & Routing
 
-AI Engine chạy một instance duy nhất (shared backend) cho cả hai CDO platform:
+AI Engine không được expose (công khai) ra ngoài Internet. Việc định tuyến gọi API hoàn toàn diễn ra bên trong mạng nội bộ cụm K8s (In-Cluster Routing):
 
-| CDO platform | Tenant ID | Endpoint URL | Auth |
-|---|---|---|---|
-| **cdo-1** | `d3b07384-d113-495f-9f58-20d18d357d75` | `https://ai-engine.tf-3.internal/` | IAM SigV4 / AWS STS AssumeRole |
-| **cdo-2** | `6c8b4b2b-4d45-4209-a1b4-4b532d56a31c` | `https://ai-engine.tf-3.internal/` | IAM SigV4 / AWS STS AssumeRole |
-| **Simulation (Scenario Type 1)** | `d3b07384-d113-495f-9f58-20d18d357d75` | (Internal simulation routing) | IAM SigV4 / Local |
-| **Simulation (Scenario Type 2)** | `6c8b4b2b-4d45-4209-a1b4-4b532d56a31c` | (Internal simulation routing) | IAM SigV4 / Local |
+| Trạng thái | Endpoint URL (Ví dụ) | Auth |
+|---|---|---|
+| **In-Cluster Service** | `http://ai-engine.self-heal-system.svc.cluster.local:8080/` | Local Trust (mTLS tùy chọn) |
 
 ### D. Chiến lược chạy thử nghiệm mô phỏng (Offline Simulation Mode)
 * Vì dữ liệu thử nghiệm ngoại tuyến được tổ chức dưới dạng tệp dữ liệu tĩnh lịch sử, các hành động thay đổi trạng thái thật (`RESTART_DEPLOYMENT`, `SCALE_UP_PODS`,...) sẽ được **chạy ở chế độ giả lập (Mock Mode)** trong môi trường sandbox của CDO.
@@ -81,56 +75,23 @@ AI Engine chạy một instance duy nhất (shared backend) cho cả hai CDO pla
 
 ---
 
-## 3. ECS IAM Roles & Secrets Management
+## 3. Kubernetes IRSA & Secrets Management
 
-Để bảo đảm an toàn hạ tầng và tuân thủ các nguyên tắc đặc quyền tối thiểu (Least Privilege), phân quyền IAM được chia tách rõ ràng giữa giai đoạn khởi tạo (Execution) và giai đoạn chạy (Task).
+Để bảo đảm an toàn hạ tầng và tuân thủ các nguyên tắc đặc quyền tối thiểu (Least Privilege), AI Engine áp dụng mô hình **IAM Roles for Service Accounts (IRSA)** hoặc **EKS Pod Identity**. 
 
-### A. Phân tách IAM Roles
-1. **ECS Task Execution Role**: Được sử dụng bởi ECS Agent để pull image từ ECR, đẩy logs lên CloudWatch Logs và lấy các secret từ Secrets Manager khi khởi tạo container.
-2. **ECS Task Role**: Được sử dụng trực tiếp bởi ứng dụng AI Engine tại runtime để gọi các dịch vụ AWS Bedrock, DynamoDB, S3 và AWS STS AssumeRole. AI Engine **không** có quyền truy cập trực tiếp vào Kubernetes (EKS) API, đảm bảo phân ranh giới rõ ràng: AI Engine là bộ não ra quyết định (Brain), còn CDO Platform là bàn tay thực thi (Hands) hành động trên Kubernetes.
+### A. Phân tách ranh giới ủy quyền (Execution Boundary)
+AI Engine **không** có quyền truy cập trực tiếp vào Kubernetes (EKS) API, đảm bảo phân ranh giới rõ ràng: 
+* **AI Engine**: Là bộ não ra quyết định (Brain), chỉ trả về kịch bản hành động (Action Plan).
+* **CDO Controller**: Là bàn tay thực thi (Hands), chịu trách nhiệm gọi EKS API để thay đổi trạng thái hạ tầng (Mutate resources).
 
 ### B. AWS Secrets Manager Path Conventions
-Tất cả các secret liên quan đến AI Engine phải được lưu trữ theo quy chuẩn đường dẫn sau:
-* Base path: `tf-3/ai-engine/*`
-* API Key cho Bedrock: `tf-3/ai-engine/bedrock`
+Tất cả các secret liên quan đến AI Engine (như API Key cho LLM Bedrock) phải được lưu trữ trên AWS Secrets Manager hoặc qua External Secrets Operator:
+* Base path: `tf-3/ai-engine/bedrock`
 
-*Lưu ý*: Nghiêm cấm hardcode thông tin xác thực (Access Key/Secret Key) trong code hoặc Task Definition. Mọi credential rotate tự động thông qua Secrets Manager rotation policy.
+*Lưu ý*: Nghiêm cấm hardcode thông tin xác thực trong code hoặc Kube manifests.
 
-### C. Task Execution Role IAM Policy (Ví dụ tham chiếu)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ecr:GetAuthorizationToken",
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:GetDownloadUrlForLayer",
-        "ecr:BatchGetImage"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "logs:CreateLogStream",
-        "logs:PutLogEvents"
-      ],
-      "Resource": "arn:aws:logs:us-east-1:*:log-group:/aws/ecs/tf-3-ai-engine:*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "secretsmanager:GetSecretValue"
-      ],
-      "Resource": "arn:aws:secretsmanager:us-east-1:*:secret:tf-3/ai-engine/*"
-    }
-  ]
-}
-```
-
-### D. Task Role IAM Policy (Runtime - Ví dụ tham chiếu)
+### C. Pod IRSA IAM Policy (Runtime - Ví dụ tham chiếu)
+IAM Role gắn với ServiceAccount của AI Engine Pod chỉ được phép cấp các quyền truy cập ra bên ngoài AWS Services:
 ```json
 {
   "Version": "2012-10-17",
@@ -162,28 +123,12 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
         "bedrock:InvokeModelWithResponseStream"
       ],
       "Resource": "arn:aws:bedrock:us-east-1::foundation-model/*"
-    },
-    {
-      "Sid": "STSAssumeTenantRole",
-      "Effect": "Allow",
-      "Action": [
-        "sts:AssumeRole",
-        "sts:TagSession"
-      ],
-      "Resource": "arn:aws:iam::*:role/tf-3-tenant-*-role"
     }
   ]
 }
 ```
 
-*Điều khoản cấm (Forbidden Actions)*: Task Role tuyệt đối không được cấp quyền `iam:*`, `ec2:*` hoặc các hành động sửa đổi hạ tầng mạng. Đặc biệt, cấm cấp quyền Kubernetes API (`eks:*`) hoặc lưu trữ `kubeconfig` trực tiếp trong AI Engine, đảm bảo AI Engine không thể tự ý thay đổi trạng thái cụm K8s mà không thông qua sự xác thực của CDO Platform.
-
-### E. Phân lập dữ liệu đa thuê bao qua AWS STS AssumeRole & Session Tags
-Để đảm bảo tính cô lập và bảo mật dữ liệu tuyệt đối giữa hai tenant `cdo-1` và `cdo-2`, AI Engine áp dụng mô hình phân quyền dựa trên thuộc tính (ABAC - Attribute-Based Access Control) thông qua AWS STS:
-1. **AssumeRole theo Tenant**: Khi nhận được request, AI Engine dựa trên `tenant_id` để thực hiện cuộc gọi `AssumeRole` đến IAM Role dành riêng cho tenant đó (`arn:aws:iam::*:role/tf-3-tenant-[tenant_id]-role`).
-2. **Session Tags**: Khi giả lập role, AI Engine bắt buộc phải đính kèm cặp thẻ phiên làm việc (Session Tags) `"TenantID": "[tenant_id]"`.
-3. **Kiểm soát Truy cập ABAC**: Các tài nguyên đám mây thuộc quyền sở hữu của tenant (ví dụ: các S3 Bucket chứa dữ liệu huấn luyện riêng, DynamoDB tables) sẽ cấu hình Resource-based Policy chỉ cho phép truy cập nếu `aws:PrincipalTag/TenantID` của thực thể gọi trùng khớp với nhãn sở hữu tài nguyên.
-4. **Audit Trail**: Mọi hành động AssumeRole và các thao tác tài nguyên sau đó đều được ghi nhận chi tiết trên AWS CloudTrail và được đồng bộ về hệ thống giám sát của CDO phục vụ tuân thủ SOC2.
+**Điều khoản cấm (Forbidden Actions)**: Role của AI Engine tuyệt đối không được cấp quyền `iam:*`, `ec2:*` hoặc các hành động sửa đổi hạ tầng mạng. **Đặc biệt, cấm cấp quyền Kubernetes API (`eks:*`) hoặc lưu trữ `kubeconfig` trực tiếp trong môi trường chạy của AI Engine**, đảm bảo AI Engine không thể tự ý thay đổi trạng thái cụm K8s.
 
 ---
 
@@ -192,250 +137,120 @@ Tất cả các secret liên quan đến AI Engine phải được lưu trữ th
 ### A. Idempotency Lock
 
 #### 1. Tại sao cần Idempotency Lock?
-Trong môi trường phân tán hoặc khi xảy ra sự cố mạng, một hệ thống giám sát (CDO) có thể gửi yêu cầu gọi API `/v1/decide` hoặc thực thi hành động nhiều lần do cơ chế tự động thử lại (Retry).
-* Nếu không có Idempotency Lock, hạ tầng có thể thực hiện một hành động sửa lỗi **2 lần liên tiếp** (ví dụ: Khởi động lại deployment 2 lần liên tục, hoặc tăng số lượng pod gấp đôi 2 lần), gây mất ổn định nghiêm trọng hơn và lãng phí tài nguyên hạ tầng.
+Trong môi trường phân tán, CDO Controller có thể gửi yêu cầu gọi API `/v1/decide` hoặc thực thi hành động nhiều lần do cơ chế tự động thử lại (Retry). Nếu không có khóa, hành động sửa lỗi có thể bị thực thi trùng lặp, gây mất ổn định nghiêm trọng.
 
 #### 2. Nguyên lý hoạt động
-1. Mỗi quyết định hành động tự chữa lành được sinh ra tại `/v1/decide` bắt buộc phải kèm theo một `Idempotency-Key` (UUID v4 duy nhất).
-2. Khi bắt đầu thực thi hành động, CDO Platform sẽ kiểm tra khóa này trong cơ sở dữ liệu khóa (Lock database).
-3. Nếu khóa **chưa tồn tại**: Hệ thống sẽ ghi nhận khóa và tiến hành thực thi hành động.
-4. Nếu khóa **đã tồn tại** (đang chạy hoặc đã hoàn thành gần đây): Hệ thống sẽ từ chối và trả về mã lỗi **`409 Conflict`** cho các yêu cầu trùng lặp, bảo đảm hành động chỉ được thực hiện duy nhất 1 lần.
-
-- Mọi action plan được quyết định tại `/v1/decide` phải có `Idempotency-Key`.
-- Nhóm CDO platform sử dụng **DynamoDB với Conditional Writes** (hoặc **Redis lock** với TTL = 5 phút) để khóa trùng lặp lệnh. Nếu một action đang chạy, mọi request trùng `Idempotency-Key` sẽ bị từ chối với mã lỗi `409 Conflict`.
+1. Mỗi quyết định tại `/v1/decide` bắt buộc kèm theo một `Idempotency-Key`.
+2. Hệ thống kiểm tra khóa này trong cơ sở dữ liệu khóa (DynamoDB/Redis).
+3. Nếu khóa **chưa tồn tại**: Tiến hành xử lý.
+4. Nếu khóa **đã tồn tại**: Từ chối và trả về `409 Conflict`.
 
 ### B. Tamper-Evident Audit Logging
-- Mọi chu kỳ xử lý (Detect -> Decide -> Execute -> Verify) bắt buộc phải được ghi nhật ký hoạt động đầy đủ.
-- **Hạ tầng lưu trữ**: Sử dụng **Amazon S3** được cấu hình chế độ **Object Lock** (WORM - Write Once, Read Many) ở chế độ **Compliance mode** với thời gian giữ tối thiểu **90 ngày**.
-- CDO platform chịu trách nhiệm cung cấp giao diện truy vấn nhật ký kiểm toán (thông qua Amazon Athena hoặc UI quản trị).
+- Mọi chu kỳ xử lý bắt buộc phải được ghi nhật ký hoạt động đầy đủ.
+- Sử dụng **Amazon S3 Object Lock** ở chế độ **Compliance mode** với thời gian giữ tối thiểu **90 ngày**.
+- CDO platform cung cấp giao diện truy vấn nhật ký kiểm toán (như Athena).
 
 ### C. Bedrock Cost Cap & Budget Alerting (Quản trị chi phí LLM)
-
-Để ngăn ngừa nguy cơ phát sinh chi phí đột biến ngoài ý muốn (runaway cost) do mô hình LLM (AWS Bedrock) gọi liên tục trong các chu kỳ tự chữa lành (ví dụ: vòng lặp vô hạn khi xảy ra lỗi nghiêm trọng liên tục), hệ thống thiết lập cơ chế quản trị chi phí nghiêm ngặt:
-
-1. **Hạn mức Chi phí Hàng ngày (Cost Cap)**: Thiết lập hạn mức chi phí tối đa cho dịch vụ Bedrock là **$50/ngày** trên mỗi Tenant.
-2. **Cơ chế Cảnh báo Tự động (Alerting)**:
-   * **Ngưỡng 1 (Cảnh báo Sớm - 80%):** Khi chi phí Bedrock tích lũy trong ngày đạt **$40**, hệ thống tự động gửi cảnh báo khẩn cấp (Slack/Teams/CloudWatch Alarm) đến nhóm vận hành của cả AI Team và CDO Team.
-   * **Ngưỡng 2 (Ngắt kết nối - 100%):** Khi chi phí đạt **$50**, hệ thống kích hoạt cơ chế ngắt tự động (Circuit Breaker).
-3. **Cơ chế Dự phòng Không LLM (Fallback Rule-Based Mode)**:
-   * Sau khi vượt hạn mức $50/ngày, cuộc gọi tiếp theo đến `/v1/decide` sẽ tự động chuyển sang chế độ dự phòng rule-based truyền thống (không gọi LLM Bedrock).
-   * Phản hồi từ `/v1/decide` lúc này sẽ chứa thuộc tính cảnh báo `"cost_cap_exceeded": true` kèm theo cảnh báo trong trường giải thích `reasoning`, giúp hệ thống tiếp tục vận hành ở mức cơ bản nhưng không phát sinh thêm chi phí.
-   * Hạn mức chi phí sẽ được tự động thiết lập lại (reset) vào lúc `00:00:00 UTC` hàng ngày.
+1. **Hạn mức Chi phí (Cost Cap)**: Giới hạn **$50/ngày** trên mỗi Tenant.
+2. **Cảnh báo (Alerting)**: Đạt 80% ($40) sẽ bắn cảnh báo. Đạt 100% ($50) sẽ kích hoạt Circuit Breaker.
+3. **Cơ chế Fallback Rule-Based**: Sau khi vượt hạn mức, `/v1/decide` sẽ tự động chuyển sang fallback rule-based không gọi LLM, kèm cảnh báo `"cost_cap_exceeded": true`.
 
 ---
 
-## 5. Networking & Security Groups
+## 5. Networking & Security Policies
 
-AI Engine được triển khai hoàn toàn trong mạng nội bộ bảo mật, không tiếp xúc trực tiếp với Internet công cộng.
+Vì AI Engine triển khai dạng EKS-local, việc bảo mật mạng phụ thuộc vào K8s Network Policies thay vì AWS Security Groups.
 
-### A. Network Architecture
-- **Subnet type**: Private Subnet (Multi-AZ).
-- **Public IP**: Vô hiệu hóa hoàn toàn (`assign_public_ip = false`).
-- **Load Balancer**: Sử dụng Internal Application Load Balancer (Internal ALB) định tuyến trên port 8080.
-- **DNS**: Truy cập nội bộ qua Route 53 Private Hosted Zone với tên miền: `https://ai-engine.tf-3.internal/`.
+### A. Network Policy (Ingress)
+Chỉ cho phép Ingress Traffic (đi vào cổng 8080 của AI Engine) xuất phát từ các Pods thuộc namespace hệ thống có dán nhãn hợp lệ (ví dụ: `app=cdo-self-heal-controller`). Chặn toàn bộ traffic từ Internet hoặc từ các namespace nghiệp vụ khác.
 
-### B. Security Group Rules (`tf-3-ai-engine-sg`)
+### B. Network Policy (Egress)
+Chỉ cho phép Egress Traffic gọi ra ngoài qua giao thức HTTPS (Port 443) tới các AWS VPC Endpoints (S3, DynamoDB, Bedrock). Cấm Egress vào lại K8s API Server (`kubernetes.default.svc`).
 
-#### Ingress (Inbound) Rules
-
-| Source | Protocol | Port Range | Description |
-|---|---|---|---|
-| CDO-1 Platform Security Group | TCP | `8080` | Cho phép CDO-1 Platform gửi request API (`v1/detect`, `v1/decide`, `v1/verify`) |
-| CDO-2 Platform Security Group | TCP | `8080` | Cho phép CDO-2 Platform gửi request API (`v1/detect`, `v1/decide`, `v1/verify`) |
-| Mọi nguồn khác (Anywhere) | All | All | Chặn hoàn toàn (Deny by default) |
-
-#### Egress (Outbound) Rules
-
-| Destination | Protocol | Port Range | Description |
-|---|---|---|---|
-| AWS Secrets Manager VPC Endpoint | TCP | `443` | Kết nối lấy secrets và credentials cấu hình |
-| AWS Bedrock Endpoint | TCP | `443` | Gọi APIs của AWS Bedrock phục vụ phân tích log/context |
-| Amazon DynamoDB VPC Endpoint | TCP | `443` | Kiểm tra và cập nhật khóa chống trùng lặp (Idempotency Lock) |
-| Amazon S3 VPC Endpoint | TCP | `443` | Ghi nhật ký kiểm toán (Audit Trail) phục vụ tuân thủ SOC2 |
-
-*Lưu ý An toàn:* Do mô hình kiến trúc tách biệt trách nhiệm (CDO thực thi), Security Group của AI Engine tuyệt đối không mở cổng egress kết nối đến API Server của cụm Kubernetes (EKS API Server), giảm thiểu tối đa rủi ro bảo mật từ các cuộc tấn công leo thang đặc quyền.
-
-### C. Deployment Topology Diagram
+### C. Deployment Topology Diagram (CDO-01 Sandbox)
 
 ```mermaid
 graph TB
     subgraph "AWS Region: us-east-1"
-        subgraph "VPC tf-3"
-            subgraph "Private Subnet (Multi-AZ)"
-                ALB[Internal Application Load Balancer]
-                ECS1[ECS Fargate Task - Replica 1]
-                ECS2[ECS Fargate Task - Replica 2]
-                ALB -->|Port 8080| ECS1
-                ALB -->|Port 8080| ECS2
+        subgraph "EKS Cluster (CDO-01 Sandbox)"
+            subgraph "Namespace: self-heal-system"
+                SVC[Service: ai-engine<br>Type: ClusterIP]
+                Pod1[AI Engine Pod 1]
+                Pod2[AI Engine Pod 2]
+                
+                Ctrl[CDO Self-Heal Controller]
+                
+                SVC -->|Port 8080| Pod1
+                SVC -->|Port 8080| Pod2
+                
+                Ctrl -->|HTTP POST| SVC
             end
             
-            subgraph "VPC Endpoints & Managed Services"
-                SM[Secrets Manager VPCe]
-                DDB[(DynamoDB - Idempotency Lock)]
-                S3[(S3 Bucket: Audit Trail<br>Object Lock Compliance Mode 90d)]
+            subgraph "Target Workload Namespaces"
+                BizApp[Business App Deployment]
             end
             
-            ECS1 & ECS2 -->|Check / Acquire Lock| DDB
-            ECS1 & ECS2 -->|Write Tamper-evident Logs| S3
-            ECS1 & ECS2 -.->|Return Action Plan via API| ALB
+            Ctrl -->|Execute Action & Rollback| BizApp
         end
         
-        Bedrock[AWS Bedrock Service]
-        ECS1 & ECS2 -->|Call Bedrock APIs| Bedrock
+        subgraph "AWS Managed Services"
+            DDB[(DynamoDB - Idempotency Lock)]
+            S3[(S3 Bucket: Audit Trail)]
+            Bedrock[AWS Bedrock]
+        end
+        
+        Pod1 & Pod2 -->|IRSA / Pod Identity| Bedrock
+        Pod1 & Pod2 -->|IRSA / Pod Identity| DDB
+        Pod1 & Pod2 -->|IRSA / Pod Identity| S3
     end
-
-    subgraph "CDO Platforms & Target Infrastructure"
-        CDO1[cdo-1 Platform]
-        CDO2[cdo-2 Platform]
-        EKS_API[EKS Cluster API Server<br>CDO Managed - Executes Self-Heal]
-    end
-
-    CDO1 & CDO2 -->|Call API /v1/decide via Route 53| ALB
-    ALB -.->|Return Action Plan| CDO1 & CDO2
-    CDO1 & CDO2 -->|Validate Blast Radius & Execute| EKS_API
 ```
 
 ---
 
-## 6. Rollback & Canary Rollout
+## 6. Rollback & Deployment Pipeline
 
-### A. Rollout Strategy (Canary)
-- **Bước 1**: Điều hướng 10% lưu lượng sang phiên bản AI Engine mới. Giữ trong 5 phút để theo dõi.
-- **Bước 2**: Tăng lên 50% lưu lượng. Giữ trong 5 phút để theo dõi.
-- **Bước 3**: Hoàn tất 100% lưu lượng nếu không phát hiện bất thường.
+Khác với mô hình ECS dùng CodeDeploy, việc quản lý vòng đời ứng dụng của AI Engine giờ đây là trách nhiệm của công cụ GitOps (ví dụ: ArgoCD hoặc FluxCD) nằm bên trong cụm CDO.
+
+### A. Rollout Strategy
+CDO sử dụng K8s Deployment `RollingUpdate` (MaxSurge: 25%, MaxUnavailable: 0) hoặc ArgoCD Rollouts cho luồng Canary.
 
 ### B. Tiêu chuẩn dừng khẩn cấp (Abort Criteria)
-Hệ thống giám sát Canary của CDO sẽ tự động dừng rollout và kích hoạt rollback ngay lập tức nếu phát hiện bất kỳ tiêu chí nào sau đây:
-- Tỷ lệ lỗi API của AI Engine (`5xx` error rate) vượt quá `1.0%`.
-- Độ trễ phản hồi p99 của AI Engine vượt quá `800 ms`.
-- Kiểm tra sức khỏe (Health Check) thất bại liên tiếp quá ngưỡng quy định.
-- **Tốc độ tiêu thụ ngân sách lỗi nhanh (Error Budget Burn Rate Fast Alert):** Tỷ lệ tiêu hao ngân sách lỗi của các dịch vụ nghiệp vụ (do CDO giám sát) vượt quá ngưỡng cảnh báo nhanh (Fast Burn Rate > 14.4 trong cửa sổ 1 giờ, hoặc tiêu thụ quá 2% ngân sách lỗi trong vòng 1 giờ), biểu thị sự cố nghiêm trọng ảnh hưởng trực tiếp đến người dùng cuối.
-
-### C. Cơ chế Rollback
-- **Phương thức chính**: AWS CodeDeploy tự động rollback (Blue/Green) điều hướng lưu lượng traffic về phiên bản (Task Set) ổn định trước đó khi có cảnh báo từ CloudWatch Alarms hoặc khi có tín hiệu hủy (Abort) từ CDO Platform.
-- **Phương thức dự phòng**: ECS Deployment Circuit Breaker tự động rollback dịch vụ sang Task Definition version ổn định gần nhất nếu các task mới gặp lỗi khởi động (OOM, Crash) hoặc không vượt qua kiểm tra sức khỏe.
-- **Mục tiêu RTO (Recovery Time Objective)**: `< 60 giây` từ thời điểm kích hoạt.
+Hệ thống giám sát của CDO sẽ kích hoạt Rollback khi:
+- Tỷ lệ lỗi API (`5xx` error rate) của AI Engine > `1.0%`.
+- Độ trễ phản hồi p99 > `800 ms`.
+- Kiểm tra sức khỏe (Liveness probe) thất bại.
 
 ---
 
-## 7. Health Check & Readiness Endpoints
+## 7. Health Check & Readiness Probes
 
-AI Engine phải cung cấp các HTTP endpoints sau trên container port `8080` để phục vụ công tác giám sát trạng thái và định tuyến của ALB:
+CDO cần cấu hình các K8s Probes gọi vào các HTTP endpoints sau trên container port `8080` của AI Engine:
 
-### A. Health Check Endpoint (`GET /health`)
-* **Mục đích**: Kiểm tra trạng thái sống (Liveness) của container. Chỉ chạy các kiểm tra nhanh nội bộ.
-* **Mô tả trường dữ liệu phản hồi (Fields Description)**:
+### A. Liveness Probe (`GET /health`)
+* **Mục đích**: Kiểm tra trạng thái sống của container.
 
-| Trường (Field) | Kiểu dữ liệu (Type) | Bắt buộc (Required) | Mô tả (Description) |
-|---|---|---|---|
-| `status` | string (Enum) | ✓ | Trạng thái sống của container, cố định là `"healthy"` |
-| `timestamp` | string (RFC3339) | ✓ | Mốc thời gian kiểm tra trạng thái theo chuẩn UTC |
+### B. Readiness Probe (`GET /ready`)
+* **Mục đích**: Trả về `"ready"` khi AI Engine đã khởi tạo thành công kết nối tới Bedrock/DDB/S3.
 
-* **Lược đồ Schema Phản hồi**:
-```json
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "HealthCheckResponse",
-  "type": "object",
-  "properties": {
-    "status": {
-      "type": "string",
-      "enum": ["healthy"]
-    },
-    "timestamp": {
-      "type": "string",
-      "format": "date-time"
-    }
-  },
-  "required": ["status", "timestamp"],
-  "additionalProperties": false
-}
-```
-* **Payload mẫu**:
-  ```json
-  {
-    "status": "healthy",
-    "timestamp": "2026-06-25T10:00:00Z"
-  }
-  ```
-
-### B. Readiness Check Endpoint (`GET /ready`)
-* **Mục đích**: Xác nhận AI Engine đã sẵn sàng tiếp nhận traffic thông qua kiểm tra các kết nối hạ nguồn.
-* **Mô tả trường dữ liệu phản hồi (Fields Description)**:
-
-| Trường (Field) | Kiểu dữ liệu (Type) | Bắt buộc (Required) | Mô tả (Description) |
-|---|---|---|---|
-| `status` | string (Enum) | ✓ | Trạng thái sẵn sàng tiếp nhận traffic (`"ready"` hoặc `"unready"`) |
-| `dependencies` | object | ✓ | Đối tượng chứa thông tin trạng thái chi tiết của các dịch vụ liên kết |
-| `dependencies.bedrock` | string | ✓ | Trạng thái kết nối tới AWS Bedrock (ví dụ: `"connected"`) |
-| `dependencies.dynamodb_lock` | string | ✓ | Trạng thái kết nối tới DynamoDB Idempotency Lock (ví dụ: `"connected"`) |
-| `dependencies.s3_audit_trail` | string | ✓ | Trạng thái kết nối tới S3 Audit Trail (ví dụ: `"connected"`) |
-
-* **Lược đồ Schema Phản hồi**:
-```json
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "ReadinessCheckResponse",
-  "type": "object",
-  "properties": {
-    "status": {
-      "type": "string",
-      "enum": ["ready", "unready"]
-    },
-    "dependencies": {
-      "type": "object",
-      "properties": {
-        "bedrock": { "type": "string" },
-        "dynamodb_lock": { "type": "string" },
-        "s3_audit_trail": { "type": "string" }
-      },
-      "required": ["bedrock", "dynamodb_lock", "s3_audit_trail"]
-    }
-  },
-  "required": ["status", "dependencies"],
-  "additionalProperties": false
-}
-```
-* **Payload mẫu**:
-  ```json
-  {
-    "status": "ready",
-    "dependencies": {
-      "bedrock": "connected",
-      "dynamodb_lock": "connected",
-      "s3_audit_trail": "connected"
-    }
-  }
-  ```
-
-### C. Metrics Endpoint (`GET /metrics`)
-- **Mục đích**: Cung cấp các thông số giám sát định dạng Prometheus để CDO Collector thu thập.
-- **Exposed metrics**: Lượt requests, độ trễ API, lỗi hệ thống, CPU/Memory usage.
-
-### D. ALB Health Check Parameters
-* **Port**: 8080
-* **Interval**: 30 giây
-* **Healthy threshold**: 2 lần kiểm tra liên tiếp thành công (HTTP 200)
-* **Unhealthy threshold**: 3 lần kiểm tra liên tiếp thất bại (non-200)
+### C. K8s Probes Configuration (Khuyến nghị)
+* `initialDelaySeconds`: 15
+* `periodSeconds`: 10
+* `failureThreshold`: 3
 
 ---
 
 ## 8. Failure Modes & Response & Observability
 
 ### A. Observability
-- **OTel Endpoint**: Cấu hình URL của OTel Collector tương ứng với từng CDO platform thông qua environment variables.
-- **Logs**: Đẩy logs tập trung về Amazon CloudWatch Logs (retention policy 14 ngày).
-- **Metrics**: Cung cấp Prometheus endpoints phục vụ thu thập chủ động (pull-based).
-- **Traces**: Định dạng OpenTelemetry đẩy về Jaeger hoặc AWS X-Ray.
+- **Logs**: Fluend/Promtail thu thập stdout và gửi về CloudWatch/Loki.
+- **Metrics**: AI Engine expose endpoint `/metrics` định dạng Prometheus.
+- **Traces**: Định dạng OpenTelemetry.
 
 ### B. Failure Modes & Response Action Table
 
 | Failure Mode | Detection | Response |
 |---|---|---|
-| **Task crash / Out of Memory** | ECS Container Health Check | ECS Agent tự động khởi động lại Task |
-| **Bedrock API Throttling (429)** | Lỗi trả về từ SDK Bedrock | Áp dụng Exponential Backoff + chuyển sang Fallback Rule-Based (chế độ dự phòng không LLM) |
-| **Rò rỉ bộ nhớ (Memory Leak)** | Sử dụng bộ nhớ task vượt > 90% | Kích hoạt cơ chế Rolling Restart các tasks một cách tuần tự |
-| **Mất kết nối DynamoDB/S3** | Alert từ `/ready` endpoint | Ngắt traffic ALB sang task lỗi, kích hoạt luồng fallback của CDO Platform sang static runbook |
-
-
-
+| **Pod crash / OOMKilled** | K8s Kubelet | K8s ReplicaSet tự động khởi động lại Pod |
+| **Bedrock API Throttling (429)** | Lỗi từ SDK | Áp dụng Exponential Backoff + Fallback Rule-Based |
+| **Rò rỉ bộ nhớ (Memory Leak)** | Pod Memory > Limit | K8s OOMKilled và tự động khởi động lại pod mới |
+| **Mất kết nối DDB/S3** | Readiness Probe Fail | Pod bị tháo khỏi Service endpoints, ngừng nhận traffic |
