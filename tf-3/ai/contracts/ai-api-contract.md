@@ -14,7 +14,7 @@ Phát hiện Bất thường (/v1/detect) ──> Lập Kế hoạch (/v1/decide
 
 * **Đường dẫn cơ sở (API Path)**: `/v1/`
 * **Xác thực (Authentication)**: Sử dụng **IAM SigV4** cho toàn bộ các cuộc gọi liên dịch vụ (inter-service calls).
-* **Tính bất biến (Idempotency)**: Các yêu cầu ghi/thay đổi trạng thái (`/v1/decide` và `/v1/verify`) bắt buộc gửi kèm header `Idempotency-Key` (định dạng UUID v4) để chống xử lý trùng lặp.
+* **Tính bất biến (Idempotency)**: Tất cả các endpoint (`/v1/detect`, `/v1/decide` và `/v1/verify`) bắt buộc gửi kèm header `Idempotency-Key` (định dạng UUID v4) để chống xử lý trùng lặp.
 * **Chế độ thử nghiệm (Simulation Mode)**: Khi chạy mô phỏng ngoại tuyến, CDO Platform sẽ gửi dữ liệu telemetry trích xuất từ lịch sử sau thời điểm lỗi xảy ra và truyền vào cửa sổ `post_telemetry_window` của `/v1/verify` để kiểm chứng.
 
 ---
