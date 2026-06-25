@@ -3,9 +3,9 @@ import uuid
 import json
 import numpy as np
 import pandas as pd
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 from fastapi import FastAPI, Header, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from .anomaly_detector import run_metric_anomaly_detection, IsolationForestDetector, EWMAAnomalyDetector
 from .log_parser import Drain3LogParser
@@ -66,7 +66,8 @@ class AlertCorrelationEngine:
             "fault_type": fault_type,
             "start_time": current_time,
             "symptoms": [],
-            "status": "HEALING"
+            "status": "HEALING",
+            "decided": False
         }
         print(f"  [ALERT CORRELATION] Created new primary incident {new_corr_id} for root cause service {target_service} ({fault_type}).")
         return new_corr_id, False
@@ -97,6 +98,7 @@ alert_correlator = AlertCorrelationEngine(healing_window_seconds=120)
 # --- Pydantic Models for Schema Validation ---
 
 class TelemetryPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     ts: str = Field(..., description="ISO 8601 timestamp")
     tenant_id: str = Field(..., description="Tenant UUID")
     service: str = Field(..., description="Service name")
@@ -105,12 +107,14 @@ class TelemetryPoint(BaseModel):
     labels: Optional[Dict[str, Any]] = Field(default=None, description="Optional labels")
 
 class DetectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     correlation_id: Optional[str] = Field(None, description="UUID v4 tracing correlation ID")
     idempotency_key: str = Field(..., description="UUID v4 idempotency key")
     dry_run_mode: bool = Field(..., description="Dry-run flag")
     telemetry_window: List[TelemetryPoint] = Field(..., description="Telemetry data window")
 
 class AnomalyContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     target_service: str = Field(..., description="Identified faulty service")
     suspected_fault_type: str = Field(..., description="Identified fault type")
     system: str = Field(default="E-COMMERCE", description="System name")
@@ -118,9 +122,9 @@ class AnomalyContext(BaseModel):
     deployment: Optional[str] = Field(None, description="Kubernetes deployment")
     trigger_metric: Optional[str] = Field(None, description="Metric triggering the alert")
     trigger_value: Optional[float] = Field(None, description="Metric value triggering the alert")
-    is_correlated_symptom: bool = Field(default=False, description="Flag indicating this is a downstream symptom")
 
 class DetectResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     anomaly_detected: bool
     severity: float = Field(..., ge=0.0, le=1.0)
     anomaly_context: Optional[AnomalyContext] = None
@@ -129,29 +133,34 @@ class DetectResponse(BaseModel):
     correlation_id: str
 
 class DecideRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     correlation_id: str
     idempotency_key: str
     dry_run_mode: bool
     anomaly_context: AnomalyContext
 
 class ActionPlanStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     step: int
-    action: str
+    action: Literal["RESTART_DEPLOYMENT", "PATCH_MEMORY_LIMIT", "SCALE_REPLICAS", "ROLLOUT_UNDO", "ROTATE_SECRET"]
     target: str
     params: Dict[str, Any]
 
 class BlastRadiusConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     max_pod_impact_pct: int
     circuit_breaker_error_rate: float
     allowed_namespaces: List[str]
 
 class VerifyPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     window_seconds: int
     success_conditions: Optional[List[str]] = None
 
 class DecideResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     matched_runbook: str
-    pattern_type: str
+    pattern_type: Literal["urgent", "deferred"]
     action_plan: List[ActionPlanStep]
     blast_radius_config: BlastRadiusConfig
     verify_policy: VerifyPolicy
@@ -161,12 +170,14 @@ class DecideResponse(BaseModel):
     cost_cap_exceeded: bool = False
 
 class ActionExecuted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     action: str
     target: str
-    status: str
+    status: Literal["COMPLETED", "FAILED"]
     execution_time_seconds: Optional[int] = None
 
 class VerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     correlation_id: str
     idempotency_key: str
     dry_run_mode: bool
@@ -174,20 +185,22 @@ class VerifyRequest(BaseModel):
     post_telemetry_window: List[TelemetryPoint]
 
 class EscalationBundle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     reason: Optional[str] = None
     logs: Optional[List[str]] = None
     metrics: Optional[Dict[str, Any]] = None
 
 class VerifyResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     success: bool
     regression_detected: bool
-    next_action: str
+    next_action: Literal["DONE", "RETRY", "ROLLBACK", "ESCALATE"]
     escalation_bundle: Optional[EscalationBundle] = None
 
 
 # --- Endpoints ---
 
-@app.post("/v1/detect", response_model=DetectResponse)
+@app.post("/v1/detect", response_model=DetectResponse, response_model_exclude_none=True)
 async def detect_anomalies(request: DetectRequest):
     """
     Endpoint: POST /v1/detect
@@ -316,8 +329,7 @@ async def detect_anomalies(request: DetectRequest):
         namespace="production",
         deployment=target_service,
         trigger_metric=trigger_metric,
-        trigger_value=trigger_val,
-        is_correlated_symptom=is_correlated
+        trigger_value=trigger_val
     )
     
     return DetectResponse(
@@ -329,7 +341,7 @@ async def detect_anomalies(request: DetectRequest):
         correlation_id=corr_id
     )
 
-@app.post("/v1/decide", response_model=DecideResponse)
+@app.post("/v1/decide", response_model=DecideResponse, response_model_exclude_none=True)
 async def decide_action_plan(request: DecideRequest):
     """
     Endpoint: POST /v1/decide
@@ -339,9 +351,25 @@ async def decide_action_plan(request: DecideRequest):
     target_service = ctx.target_service
     suspected_fault_type = ctx.suspected_fault_type
     
-    # 1. If this is a correlated downstream symptom, return an empty action plan to avoid spamming restarts!
-    if ctx.is_correlated_symptom:
-        print(f"  [DEDUPLICATION] Suppressing healing action plan for correlated symptom {target_service} ({suspected_fault_type}).")
+    # 1. Check if this is a correlated symptom or duplicate using the server-side AlertCorrelationEngine state
+    is_suppressed = False
+    suppression_reason = ""
+    
+    corr_id = request.correlation_id
+    if corr_id in alert_correlator.active_incidents:
+        incident = alert_correlator.active_incidents[corr_id]
+        if target_service == incident["root_cause_service"]:
+            if incident.get("decided", False):
+                is_suppressed = True
+                suppression_reason = "duplicate alert for root-cause (already decided)"
+            else:
+                incident["decided"] = True
+        else:
+            is_suppressed = True
+            suppression_reason = f"correlated downstream symptom of upstream {incident['root_cause_service']}"
+            
+    if is_suppressed:
+        print(f"  [DEDUPLICATION] Suppressing healing action plan for {target_service} ({suspected_fault_type}): {suppression_reason}.")
         return DecideResponse(
             matched_runbook="CorrelatedSymptomSuppression",
             pattern_type="urgent",
@@ -373,7 +401,7 @@ async def decide_action_plan(request: DecideRequest):
         cost_cap_exceeded=False
     )
 
-@app.post("/v1/verify", response_model=VerifyResponse)
+@app.post("/v1/verify", response_model=VerifyResponse, response_model_exclude_none=True)
 async def verify_healing(request: VerifyRequest):
     """
     Endpoint: POST /v1/verify
