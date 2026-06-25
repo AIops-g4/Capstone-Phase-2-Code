@@ -126,6 +126,20 @@ class AIOpsIngestor(BaseIngestor):
                                     "resource": "sockets"
                                 }
                             })
+                        elif metric_type == "diskio":
+                            # Map diskio to container_resource_usage
+                            telemetry_data.append({
+                                "ts": ts_str,
+                                "tenant_id": tenant_id,
+                                "service": service,
+                                "signal_name": "container_resource_usage",
+                                "value": val,
+                                "labels": {
+                                    "system": system,
+                                    "container": "main",
+                                    "resource": "disk"
+                                }
+                            })
             except Exception as e:
                 logger.error(f"Error parsing metrics in {case_path}: {e}")
 

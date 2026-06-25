@@ -10,6 +10,7 @@ from pipeline.decide import RuleBasedDecider, LLMDecider
 from pipeline.verify import AIOpsVerifier
 from bench.benchmark import AIOpsBenchmark
 from utils.logger import get_logger
+from utils.audit_logger import log_audit_incident
 
 logger = get_logger("AIOpsMain")
 
@@ -48,7 +49,9 @@ def run_single_case(case_key: str, split: str, settings: Settings):
     detect_res = detector.detect(telemetry_window, correlation_id)
     logger.info(f"Detection Response:\n{json.dumps(detect_res, indent=2)}")
 
-    if not detect_res.get("anomaly_detected", False):
+    if detect_res.get("anomaly_detected", False):
+        log_audit_incident(case_key, detect_res, 1, settings.BASE_DIR)
+    else:
         logger.info("No anomaly detected. Ending pipeline.")
         return
 

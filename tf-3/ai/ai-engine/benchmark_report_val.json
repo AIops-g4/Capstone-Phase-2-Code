@@ -5,29 +5,29 @@
   "detected_cases": 15,
   "detection_accuracy": 1.0,
   "localization": {
-    "correct": 15,
-    "precision": 1.0,
-    "recall": 1.0,
-    "f1": 1.0
+    "correct": 10,
+    "precision": 0.6667,
+    "recall": 0.6667,
+    "f1": 0.6667
   },
   "classification": {
-    "correct": 15,
-    "precision": 1.0,
-    "recall": 1.0,
-    "f1": 1.0
+    "correct": 7,
+    "precision": 0.4667,
+    "recall": 0.4667,
+    "f1": 0.4667
   },
   "latency_mean": {
-    "ingest": 18.0774,
-    "detect": 1.124,
+    "ingest": 19.3963,
+    "detect": 1.1457,
     "decide": 0.0016,
-    "verify": 0.0026,
-    "e2e": 19.2056
+    "verify": 0.0025,
+    "e2e": 20.5461
   },
   "latency_p95": {
-    "ingest": 18.6519,
-    "detect": 1.1567,
+    "ingest": 20.235,
+    "detect": 1.1876,
     "decide": 0.0016,
-    "verify": 0.0028,
-    "e2e": 19.7697
+    "verify": 0.0029,
+    "e2e": 21.3761
   }
 }
