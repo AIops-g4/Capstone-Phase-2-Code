@@ -10,6 +10,7 @@ from pipeline.detector import AIOpsDetector
 from pipeline.decide import RuleBasedDecider, LLMDecider
 from pipeline.verify import AIOpsVerifier
 from utils.logger import get_logger
+from utils.audit_logger import log_audit_incident
 
 logger = get_logger("AIOpsBenchmark")
 
@@ -40,6 +41,11 @@ class AIOpsBenchmark:
         logger.info(f"Starting AIOps E2E Pipeline Benchmark on split: {split}")
         logger.info(f"=========================================")
 
+        # Clear existing audit log
+        audit_file = self.settings.BASE_DIR / "audit.jsonl"
+        if audit_file.exists():
+            audit_file.unlink()
+
         split_dir = self.settings.DATASET_PATH / split
         gt_file = self.settings.DATASET_PATH / f"{split}_gt.json"
 
@@ -64,7 +70,7 @@ class AIOpsBenchmark:
         tenant_id = "d3b07384-d113-495f-9f58-20d18d357d75"  # cdo-1
         system = "OB"
 
-        for case_key, gt_info in gt_data.items():
+        for case_idx, (case_key, gt_info) in enumerate(gt_data.items(), 1):
             case_path = split_dir / case_key
             logger.info(f"--- Running case: {case_key} ---")
             
@@ -97,6 +103,10 @@ class AIOpsBenchmark:
                 detect_res = self.detector.detect(telemetry_window, correlation_id)
                 t_detect = time.time() - t0
                 latencies["detect"].append(t_detect)
+                
+                # Write to audit.jsonl if an anomaly is detected
+                if detect_res.get("anomaly_detected", False):
+                    log_audit_incident(case_key, detect_res, case_idx, self.settings.BASE_DIR)
             except Exception as e:
                 logger.error(f"Detection failed for case {case_key}: {e}")
                 continue
@@ -165,7 +175,23 @@ class AIOpsBenchmark:
             true_fault = gt_info["fault_type"]
 
             service_correct = (pred_service == true_service)
-            fault_correct = (pred_fault == true_fault)
+            
+            # Map generic AI engine fault categories to dataset-specific ground truth codes
+            def is_fault_correct(pred: str, true: str) -> bool:
+                pred = pred.lower().strip()
+                true = true.lower().strip()
+                if pred == true:
+                    return True
+                mapping = {
+                    "cpu": "f1",
+                    "mem": "f2",
+                    "disk": "f3",
+                    "loss": "f4",
+                    "delay": "f5"
+                }
+                return mapping.get(pred) == true
+
+            fault_correct = is_fault_correct(pred_fault, true_fault)
 
             results.append({
                 "case": case_key,

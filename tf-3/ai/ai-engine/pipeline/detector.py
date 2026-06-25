@@ -222,6 +222,7 @@ class AIOpsDetector(BaseDetector):
             socket_z = z_scores.get('resource_sockets', 0.0)
             err_z = z_scores.get('service_error_rate', 0.0)
             lat_z = z_scores.get('service_latency_p95', 0.0)
+            disk_z = z_scores.get('resource_disk', 0.0)
             
             # We combine the Z-score deviations and the Isolation Forest multivariate score
             # to rank the service anomalies
@@ -235,7 +236,8 @@ class AIOpsDetector(BaseDetector):
                 'loss': err_z * 3.0 + lat_z,
                 'delay': lat_z * 3.0 if err_z < 2.0 else lat_z,
                 'socket': socket_z * 2.0,
-                'crash': restart_increase * 30.0
+                'crash': restart_increase * 30.0,
+                'disk': disk_z * 2.0
             }
             
             best_fault = max(scores, key=scores.get)
