@@ -1,0 +1,33 @@
+{
+  "split": "val",
+  "decider_type": "rule-based",
+  "total_cases": 8,
+  "detected_cases": 8,
+  "detection_accuracy": 1.0,
+  "localization": {
+    "correct": 8,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "classification": {
+    "correct": 8,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "latency_mean": {
+    "ingest": 38.2232,
+    "detect": 2.7169,
+    "decide": 0.0028,
+    "verify": 0.003,
+    "e2e": 43.3913
+  },
+  "latency_p95": {
+    "ingest": 43.6987,
+    "detect": 2.8127,
+    "decide": 0.0039,
+    "verify": 0.0038,
+    "e2e": 46.6299
+  }
+}
