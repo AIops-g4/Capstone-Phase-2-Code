@@ -1,0 +1,214 @@
+{
+  "RE2-OB/emailservice_mem/3": {
+    "root_cause_service": "emailservice",
+    "fault_type": "mem",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontendservice",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE2-OB/emailservice_disk/2": {
+    "root_cause_service": "emailservice",
+    "fault_type": "disk",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontendservice",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE2-OB/checkoutservice_loss/1": {
+    "root_cause_service": "checkoutservice",
+    "fault_type": "loss",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontendservice",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE2-OB/productcatalogservice_mem/1": {
+    "root_cause_service": "productcatalogservice",
+    "fault_type": "mem",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontendservice",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE2-OB/productcatalogservice_disk/2": {
+    "root_cause_service": "productcatalogservice",
+    "fault_type": "disk",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontendservice",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE2-OB/emailservice_delay/1": {
+    "root_cause_service": "emailservice",
+    "fault_type": "delay",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontendservice",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE2-OB/recommendationservice_loss/1": {
+    "root_cause_service": "recommendationservice",
+    "fault_type": "loss",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontendservice",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE2-OB/emailservice_disk/3": {
+    "root_cause_service": "emailservice",
+    "fault_type": "disk",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontendservice",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE2-OB/productcatalogservice_mem/2": {
+    "root_cause_service": "productcatalogservice",
+    "fault_type": "mem",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontendservice",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE2-OB/recommendationservice_delay/2": {
+    "root_cause_service": "recommendationservice",
+    "fault_type": "delay",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontendservice",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE2-OB/recommendationservice_delay/3": {
+    "root_cause_service": "recommendationservice",
+    "fault_type": "delay",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontendservice",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/adservice_f4/2": {
+    "root_cause_service": "adservice",
+    "fault_type": "f4",
+    "system": "OB",
+    "candidate_services": [
+      "adservice",
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/emailservice_f5/1": {
+    "root_cause_service": "emailservice",
+    "fault_type": "f5",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/cartservice_f1/1": {
+    "root_cause_service": "cartservice",
+    "fault_type": "f1",
+    "system": "OB",
+    "candidate_services": [
+      "cartservice",
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  },
+  "RE3-OB/emailservice_f1/3": {
+    "root_cause_service": "emailservice",
+    "fault_type": "f1",
+    "system": "OB",
+    "candidate_services": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "frontend",
+      "paymentservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ]
+  }
+}
