@@ -15,7 +15,7 @@ Tài liệu này ghi nhận lại các quyết định kiến trúc quan trọng
 * Context: Khi xây dựng một giải pháp tự chữa lành tự động cho cụm Kubernetes (EKS), có một mối lo ngại lớn về bảo mật hạ tầng và rủi ro vận hành. Nếu AI Engine trực tiếp thực thi các hành động sửa lỗi lên cụm, nó sẽ yêu cầu quyền hạn rất cao (`eks:*` hoặc quyền admin cụm) và tiếp xúc trực tiếp với API server của Kubernetes, tạo ra một bề mặt tấn công cực kỳ nguy hiểm nếu hệ thống AI bị xâm nhập.
 * Decision: Chốt phân tách hoàn toàn trách nhiệm giữa AI Engine và CDOps Platform. AI Engine chỉ đóng vai trò là bộ não phân tích dữ liệu telemetry và trả về kế hoạch hành động tối ưu dưới dạng dữ liệu cấu trúc (Brain). Quyền sửa đổi hạ tầng và gọi Kubernetes API thuộc về CDOps Platform (Hands). CDOps Platform có trách nhiệm kiểm tra tính an toàn, xác thực vùng ảnh hưởng (Blast Radius) của kế hoạch trước khi thực thi.
 * Consequence:
-  * Pro: Tối đa hóa tính an toàn bảo mật. ECS Task Role của AI Engine hoàn toàn không có quyền can thiệp EKS, tuân thủ nghiêm ngặt nguyên tắc đặc quyền tối thiểu (Least Privilege). CDOps Platform đóng vai trò chốt chặn an toàn cuối cùng.
+  * Pro: Tối đa hóa tính an toàn bảo mật. IAM Role gắn qua IRSA (IAM Roles for Service Accounts) của AI Engine Pod trên EKS hoàn toàn không có quyền can thiệp Kubernetes API, tuân thủ nghiêm ngặt nguyên tắc đặc quyền tối thiểu (Least Privilege). CDOps Platform đóng vai trò chốt chặn an toàn cuối cùng.
   * Pro: Dễ dàng kiểm toán độc lập các hành động can thiệp hạ tầng.
   * Trade-off: Tăng thêm độ trễ truyền thông giữa hai hệ thống và yêu cầu định nghĩa giao thức API cực kỳ chặt chẽ ở hai đầu.
 * Alternatives considered:

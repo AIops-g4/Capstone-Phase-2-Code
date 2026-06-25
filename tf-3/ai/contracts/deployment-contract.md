@@ -209,7 +209,7 @@ graph TB
 
 ## 6. Rollback & Deployment Pipeline
 
-Khác với mô hình ECS dùng CodeDeploy, việc quản lý vòng đời ứng dụng của AI Engine giờ đây là trách nhiệm của công cụ GitOps (ví dụ: ArgoCD hoặc FluxCD) nằm bên trong cụm CDO.
+Việc quản lý vòng đời ứng dụng của AI Engine là trách nhiệm của công cụ GitOps (ví dụ: ArgoCD hoặc FluxCD) nằm bên trong cụm CDO.
 
 ### A. Rollout Strategy
 CDO sử dụng K8s Deployment `RollingUpdate` (MaxSurge: 25%, MaxUnavailable: 0) hoặc ArgoCD Rollouts cho luồng Canary.

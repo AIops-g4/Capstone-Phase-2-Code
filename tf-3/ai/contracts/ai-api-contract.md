@@ -613,4 +613,3 @@ Hợp đồng API này được đóng băng ("FREEZE") để bảo đảm tính
 * Bước 1: Bên đề xuất gửi yêu cầu thay đổi hợp đồng (RFC - Request for Comments) bằng văn bản cho hội đồng kỹ thuật.
 * Bước 2: Tổ chức họp đánh giá tác động với sự tham gia bắt buộc của AI Lead và các CDO Platform Leads.
 * Bước 3: Sau khi thống nhất, cập nhật schema, chạy bộ test tự động và ký duyệt phiên bản hợp đồng mới.
-

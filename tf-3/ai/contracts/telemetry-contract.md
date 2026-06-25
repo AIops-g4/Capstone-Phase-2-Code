@@ -42,8 +42,8 @@ graph TD
     end
 
     subgraph "AIOps AI Engine Boundary (Vùng AI Engine quản lý)"
-        C -->|HTTP POST /v1/detect<br>IAM SigV4 / HTTPS| D[Internal Application Load Balancer<br>ai-engine.tf-3.internal:8080]
-        D -->|Route traffic| E[ECS Fargate Tasks<br>AI Engine Replicas]
+        C -->|HTTP POST /v1/detect<br>In-Cluster Routing| D[K8s ClusterIP Service<br>ai-engine.self-heal-system.svc.cluster.local:8080]
+        D -->|Route traffic| E[EKS Deployment Pods<br>AI Engine Replicas]
     end
 
     style B fill:#f9f,stroke:#333,stroke-width:2px
@@ -508,5 +508,4 @@ Hợp đồng telemetry này được đóng băng ("FREEZE") để bảo đảm
 * Bước 1: Bên đề xuất gửi yêu cầu thay đổi hợp đồng (RFC - Request for Comments) bằng văn bản cho hội đồng kỹ thuật.
 * Bước 2: Tổ chức họp đánh giá tác động với sự tham gia bắt buộc của AI Lead và các CDO Platform Leads.
 * Bước 3: Sau khi thống nhất, cập nhật schema, chạy bộ test tự động và ký duyệt phiên bản hợp đồng mới.
-
 

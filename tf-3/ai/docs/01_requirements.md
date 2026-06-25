@@ -38,13 +38,13 @@ Các chỉ số thành công của dự án được đo lường cụ thể th�
 
 Dự án tự chữa lành AIOps TF3 phải tuân thủ các ràng buộc kỹ thuật và vận hành sau:
 
-* Budget: Giới hạn ngân sách thử nghiệm dịch vụ AWS Bedrock và hạ tầng ECS Fargate.
+* Budget: Giới hạn ngân sách thử nghiệm dịch vụ AWS Bedrock và hạ tầng EKS sandbox.
 * Timeline: Dự án phải hoàn thành xây dựng, kiểm thử tích hợp và đóng băng mã nguồn theo đúng lịch trình quy định của Phase 2.
-* Tooling: Triển khai hoàn toàn trên hạ tầng đám mây AWS (AWS ECS Fargate, DynamoDB, S3, Secrets Manager, Bedrock), không sử dụng các giải pháp multi-cloud hoặc các dịch vụ LLM bên ngoài AWS trong môi trường sản xuất.
+* Tooling: Triển khai hoàn toàn trên hạ tầng đám mây AWS (EKS, DynamoDB, S3, Secrets Manager, Bedrock), không sử dụng các giải pháp multi-cloud hoặc các dịch vụ LLM bên ngoài AWS trong môi trường sản xuất.
 * Compliance (SOC2 Type II):
   * Dữ liệu telemetry gửi sang AI Engine tuyệt đối không được chứa thông tin nhận dạng cá nhân (PII) như email, số điện thoại, mật khẩu, hoặc connection string.
   * Nhật ký kiểm toán hoạt động (Audit Trail) phải được lưu trữ bất biến (WORM) trên S3 với thời gian giữ tối thiểu 90 ngày.
-  * Phân tách quyền hạn chặt chẽ (Least Privilege) ở mức IAM Roles giữa ECS Task Execution Role và ECS Task Role.
+  * Phân tách quyền hạn chặt chẽ (Least Privilege) ở mức IAM Roles thông qua IRSA (IAM Roles for Service Accounts) trên EKS.
 
 ## 5. Out of scope
 
@@ -58,7 +58,7 @@ Các hạng mục sau đây nằm ngoài phạm vi thực hiện của dự án 
 ## 6. Non-functional requirements
 
 * SLO Platform: Độ trễ phản hồi p99 của API detect dưới 300ms, decide dưới 3000ms (khi gọi LLM) và verify dưới 500ms. Khả năng sẵn sàng hệ thống đạt 99.9%.
-* Multi-tenant Scale: Hệ thống thiết kế dạng shared backend hỗ trợ đồng thời ít nhất 2 tenants độc lập (cdo-1 và cdo-2) trên cùng một instance chạy Fargate mà không bị lẫn lộn dữ liệu nhờ cơ chế định tuyến và AssumeRole động theo Tenant ID.
+* Multi-tenant Scale: Hệ thống thiết kế dạng shared backend hỗ trợ đồng thời ít nhất 2 tenants độc lập (cdo-1 và cdo-2) trên cùng một EKS Deployment mà không bị lẫn lộn dữ liệu nhờ cơ chế định tuyến theo header `X-Tenant-Id` và AssumeRole động theo Tenant ID.
 * Security Baseline:
   * Toàn bộ kết nối API phải được xác thực qua AWS IAM SigV4.
   * Mọi secret, credential và API key phải được lưu trữ trong AWS Secrets Manager và cấu hình chính sách xoay vòng tự động (rotation policy).

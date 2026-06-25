@@ -305,11 +305,11 @@ Dưới đây là bảng tính toán dự báo chi phí vận hành dịch vụ 
 
 ## 9. Deployment topology
 
-* Compute: Triển khai trên môi trường AWS ECS Fargate serverless để loại bỏ gánh nặng quản lý máy chủ.
+* Compute: AI Team đóng gói engine thành OCI-compliant Container Image và đẩy lên ECR. CDO tự pull image và triển khai dưới dạng EKS Deployment trong namespace `self-heal-system`.
 * Replica strategy: Cấu hình tối thiểu 2 tasks chạy song song trên nhiều phân vùng khả dụng (Multi-AZ) để đảm bảo tính sẵn sàng cao, tự động co giãn lên tối đa 10 tasks khi CPU vượt quá 70% hoặc số lượng yêu cầu vượt quá 100 requests/task trong 60 giây.
 * Cold start mitigation: Duy trì tối thiểu 2 tasks luôn chạy ở trạng thái sẵn sàng để loại bỏ độ trễ khởi động lạnh.
-* Network: Triển khai hoàn toàn trong các Subnet riêng tư (Private Subnets) của VPC. Hệ thống không cấp địa chỉ IP công cộng (`assign_public_ip = false`). Mọi yêu cầu truy cập từ CDOps Platform phải đi qua Internal Application Load Balancer (Internal ALB) được định tuyến nội bộ thông qua Route 53 Private Hosted Zone với tên miền `https://ai-engine.tf-3.internal/`.
-* Secrets: Sử dụng AWS Secrets Manager để lưu trữ các thông tin cấu hình và credentials kết nối. Các task của ECS Fargate sẽ lấy secrets này tại thời điểm khởi tạo container thông qua phân quyền của ECS Task Execution Role, tuyệt đối không hardcode credentials trong mã nguồn.
+* Network: AI Engine được expose bằng K8s ClusterIP Service nội bộ tại địa chỉ `http://ai-engine.self-heal-system.svc.cluster.local:8080/`. Không public Internet, không Public ALB. CDOps Controller gọi AI Engine qua ClusterIP trong cùng cụm EKS.
+* Secrets: Sử dụng AWS Secrets Manager kết hợp External Secrets Operator để inject secrets vào EKS Pod tại thời điểm khởi tạo, thông qua IRSA (IAM Roles for Service Accounts). Tuyệt đối không hardcode credentials trong mã nguồn.
 
 ## Related documents
 
