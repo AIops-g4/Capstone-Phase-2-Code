@@ -25,7 +25,7 @@ def run_single_case(case_key: str, split: str, settings: Settings):
         return
 
     # Initialize components
-    ingestor = AIOpsIngestor()
+    ingestor = AIOpsIngestor(settings=settings)
     detector = AIOpsDetector(settings)
     
     if settings.DECIDER_TYPE == "llm":

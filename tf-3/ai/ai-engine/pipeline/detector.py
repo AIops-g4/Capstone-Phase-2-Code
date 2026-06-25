@@ -6,6 +6,7 @@ from pipeline.base import BaseDetector
 from config.settings import Settings
 from utils.logger import get_logger
 from utils.schema_validator import DETECT_RESPONSE_SCHEMA, validate_json
+from pipeline.correlator import AlertCorrelator
 
 logger = get_logger("AIOpsDetector")
 
@@ -97,11 +98,12 @@ class AIOpsDetector(BaseDetector):
     def __init__(self, settings: Settings = None):
         self.settings = settings or Settings()
         self.smoother = EWMASmoother(span=self.settings.EWMA_SPAN)
-        self.z_detector = ZScoreDetector(z_threshold=3.0)
+        self.z_detector = ZScoreDetector(z_threshold=self.settings.DETECTOR_Z_THRESHOLD)
         self.if_detector = IsolationForestDetector(
             contamination=self.settings.IF_CONTAMINATION,
             n_estimators=self.settings.IF_N_ESTIMATORS
         )
+        self.correlator = AlertCorrelator(self.settings)
 
     def _parse_rfc3339(self, ts_str: str) -> float:
         """Parses RFC3339 timestamp to unix epoch seconds."""
@@ -224,7 +226,7 @@ class AIOpsDetector(BaseDetector):
             # We combine the Z-score deviations and the Isolation Forest multivariate score
             # to rank the service anomalies
             base_anomaly_score = max(z_scores.values()) if z_scores else 0.0
-            combined_score = base_anomaly_score + (if_score * 15.0)  # scale IF score to match Z-score ranges
+            combined_score = base_anomaly_score + (if_score * self.settings.DETECTOR_IF_SCALE)  # scale IF score to match Z-score ranges
 
             # Determine the dominant fault type based on which Z-score spiked the most
             scores = {
@@ -239,8 +241,8 @@ class AIOpsDetector(BaseDetector):
             best_fault = max(scores, key=scores.get)
             best_score = scores[best_fault]
 
-            # If the service shows significant deviation (combined_score > 3.0 or restart/OOM)
-            if combined_score > 3.0 or restart_increase > 0 or best_score > 5.0:
+            # If the service shows significant deviation (combined_score > threshold or restart/OOM)
+            if combined_score > self.settings.DETECTOR_COMBINED_THRESHOLD or restart_increase > 0 or best_score > self.settings.DETECTOR_BEST_SCORE_THRESHOLD:
                 anomalies.append({
                     'service': service,
                     'fault_type': best_fault,
@@ -249,15 +251,16 @@ class AIOpsDetector(BaseDetector):
                     'trigger_value': df_active['service_error_rate'].max() if 'service_error_rate' in df_active.columns else 1.0
                 })
 
-        # 4. Check for hints in telemetry window labels (for benchmark localization override)
+        # 4. Check for hints in telemetry window labels (ONLY if explicitly enabled in Settings)
         hint_service = None
         hint_fault = None
-        for pt in telemetry_window:
-            if "labels" in pt:
-                if "hint_service" in pt["labels"] and pt["labels"]["hint_service"]:
-                    hint_service = pt["labels"]["hint_service"]
-                    hint_fault = pt["labels"]["hint_fault"]
-                    break
+        if self.settings.BENCHMARK_USE_HINTS:
+            for pt in telemetry_window:
+                if "labels" in pt:
+                    if "hint_service" in pt["labels"] and pt["labels"]["hint_service"]:
+                        hint_service = pt["labels"]["hint_service"]
+                        hint_fault = pt["labels"]["hint_fault"]
+                        break
 
         # 5. Build response
         if anomalies or hint_service:
@@ -290,16 +293,28 @@ class AIOpsDetector(BaseDetector):
                     trigger_metric = "container_resource_usage"
                     trigger_value = 1.0
             else:
-                anomalies.sort(key=lambda x: x['score'], reverse=True)
-                root_cause = anomalies[0]
-                target_service = root_cause['service']
-                suspected_fault_type = root_cause['fault_type']
-                severity = min(1.0, float(root_cause['score'] / 50.0))
-                confidence = min(0.95, 0.5 + float(root_cause['score'] / 100.0))
-                reasoning = f"Detected anomaly in {target_service} with suspected fault type '{suspected_fault_type}' " \
-                            f"(Z-score deviation: {root_cause['score']:.2f})."
-                trigger_metric = root_cause['trigger_metric']
-                trigger_value = float(root_cause['trigger_value'])
+                # Run the Alert Correlator to group, analyze, and locate root cause
+                correlated_incident = self.correlator.correlate(anomalies)
+                if correlated_incident:
+                    target_service = correlated_incident['target_service']
+                    suspected_fault_type = correlated_incident['suspected_fault_type']
+                    severity = min(1.0, float(correlated_incident['score'] / 50.0))
+                    confidence = min(0.95, 0.5 + float(correlated_incident['score'] / 100.0))
+                    reasoning = correlated_incident['reasoning']
+                    trigger_metric = correlated_incident['trigger_metric']
+                    trigger_value = float(correlated_incident['trigger_value'])
+                else:
+                    # Fallback
+                    anomalies.sort(key=lambda x: x['score'], reverse=True)
+                    root_cause = anomalies[0]
+                    target_service = root_cause['service']
+                    suspected_fault_type = root_cause['fault_type']
+                    severity = min(1.0, float(root_cause['score'] / 50.0))
+                    confidence = min(0.95, 0.5 + float(root_cause['score'] / 100.0))
+                    reasoning = f"Detected anomaly in {target_service} with suspected fault type '{suspected_fault_type}' " \
+                                f"(Z-score deviation: {root_cause['score']:.2f})."
+                    trigger_metric = root_cause['trigger_metric']
+                    trigger_value = float(root_cause['trigger_value'])
 
             # Construct anomaly context
             anomaly_context = {
