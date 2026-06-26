@@ -14,8 +14,7 @@ sys.path.append(AI_ENGINE_DIR)
 from src.anomaly_detector import run_metric_anomaly_detection
 from src.log_parser import Drain3LogParser
 from src.correlation_analyzer import CorrelationAnalyzer
-from src.self_healer import SelfHealer
-from src.config import DATASET_DIR, GROUND_TRUTH_PATH, RUNBOOKS_PATH, BASELINE_LENGTH
+from src.config import DATASET_DIR, GROUND_TRUTH_PATH, BASELINE_LENGTH
 
 def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False):
     if not os.path.exists(GROUND_TRUTH_PATH):
@@ -46,7 +45,6 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         print(f"Sampled {len(run_keys)} runs for evaluation across fault types.")
 
     # Initialize modules
-    healer = SelfHealer(RUNBOOKS_PATH)
     correlation_analyzer = CorrelationAnalyzer(correlation_threshold=0.5)
     
     # Apply overrides for evaluation
@@ -76,10 +74,10 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
     correct_detection = 0
     correct_service = 0
     correct_fault = 0
-    correct_runbook = 0
     correct_top_k = 0
     rto_list = []
     anomaly_points_list = []
+    confidence_list = []
     
     y_true = []
     y_pred = []
@@ -97,7 +95,6 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         true_service = gt_info["target_service"]
         true_fault = gt_info["suspected_fault_type"]
         inject_time = gt_info["inject_time"]
-        true_runbook = gt_info["matched_runbook"]
         
         print(f"[{idx+1}/{len(run_keys)}] Evaluating Run: {run_key}")
         print(f"  True Fault: {true_service} ({true_fault}) injected at {inject_time}")
@@ -186,21 +183,14 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
             window_size=120
         )
         
-        # 5. Match Runbook
-        decision = healer.decide(pred_service, pred_fault)
-        pred_runbook = decision["matched_runbook"]
-        
         # Check correctness
         service_ok = (pred_service == true_service)
         fault_ok = (pred_fault == true_fault)
-        runbook_ok = (pred_runbook == true_runbook)
         
         if service_ok:
             correct_service += 1
         if fault_ok:
             correct_fault += 1
-        if runbook_ok:
-            correct_runbook += 1
             
         y_true.append(true_service)
         y_pred.append(pred_service)
@@ -211,10 +201,11 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         if in_top_k:
             correct_top_k += 1
             
+        confidence_list.append(confidence)
         print(f"  [DIAGNOSIS] Predicted Service: {pred_service} [{'OK' if service_ok else 'WRONG'}]")
         print(f"  [DIAGNOSIS] Top-{eval_top_k} Candidates: {', '.join(top_k_candidates)} [{'OK' if in_top_k else 'WRONG'}]")
+        print(f"  [DIAGNOSIS] Confidence Score:  {confidence:.2f}")
         print(f"  [DIAGNOSIS] Predicted Fault:   {pred_fault} [{'OK' if fault_ok else 'WRONG'}]")
-        print(f"  [HEALING]   Matched Runbook:   {pred_runbook} [{'OK' if runbook_ok else 'WRONG'}]")
         print(f"  [REASONING] {reasoning}\n")
         
         results.append({
@@ -222,7 +213,6 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
             "detected": True,
             "service_correct": service_ok,
             "fault_correct": fault_ok,
-            "runbook_correct": runbook_ok,
             "rto": rto
         })
         total_eval += 1
@@ -233,8 +223,8 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
     detection_rate = correct_detection / total_eval if total_eval > 0 else 0
     service_accuracy = correct_service / correct_detection if correct_detection > 0 else 0
     fault_accuracy = correct_fault / correct_detection if correct_detection > 0 else 0
-    runbook_accuracy = correct_runbook / correct_detection if correct_detection > 0 else 0
     avg_rto = np.mean(rto_list) if rto_list else 0
+    avg_confidence = np.mean(confidence_list) if confidence_list else 0.0
     
     total_anomaly_points = int(np.sum(anomaly_points_list)) if anomaly_points_list else 0
     avg_anomaly_points = np.mean(anomaly_points_list) if anomaly_points_list else 0
@@ -260,14 +250,13 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
     print(f"Evaluation completed in:           {eval_duration:.2f} seconds")
     print(f"Total Runs Evaluated:              {total_eval}")
     print(f"Total Alerts Triggered:            {correct_detection}")
-    print(f"Correct Runbook Triggers:          {correct_runbook}")
     print(f"Anomaly Detection Rate:            {detection_rate * 100:.1f}% ({correct_detection}/{total_eval})")
     print(f"Service Localization Accuracy (Top-1, Detections): {service_accuracy * 100:.1f}% ({correct_service}/{correct_detection})")
     print(f"Service Localization Accuracy (Top-1, Total):      {top1_accuracy * 100:.1f}% ({correct_service}/{total_eval})")
     print(f"Service Localization Accuracy (Top-{eval_top_k}, Total):      {topk_accuracy * 100:.1f}% ({correct_top_k}/{total_eval})")
     print(f"Fault Type Localization Accuracy:  {fault_accuracy * 100:.1f}% ({correct_fault}/{correct_detection})")
-    print(f"Runbook Matching Accuracy:         {runbook_accuracy * 100:.1f}% ({correct_runbook}/{correct_detection})")
     print(f"Average Recovery Time (RTO):       {avg_rto:.1f} seconds")
+    print(f"Average Confidence Score:          {avg_confidence:.2f}")
     print(f"Total Anomaly Points Detected:     {total_anomaly_points}")
     print(f"Average Anomaly Points per Run:    {avg_anomaly_points:.1f}")
     print("-------------------------------------------------------")

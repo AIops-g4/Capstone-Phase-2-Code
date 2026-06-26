@@ -22,17 +22,8 @@ class SelfHealer:
         """
         Selects the correct runbook and renders the templated action plan.
         """
-        # Map suspected_fault_type to runbook name
-        fault_runbook_mapping = {
-            "cpu": "CPUSaturationRecoveryRunbook",
-            "mem": "MemoryLeakRecoveryRunbook",
-            "delay": "NetworkLatencyRecoveryRunbook",
-            "loss": "PacketLossRecoveryRunbook",
-            "disk": "DiskIORecoveryRunbook",
-            "socket": "SocketExhaustionRecoveryRunbook"
-        }
-        
-        runbook_key = fault_runbook_mapping.get(suspected_fault_type, "DefaultRecoveryRunbook")
+        # Always use the DefaultRecoveryRunbook directly (no fault-based selection)
+        runbook_key = "DefaultRecoveryRunbook"
         runbook = self.runbooks.get(runbook_key)
         
         # Fallback if specific runbook not found
