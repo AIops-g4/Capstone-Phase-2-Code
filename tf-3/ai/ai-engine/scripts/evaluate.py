@@ -14,7 +14,14 @@ sys.path.append(AI_ENGINE_DIR)
 from src.anomaly_detector import run_metric_anomaly_detection
 from src.log_parser import Drain3LogParser
 from src.correlation_analyzer import CorrelationAnalyzer
-from src.config import DATASET_DIR, GROUND_TRUTH_PATH, BASELINE_LENGTH
+from src.config import (
+    DATASET_DIR, 
+    GROUND_TRUTH_PATH, 
+    BASELINE_LENGTH,
+    EVAL_BOCPD_WINDOW_BEFORE,
+    EVAL_BOCPD_WINDOW_AFTER,
+    EVAL_BOCPD_BASELINE_LENGTH
+)
 
 def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False, use_bocpd=False):
     if not os.path.exists(GROUND_TRUTH_PATH):
@@ -122,14 +129,14 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
             
         # Slice time window if using BOCPD to accelerate evaluation
         if use_bocpd:
-            start_idx = max(0, inject_row_idx - 120)
-            end_idx = min(len(df_metrics) - 1, inject_row_idx + 30)
+            start_idx = max(0, inject_row_idx - EVAL_BOCPD_WINDOW_BEFORE)
+            end_idx = min(len(df_metrics) - 1, inject_row_idx + EVAL_BOCPD_WINDOW_AFTER)
             df_metrics = df_metrics.iloc[start_idx:end_idx+1].reset_index(drop=True)
             # Re-determine injection row index in the sliced DataFrame
             inject_row_idx = df_metrics[df_metrics["time"] >= inject_time].index.min()
             if pd.isna(inject_row_idx):
                 inject_row_idx = len(df_metrics) - 1
-            baseline_len = 100
+            baseline_len = EVAL_BOCPD_BASELINE_LENGTH
         else:
             baseline_len = BASELINE_LENGTH
             
