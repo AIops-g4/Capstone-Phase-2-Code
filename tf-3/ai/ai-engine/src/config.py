@@ -58,3 +58,34 @@ RRCF_NUM_TREES = int(os.getenv("RRCF_NUM_TREES", "100"))
 RRCF_TREE_SIZE = int(os.getenv("RRCF_TREE_SIZE", "256"))
 RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER = float(os.getenv("RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER", "6.0"))
 RRCF_UNIVARIATE_THRESHOLD_MULTIPLIER = float(os.getenv("RRCF_UNIVARIATE_THRESHOLD_MULTIPLIER", "5.0"))
+
+# Global Random Seed
+RANDOM_STATE = int(os.getenv("RANDOM_STATE", "42"))
+
+# Drain3 Log Parser Configuration
+DRAIN_SIM_TH = float(os.getenv("DRAIN_SIM_TH", "0.4"))
+DRAIN_DEPTH = int(os.getenv("DRAIN_DEPTH", "4"))
+LOG_ERROR_KEYWORDS = os.getenv("LOG_ERROR_KEYWORDS", r"(error|exception|fail|timeout|exhaust|limit|abort|invalid|refused|conn|crash|oom|kill)")
+
+# Isolation Forest Core Hyperparameters
+IFOREST_CONTAMINATION = float(os.getenv("IFOREST_CONTAMINATION", "0.01"))
+IFOREST_N_ESTIMATORS = int(os.getenv("IFOREST_N_ESTIMATORS", "100"))
+
+# RCA Engine Scoring & Weighting Hyperparameters
+RCA_ZSCORE_THRESHOLD = float(os.getenv("RCA_ZSCORE_THRESHOLD", "3.0"))
+RCA_ZSCORE_MAX_CONTRIBUTION = float(os.getenv("RCA_ZSCORE_MAX_CONTRIBUTION", "500.0"))
+RCA_LOG_METRIC_DEFAULT_WEIGHT = float(os.getenv("RCA_LOG_METRIC_DEFAULT_WEIGHT", "1.0"))
+RCA_LOG_METRIC_COLOCATED_WEIGHT = float(os.getenv("RCA_LOG_METRIC_COLOCATED_WEIGHT", "3.0"))
+RCA_LOG_METRIC_MULTIPLIER = float(os.getenv("RCA_LOG_METRIC_MULTIPLIER", "15.0"))
+RCA_CONFIDENCE_MAX = float(os.getenv("RCA_CONFIDENCE_MAX", "0.95"))
+RCA_CONFIDENCE_BASE = float(os.getenv("RCA_CONFIDENCE_BASE", "0.70"))
+RCA_CONFIDENCE_DIVISOR = float(os.getenv("RCA_CONFIDENCE_DIVISOR", "200.0"))
+RCA_SMOOTHING_WINDOW = int(os.getenv("RCA_SMOOTHING_WINDOW", "15"))
+RCA_DEVIATION_WINDOW = int(os.getenv("RCA_DEVIATION_WINDOW", "30"))
+
+# Alert Correlation & Verification Hyperparameters
+ALERT_HEALING_WINDOW_SECONDS = int(os.getenv("ALERT_HEALING_WINDOW_SECONDS", "120"))
+VERIFY_ERROR_THRESHOLD = float(os.getenv("VERIFY_ERROR_THRESHOLD", "0.05"))
+VERIFY_LATENCY_THRESHOLD = float(os.getenv("VERIFY_LATENCY_THRESHOLD", "0.5"))
+VERIFY_REGRESSION_ERROR_THRESHOLD = float(os.getenv("VERIFY_REGRESSION_ERROR_THRESHOLD", "0.10"))
+

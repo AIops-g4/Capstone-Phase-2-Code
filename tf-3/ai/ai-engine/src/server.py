@@ -11,7 +11,17 @@ from .anomaly_detector import run_metric_anomaly_detection, IsolationForestDetec
 from .log_parser import Drain3LogParser
 from .correlation_analyzer import CorrelationAnalyzer
 from .self_healer import SelfHealer
-from .config import RUNBOOKS_PATH, API_HOST, API_PORT, ANALYSIS_WINDOW_SIZE
+from .config import (
+    RUNBOOKS_PATH, 
+    API_HOST, 
+    API_PORT, 
+    ANALYSIS_WINDOW_SIZE,
+    CORRELATION_THRESHOLD,
+    ALERT_HEALING_WINDOW_SECONDS,
+    VERIFY_ERROR_THRESHOLD,
+    VERIFY_LATENCY_THRESHOLD,
+    VERIFY_REGRESSION_ERROR_THRESHOLD
+)
 
 app = FastAPI(
     title="AIOps AI Engine Service",
@@ -26,7 +36,7 @@ class AlertCorrelationEngine:
     Correlates concurrent alerts across the service dependency graph
     to deduplicate alarms and prevent redundant self-healing loops.
     """
-    def __init__(self, healing_window_seconds=120):
+    def __init__(self, healing_window_seconds=ALERT_HEALING_WINDOW_SECONDS):
         self.healing_window_seconds = healing_window_seconds
         self.active_incidents = {}  # correlation_id -> incident_dict
         
@@ -91,8 +101,8 @@ class AlertCorrelationEngine:
 # Initialize modules
 healer = SelfHealer(RUNBOOKS_PATH)
 log_parser = Drain3LogParser(service_aware=True)
-correlation_analyzer = CorrelationAnalyzer(correlation_threshold=0.4)
-alert_correlator = AlertCorrelationEngine(healing_window_seconds=120)
+correlation_analyzer = CorrelationAnalyzer(correlation_threshold=CORRELATION_THRESHOLD)
+alert_correlator = AlertCorrelationEngine(healing_window_seconds=ALERT_HEALING_WINDOW_SECONDS)
 
 
 # --- Pydantic Models for Schema Validation ---
@@ -428,16 +438,16 @@ async def verify_healing(request: VerifyRequest):
     service_points = [p for p in request.post_telemetry_window if p.service == target_service]
     
     for p in service_points:
-        if "error" in p.signal_name and float(p.value) > 0.05:
+        if "error" in p.signal_name and float(p.value) > VERIFY_ERROR_THRESHOLD:
             success = False
             reasons.append(f"High error rate detected: {p.signal_name} = {p.value}")
-        if "latency" in p.signal_name and float(p.value) > 0.5:
+        if "latency" in p.signal_name and float(p.value) > VERIFY_LATENCY_THRESHOLD:
             success = False
             reasons.append(f"High latency detected: {p.signal_name} = {p.value}")
             
     other_points = [p for p in request.post_telemetry_window if p.service != target_service]
     for p in other_points:
-        if "error" in p.signal_name and float(p.value) > 0.10:
+        if "error" in p.signal_name and float(p.value) > VERIFY_REGRESSION_ERROR_THRESHOLD:
             regression_detected = True
             reasons.append(f"Regression detected in other service '{p.service}': {p.signal_name} = {p.value}")
             

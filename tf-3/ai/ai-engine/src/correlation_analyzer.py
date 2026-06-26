@@ -6,8 +6,19 @@ from .config import (
     BASELINE_LENGTH, 
     ANALYSIS_WINDOW_SIZE, 
     USE_BARO_RCA, 
-    BARO_TOP_K
+    BARO_TOP_K,
+    RCA_ZSCORE_THRESHOLD,
+    RCA_ZSCORE_MAX_CONTRIBUTION,
+    RCA_LOG_METRIC_DEFAULT_WEIGHT,
+    RCA_LOG_METRIC_COLOCATED_WEIGHT,
+    RCA_LOG_METRIC_MULTIPLIER,
+    RCA_CONFIDENCE_MAX,
+    RCA_CONFIDENCE_BASE,
+    RCA_CONFIDENCE_DIVISOR,
+    RCA_SMOOTHING_WINDOW,
+    RCA_DEVIATION_WINDOW
 )
+
 
 class CorrelationAnalyzer:
     """
@@ -104,9 +115,9 @@ class CorrelationAnalyzer:
         metric_features = window_metrics.drop(columns=["time"], errors="ignore")
         log_features = window_logs.drop(columns=["time"], errors="ignore")
         
-        # Apply smoothing (rolling average of 15 seconds) to metrics and logs to remove high-frequency noise
-        metric_smooth = metric_features.rolling(window=15, min_periods=1).mean()
-        log_smooth = log_features.rolling(window=15, min_periods=1).mean()
+        # Apply smoothing (rolling average of RCA_SMOOTHING_WINDOW seconds) to metrics and logs to remove high-frequency noise
+        metric_smooth = metric_features.rolling(window=RCA_SMOOTHING_WINDOW, min_periods=1).mean()
+        log_smooth = log_features.rolling(window=RCA_SMOOTHING_WINDOW, min_periods=1).mean()
         
         # 2. Compute Pearson Correlation Matrix on smoothed features
         combined_df = pd.concat([metric_smooth, log_smooth], axis=1)
@@ -116,7 +127,7 @@ class CorrelationAnalyzer:
         log_cols = list(log_features.columns)
         sub_corr = corr_matrix.loc[metric_cols, log_cols]
         
-        # 3. Calculate Z-score deviations for each metric over a 30-second window after anomaly is flagged
+        # 3. Calculate Z-score deviations for each metric over a deviation window after anomaly is flagged
         # Baseline is the first 600 rows
         baseline_df = df_metrics.iloc[:self.baseline_len].drop(columns=["time"], errors="ignore")
         baseline_means = baseline_df.mean()
@@ -126,7 +137,7 @@ class CorrelationAnalyzer:
         # Clip standard deviation to at least 5% of the mean plus a small absolute constant (0.05)
         regularized_stds = np.maximum(baseline_stds, 0.05 * baseline_means.abs() + 0.05)
         
-        end_dev_idx = min(len(df_metrics) - 1, anomaly_idx + 30)
+        end_dev_idx = min(len(df_metrics) - 1, anomaly_idx + RCA_DEVIATION_WINDOW)
         window_metrics_dev = df_metrics.iloc[anomaly_idx:end_dev_idx+1].drop(columns=["time"], errors="ignore")
         z_scores = ((window_metrics_dev - baseline_means).abs() / regularized_stds).max()
         
@@ -159,8 +170,8 @@ class CorrelationAnalyzer:
                 
             # A. Add Z-score deviation to the score (highly anomalous metrics indicate the root cause)
             z_val = z_scores.get(m_col, 0.0)
-            if z_val > 3.0:  # Statistically significant anomaly (> 3 std devs)
-                z_score_contrib = min(500.0, z_val)
+            if z_val > RCA_ZSCORE_THRESHOLD:  # Statistically significant anomaly (> threshold std devs)
+                z_score_contrib = min(RCA_ZSCORE_MAX_CONTRIBUTION, z_val)
                 service_scores[col_service] += z_score_contrib
                 service_fault_scores[col_service][col_type] += z_score_contrib
             
@@ -180,11 +191,11 @@ class CorrelationAnalyzer:
                     pattern = t_info.get("pattern", "")
                     
                     # Log-metric correlation weight
-                    weight = 1.0
+                    weight = RCA_LOG_METRIC_DEFAULT_WEIGHT
                     if l_container == col_service:
-                        weight = 3.0  # High weight for co-located container logs and metrics
+                        weight = RCA_LOG_METRIC_COLOCATED_WEIGHT  # High weight for co-located container logs and metrics
                         
-                    score = corr_val * weight * 15.0  # High weight for genuine error correlations
+                    score = corr_val * weight * RCA_LOG_METRIC_MULTIPLIER  # High weight for genuine error correlations
                     service_scores[col_service] += score
                     service_fault_scores[col_service][col_type] += score
                     
@@ -265,7 +276,7 @@ class CorrelationAnalyzer:
             suspected_fault_type = fault_mapping.get(best_fault, "cpu")
             
         # 7. Build the reasoning and confidence score
-        confidence = min(0.95, 0.70 + (max_service_score / 200.0))
+        confidence = min(RCA_CONFIDENCE_MAX, RCA_CONFIDENCE_BASE + (max_service_score / RCA_CONFIDENCE_DIVISOR))
         
         # Check maximum Z-score of this service's metrics for reasoning
         service_metrics = [m for m in metric_cols if m.startswith(best_service)]
