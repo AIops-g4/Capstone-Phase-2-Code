@@ -268,22 +268,20 @@ async def detect_anomalies(request: DetectRequest):
     anomaly_detected = False
     anomaly_idx = -1
     
-    check_window = 10
-    start_check = max(0, len(df_metrics) - check_window)
+    # Scan the active detection window (after baseline) from start to end.
+    # The moment an anomaly is detected (Multivariate or EWMA), we return it immediately.
+    start_check = baseline_len
     for i in range(start_check, len(df_metrics)):
-        if mif_anoms[i]:
+        is_anom = mif_anoms[i]
+        if not is_anom:
+            for col, results in detection_results["ewma"].items():
+                if results["anomalies"][i]:
+                    is_anom = True
+                    break
+        if is_anom:
             anomaly_detected = True
             anomaly_idx = i
             break
-            
-    for col, results in detection_results["ewma"].items():
-        ewma_anoms = results["anomalies"]
-        for i in range(start_check, len(df_metrics)):
-            if ewma_anoms[i]:
-                anomaly_detected = True
-                if anomaly_idx == -1:
-                    anomaly_idx = i
-                break
                 
     if not anomaly_detected:
         return DetectResponse(

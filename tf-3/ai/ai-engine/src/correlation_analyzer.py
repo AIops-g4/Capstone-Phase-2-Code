@@ -94,7 +94,7 @@ class CorrelationAnalyzer:
                         
                 if self.last_top_k:
                     best_service = self.last_top_k[0]
-                    _, suspected_fault_type = self._map_metric_to_service_fault(ranks[0])
+                    suspected_fault_type = "cpu"
                     
                     confidence = 0.90
                     reasoning = (f"[BARO RCA] Diagnosed {best_service} ({suspected_fault_type}) as root cause. "
@@ -228,52 +228,12 @@ class CorrelationAnalyzer:
             return best_service, suspected_fault_type, reasoning, confidence
             
         # 6. Determine the suspected fault type
-        # Look for semantic keywords in the most correlated error logs for this service
+        # Only detect the service causing the error, no need to detect the specific fault type (default to "cpu")
+        suspected_fault_type = "cpu"
+        
+        # Compute service_evidence for generating reasoning
         service_evidence = [e for e in high_corr_evidence if e["metric"].startswith(best_service)]
         service_evidence.sort(key=lambda x: x["correlation"], reverse=True)
-        
-        semantic_fault = None
-        
-        fault_keywords = {
-            "disk": ["disk", "io", "write", "read", "storage", "file", "flush", "buffer", "space"],
-            "socket": ["socket", "port", "bind", "connection", "exhaust", "address", "descriptor"],
-            "loss": ["loss", "drop", "packet", "reset", "disconnect", "unreachable"],
-            "delay": ["delay", "latency", "slow", "timeout", "wait", "lag"],
-            "cpu": ["cpu", "thread", "busy", "load", "saturation", "active"],
-            "mem": ["mem", "memory", "oom", "alloc", "heap", "garbage", "gc", "out of memory"]
-        }
-        
-        for ev in service_evidence:
-            pattern = ev["pattern"].lower()
-            for f_type, keywords in fault_keywords.items():
-                if any(kw in pattern for kw in keywords):
-                    semantic_fault = f_type
-                    break
-            if semantic_fault:
-                break
-                
-        # If semantic fault is found in correlated logs, use it! Otherwise fallback to metric Z-score
-        if semantic_fault:
-            suspected_fault_type = semantic_fault
-            print(f"  [SEMANTIC DIAGNOSIS] Diagnosed fault type '{suspected_fault_type}' based on log template patterns.")
-        else:
-            # Determine the best fault type based on metric scores
-            best_fault = None
-            max_fault_score = -1.0
-            for t, score in service_fault_scores[best_service].items():
-                if score > max_fault_score:
-                    max_fault_score = score
-                    best_fault = t
-            
-            fault_mapping = {
-                "cpu": "cpu",
-                "mem": "mem",
-                "latency": "delay",
-                "error": "loss",
-                "diskio": "disk",
-                "socket": "socket"
-            }
-            suspected_fault_type = fault_mapping.get(best_fault, "cpu")
             
         # 7. Build the reasoning and confidence score
         confidence = min(RCA_CONFIDENCE_MAX, RCA_CONFIDENCE_BASE + (max_service_score / RCA_CONFIDENCE_DIVISOR))
