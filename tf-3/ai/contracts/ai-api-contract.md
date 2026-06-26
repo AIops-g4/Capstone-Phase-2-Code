@@ -14,7 +14,7 @@ Phát hiện Bất thường (/v1/detect) ──> Lập Kế hoạch (/v1/decide
 
 * **Đường dẫn cơ sở (API Path)**: `/v1/`
 * **Xác thực (Authentication)**: Xác thực nội bộ trong cụm EKS thông qua **Local Trust (mTLS tùy chọn)** và K8s Network Policies.
-* **Tính bất biến (Idempotency)**: Tất cả các endpoint (`/v1/detect`, `/v1/decide` và `/v1/verify`) bắt buộc gửi kèm header `Idempotency-Key` (định dạng UUID v4) để chống xử lý trùng lặp.
+* **Tính bất biến (Idempotency)**: Tất cả các endpoint (`/v1/detect`, `/v1/decide` và `/v1/verify`) bắt buộc gửi kèm header `Idempotency-Key` (định dạng UUID v4) để chống xử lý trùng lặp. **Lưu ý**: Cơ chế Idempotency Lock (DynamoDB atomic conditional write) chỉ được thực thi ở phía server cho endpoint `/v1/decide` — endpoint duy nhất có tác dụng phụ (side effect) gây thay đổi trạng thái hạ tầng. Các endpoint `/v1/detect` và `/v1/verify` chỉ sử dụng `Idempotency-Key` cho mục đích truy vết kiểm toán (audit trail), không áp dụng lock.
 * **Chế độ thử nghiệm (Simulation Mode)**: Khi chạy mô phỏng ngoại tuyến, CDO Platform sẽ gửi dữ liệu telemetry trích xuất từ lịch sử sau thời điểm lỗi xảy ra và truyền vào cửa sổ `post_telemetry_window` của `/v1/verify` để kiểm chứng.
 
 ---
@@ -232,7 +232,17 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
     },
     "anomaly_context": {
       "type": "object",
-      "description": "Ngữ cảnh lỗi chi tiết"
+      "description": "Ngữ cảnh lỗi chi tiết nhận từ DetectResponse. Cấu trúc phải khớp chính xác với anomaly_context của DetectResponse",
+      "properties": {
+        "target_service": { "type": "string", "description": "Tên dịch vụ nghi ngờ bị lỗi chính" },
+        "suspected_fault_type": { "type": "string", "description": "Phân loại loại lỗi nghi ngờ" },
+        "system": { "type": "string", "description": "Tên hệ thống nghiệp vụ" },
+        "namespace": { "type": "string", "description": "Kubernetes namespace nơi lỗi xảy ra" },
+        "deployment": { "type": "string", "description": "Tên đối tượng Kubernetes Deployment" },
+        "trigger_metric": { "type": "string", "description": "Tên tín hiệu telemetry kích hoạt cảnh báo" },
+        "trigger_value": { "type": "number", "description": "Giá trị cụ thể của tín hiệu kích hoạt" }
+      },
+      "required": ["target_service", "suspected_fault_type", "system"]
     }
   },
   "required": ["correlation_id", "idempotency_key", "dry_run_mode", "anomaly_context"],
@@ -277,6 +287,11 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `action_plan[].params.replicas` | integer | optional | Số lượng replicas mong muốn mới (cho `SCALE_REPLICAS`) |
 | `action_plan[].params.secret_name` | string | optional | Tên của secret cần rotate (cho `ROTATE_SECRET`) |
 | `action_plan[].params.grace_period_seconds` | integer | optional | Thời gian chờ tắt pod cũ một cách an toàn tính bằng giây (cho `RESTART_DEPLOYMENT`) |
+| `rollback_snapshot` | object | ✓ | Bản chụp trạng thái cấu hình hiện tại của đối tượng đích **trước** khi thực thi hành động. CDO Platform **bắt buộc** phải lưu trữ snapshot này để phục vụ path ROLLBACK trong `/v1/verify`. Nếu `/v1/verify` trả về `next_action=ROLLBACK`, CDO sẽ sử dụng snapshot này làm điểm revert |
+| `rollback_snapshot.memory_limit_mib` | integer | optional | Giới hạn bộ nhớ hiện tại trước thay đổi (MB) — cho hành động `PATCH_MEMORY_LIMIT` |
+| `rollback_snapshot.replica_count` | integer | optional | Số replicas hiện tại trước thay đổi — cho hành động `SCALE_REPLICAS` |
+| `rollback_snapshot.image_tag` | string | optional | Image tag hiện tại trước thay đổi — cho hành động `ROLLOUT_UNDO` |
+| `rollback_snapshot.secret_version` | string | optional | Phiên bản secret hiện tại trước thay đổi — cho hành động `ROTATE_SECRET` |
 | `blast_radius_config` | object | ✓ | Cấu hình giới hạn vùng ảnh hưởng (Blast Radius) bảo đảm an toàn cho cụm |
 | `blast_radius_config.max_pod_impact_pct` | integer | ✓ | Tỷ lệ phần trăm tối đa các pod bị tác động đồng thời trong cụm |
 | `blast_radius_config.circuit_breaker_error_rate` | number | ✓ | Ngưỡng tỷ lệ lỗi tối đa cho phép để kích hoạt ngắt mạch hệ thống |
@@ -342,6 +357,16 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
         "required": ["step", "action", "target", "params"]
       }
     },
+    "rollback_snapshot": {
+      "type": "object",
+      "description": "Bản chụp trạng thái cấu hình hiện tại trước khi thực thi hành động. CDO lưu để phục vụ ROLLBACK path",
+      "properties": {
+        "memory_limit_mib": { "type": "integer", "description": "Giới hạn bộ nhớ hiện tại (MB)" },
+        "replica_count": { "type": "integer", "description": "Số replicas hiện tại" },
+        "image_tag": { "type": "string", "description": "Image tag hiện tại" },
+        "secret_version": { "type": "string", "description": "Phiên bản secret hiện tại" }
+      }
+    },
     "blast_radius_config": {
       "type": "object",
       "properties": {
@@ -370,7 +395,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
     "dry_run_mode": { "type": "boolean" },
     "cost_cap_exceeded": { "type": "boolean" }
   },
-  "required": ["matched_runbook", "pattern_type", "action_plan", "blast_radius_config", "verify_policy", "correlation_id", "idempotency_key", "dry_run_mode"],
+  "required": ["matched_runbook", "pattern_type", "action_plan", "rollback_snapshot", "blast_radius_config", "verify_policy", "correlation_id", "idempotency_key", "dry_run_mode"],
   "additionalProperties": false
 }
 ```
@@ -393,6 +418,11 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
       }
     }
   ],
+  "rollback_snapshot": {
+    "memory_limit_mib": 512,
+    "replica_count": 2,
+    "image_tag": "v1.4.2"
+  },
   "blast_radius_config": {
     "max_pod_impact_pct": 25,
     "circuit_breaker_error_rate": 0.20,
@@ -591,9 +621,11 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 ### API Error Codes
 - **`400 Bad Request`**: Dữ liệu gửi lên không đúng định dạng schema. CDO cần log và kiểm tra code, **không tự động retry**.
 - **`401 Unauthorized`**: Yêu cầu bị từ chối do cấu hình Local Trust/mTLS không hợp lệ hoặc thiếu/sai phân quyền Tenant.
+- **`403 Forbidden`**: Truy cập bị từ chối do vi phạm phân lập Tenant. Xảy ra khi giá trị `X-Tenant-Id` trong request header không khớp với `tenant_id` xuất hiện trong payload `telemetry_window[]` hoặc `anomaly_context`. CDO cần kiểm tra lại logic ghép tenant trước khi gọi API, **không tự động retry**.
 - **`409 Conflict`**: Trùng lặp `Idempotency-Key` cho cùng một hành động đang xử lý hoặc đã xử lý gần đây.
 - **`429 Too Many Requests`**: Vượt quá hạn mức lưu lượng (RPS/RPM) được cam kết. Phản hồi sẽ đi kèm HTTP header **`Retry-After`** chỉ định rõ số giây cần chờ trước khi CDO thực hiện gọi lại (Exponential Backoff).
-- **`503 Service Unavailable`**: AI Engine bị lỗi hệ thống hoặc quá tải. CDO **bắt buộc phải có luồng fallback nội bộ** (ví dụ: chuyển sang execute runbook tĩnh mặc định hoặc gửi thẳng escalation cho SRE).
+- **`500 Internal Server Error`**: Lỗi nội bộ không xác định (bug code, lỗi runtime, hoặc lỗi xử lý không bắt được). CDO có thể retry tối đa 2 lần với exponential backoff (1s, 3s). Nếu vẫn thất bại, chuyển sang luồng escalation.
+- **`503 Service Unavailable`**: Dịch vụ upstream (AWS Bedrock, DynamoDB, S3) không khả dụng hoặc AI Engine đang quá tải. CDO **bắt buộc phải có luồng fallback nội bộ** (ví dụ: chuyển sang execute runbook tĩnh mặc định hoặc gửi thẳng escalation cho SRE). Khác với 500, mã 503 chỉ ra vấn đề ở dependency bên ngoài chứ không phải lỗi logic nội bộ.
 
 ---
 

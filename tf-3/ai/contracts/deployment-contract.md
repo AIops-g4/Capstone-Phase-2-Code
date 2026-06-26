@@ -130,6 +130,84 @@ IAM Role gắn với ServiceAccount của AI Engine Pod chỉ được phép c�
 
 **Điều khoản cấm (Forbidden Actions)**: Role của AI Engine tuyệt đối không được cấp quyền `iam:*`, `ec2:*` hoặc các hành động sửa đổi hạ tầng mạng. **Đặc biệt, cấm cấp quyền Kubernetes API (`eks:*`) hoặc lưu trữ `kubeconfig` trực tiếp trong môi trường chạy của AI Engine**, đảm bảo AI Engine không thể tự ý thay đổi trạng thái cụm K8s.
 
+### D. K8s RBAC cho CDO Controller (Executor) — Least-Privilege
+
+CDO Controller (bàn tay thực thi) cần được cấp quyền K8s RBAC theo nguyên tắc đặc quyền tối thiểu. Dưới đây là đặc tả cấu hình bắt buộc mà CDO phải áp dụng:
+
+#### 1. ServiceAccount
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tf3-cdo-controller
+  namespace: self-heal-system
+  labels:
+    app: cdo-self-heal-controller
+    component: executor
+```
+
+#### 2. Role (Namespace-scoped — cho Target Workload Namespaces)
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tf3-cdo-executor-role
+  namespace: "<target-namespace>"   # Lặp cho mỗi namespace nghiệp vụ
+  labels:
+    app: cdo-self-heal-controller
+rules:
+  # Cho phép đọc và patch Deployments (để thực thi RESTART_DEPLOYMENT, PATCH_MEMORY_LIMIT, SCALE_REPLICAS, ROLLOUT_UNDO)
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+  # Cho phép đọc và patch Pods (để kiểm tra trạng thái và thực thi hành động)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "patch"]
+  # Cho phép đọc Pod logs (để thu thập telemetry xác thực)
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # Cho phép tạo và xóa Secrets (chỉ để thực thi ROTATE_SECRET)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "delete"]
+  # Cho phép đọc ReplicaSets (để xác định revision cho ROLLOUT_UNDO)
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list"]
+```
+
+#### 3. RoleBinding
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tf3-cdo-executor-binding
+  namespace: "<target-namespace>"   # Lặp cho mỗi namespace nghiệp vụ
+subjects:
+  - kind: ServiceAccount
+    name: tf3-cdo-controller
+    namespace: self-heal-system
+roleRef:
+  kind: Role
+  name: tf3-cdo-executor-role
+  apiGroup: rbac.authorization.k8s.io
+```
+
+#### 4. Điều khoản cấm tường minh (Explicit Deny — Safety Backstop)
+CDO Controller **tuyệt đối không được cấp quyền** thực hiện các hành động sau bằng cách **không** khai báo các verb/resource tương ứng trong Role:
+
+| Hành động bị cấm | Lý do |
+|---|---|
+| `delete` trên `deployments` | Ngăn xóa deployment, chỉ cho phép patch/rollback |
+| `delete` trên `namespaces` | Ngăn xóa toàn bộ namespace |
+| Mọi verb trên namespace `kube-system` | Không cấp RoleBinding cho namespace hệ thống |
+| `patch` deployments với `replicas: 0` | CDO Controller phải kiểm tra `replicas >= 1` trước khi thực thi |
+| `create` / `update` trên `clusterroles`, `clusterrolebindings` | Ngăn leo thang đặc quyền (privilege escalation) |
+
+> **Ghi chú**: CDO Platform có trách nhiệm tạo RoleBinding cho **mỗi** target namespace mà Self-Heal Engine cần quản lý. Không sử dụng ClusterRole/ClusterRoleBinding để đảm bảo phân lập blast radius theo namespace.
+
 ---
 
 ## 4. Idempotency Lock & Audit Logging (SOC2 Compliance)
@@ -139,11 +217,13 @@ IAM Role gắn với ServiceAccount của AI Engine Pod chỉ được phép c�
 #### 1. Tại sao cần Idempotency Lock?
 Trong môi trường phân tán, CDO Controller có thể gửi yêu cầu gọi API `/v1/decide` hoặc thực thi hành động nhiều lần do cơ chế tự động thử lại (Retry). Nếu không có khóa, hành động sửa lỗi có thể bị thực thi trùng lặp, gây mất ổn định nghiêm trọng.
 
-#### 2. Nguyên lý hoạt động
+#### 2. Nguyên lý hoạt động (Atomic Conditional Write)
 1. Mỗi quyết định tại `/v1/decide` bắt buộc kèm theo một `Idempotency-Key`.
-2. Hệ thống kiểm tra khóa này trong cơ sở dữ liệu khóa (DynamoDB/Redis).
-3. Nếu khóa **chưa tồn tại**: Tiến hành xử lý.
-4. Nếu khóa **đã tồn tại**: Từ chối và trả về `409 Conflict`.
+2. Hệ thống thực hiện **atomic conditional write** vào DynamoDB bằng lệnh `PutItem` với `ConditionExpression: "attribute_not_exists(lock_key)"` để đảm bảo không có race condition (TOCTOU).
+3. Nếu `PutItem` thành công (khóa **chưa tồn tại**): Tiến hành xử lý.
+4. Nếu `PutItem` thất bại với `ConditionalCheckFailedException` (khóa **đã tồn tại**): Từ chối và trả về `409 Conflict`.
+
+> **Lưu ý**: Scope của Idempotency Lock chỉ áp dụng cho endpoint `/v1/decide` — endpoint duy nhất có tác dụng phụ (side effect) gây thay đổi trạng thái hạ tầng. Các endpoint `/v1/detect` và `/v1/verify` chỉ sử dụng `Idempotency-Key` cho mục đích truy vết kiểm toán (audit trail), nhất quán với đặc tả trong AI API Contract §2.
 
 ### B. Tamper-Evident Audit Logging
 - Mọi chu kỳ xử lý bắt buộc phải được ghi nhật ký hoạt động đầy đủ.
@@ -167,12 +247,12 @@ Chỉ cho phép Ingress Traffic (đi vào cổng 8080 của AI Engine) xuất ph
 ### B. Network Policy (Egress)
 Chỉ cho phép Egress Traffic gọi ra ngoài qua giao thức HTTPS (Port 443) tới các AWS VPC Endpoints (S3, DynamoDB, Bedrock). Cấm Egress vào lại K8s API Server (`kubernetes.default.svc`).
 
-### C. Deployment Topology Diagram (CDO-01 Sandbox)
+### C. Deployment Topology Diagram (CDO Sandbox)
 
 ```mermaid
 graph TB
     subgraph "AWS Region: us-east-1"
-        subgraph "EKS Cluster (CDO-01 Sandbox)"
+        subgraph "EKS Cluster (CDO Sandbox)"
             subgraph "Namespace: self-heal-system"
                 SVC[Service: ai-engine<br>Type: ClusterIP]
                 Pod1[AI Engine Pod 1]
@@ -214,11 +294,16 @@ Việc quản lý vòng đời ứng dụng của AI Engine là trách nhiệm c
 ### A. Rollout Strategy
 CDO sử dụng K8s Deployment `RollingUpdate` (MaxSurge: 25%, MaxUnavailable: 0) hoặc ArgoCD Rollouts cho luồng Canary.
 
-### B. Tiêu chuẩn dừng khẩn cấp (Abort Criteria)
+### B. Tiêu chuẩn dừng khẩn cấp theo Endpoint (Abort Criteria — Per-Endpoint)
 Hệ thống giám sát của CDO sẽ kích hoạt Rollback khi:
 - Tỷ lệ lỗi API (`5xx` error rate) của AI Engine > `1.0%`.
-- Độ trễ phản hồi p99 > `800 ms`.
+- Độ trễ phản hồi p99 vượt ngưỡng **riêng theo endpoint**:
+  - `/v1/detect`: abort khi p99 > **800 ms** (độ trễ chuẩn cho endpoint không gọi LLM).
+  - `/v1/decide`: abort khi p99 > **3000 ms** (khớp chính xác với SLA p99 < 3000ms trong AI API Contract §4).
+  - `/v1/verify`: abort khi p99 > **1000 ms** (độ trễ chuẩn cho endpoint so sánh telemetry).
 - Kiểm tra sức khỏe (Liveness probe) thất bại.
+
+> **Ghi chú**: Ngưỡng abort per-endpoint được thiết kế nhất quán với SLA trong AI API Contract §4. Việc sử dụng chung 1 ngưỡng 800ms cho mọi endpoint sẽ gây rollback giả khi `/v1/decide` gọi LLM (~2500ms).
 
 ---
 

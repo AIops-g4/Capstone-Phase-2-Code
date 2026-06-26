@@ -490,6 +490,28 @@ Lớp này giám sát thời hạn hiệu lực của các thông tin bí mật 
 | **Middleware & Dependencies** | `db_connection_pool_saturation` | Mỗi 15 giây | Database Monitor / APM Agent | Hot: 7 ngày <br> Cold: 90 ngày | < 10 giây từ lúc đo lường | Max: 50 events/sec per tenant | Phát hiện cạn kiệt connection pool kết nối cơ sở dữ liệu |
 | **Security & Compliance** | `secret_expiry_warning` | Mỗi 1 giờ (hoặc khi có cảnh báo) | Secrets Manager / Cert Manager Event | Hot: 7 ngày <br> Cold: 90 ngày | < 60 giây từ lúc kích hoạt | Max: 5 events/sec per tenant | Phát hiện hết hạn chứng chỉ/secret để xoay vòng khóa |
 
+### Ước tính Chi phí Vận hành theo Tín hiệu (Signal Cost Estimation)
+
+Bảng dưới đây cung cấp ước tính chi phí vận hành hàng tháng cho mỗi tín hiệu telemetry, dựa trên mức tải trung bình demo scope (1 tenant, ~50 microservices). Chi phí thực tế sẽ thay đổi tùy theo quy mô hạ tầng CDO.
+
+| Tên Tín hiệu (`signal_name`) | Volume trung bình ước tính | Chi phí ước tính/tháng (demo scope) | Ghi chú |
+|---|---|---|---|
+| `service_error_rate` | ~2,600 events/giờ | ~$0.03/tháng | Prometheus metric, chi phí ingestion thấp |
+| `service_latency_p95` | ~2,600 events/giờ | ~$0.03/tháng | Prometheus metric, chi phí ingestion thấp |
+| `service_throughput_rps` | ~2,600 events/giờ | ~$0.03/tháng | Prometheus metric, chi phí ingestion thấp |
+| `application_log_event` | ~500 events/giờ (~0.5 GB/ngày) | ~$0.50/GB ingested → **~$7.50/tháng** | Chi phí cao nhất do payload stack trace lớn |
+| `distributed_trace_error_event` | ~200 events/giờ | ~$0.05/tháng | Chỉ trace lỗi, không phải toàn bộ trace |
+| `container_resource_usage` | ~12,000 events/giờ (15s interval) | ~$0.01/1k metrics → **~$8.60/tháng** | Volume cao do tần suất 15s |
+| `pod_oom_event` | ~5 events/giờ (hiếm) | ~$0.001/tháng | Event-driven, volume rất thấp |
+| `container_restart_count` | ~12,000 events/giờ (15s interval) | ~$0.01/1k metrics → **~$8.60/tháng** | Volume cao do tần suất 15s |
+| `service_unhealthy` | ~10 events/giờ (hiếm) | ~$0.002/tháng | Event-driven, volume rất thấp |
+| `queue_backlog` | ~6,000 events/giờ (30s interval) | ~$0.01/1k metrics → **~$4.30/tháng** | Volume trung bình |
+| `db_connection_pool_saturation` | ~12,000 events/giờ (15s interval) | ~$0.01/1k metrics → **~$8.60/tháng** | Volume cao do tần suất 15s |
+| `secret_expiry_warning` | ~50 events/giờ | ~$0.001/tháng | Volume rất thấp |
+| | | **Tổng ước tính: ~$38/tháng** | Demo scope 1 tenant |
+
+> **Lưu ý quan trọng**: Ước tính trên áp dụng cho demo scope (1 tenant, tải thấp). Ở ceiling thiết kế (100 events/sec per tenant × nhiều tenant), chi phí sẽ tăng tuyến tính. CDO cần đặt CloudWatch Billing Alarm ở mức $100/tháng làm cảnh báo sớm.
+
 ---
 
 ## 6. Chính sách Quản lý Phiên bản & Quy trình Thay đổi (Versioning & Change-Request)
