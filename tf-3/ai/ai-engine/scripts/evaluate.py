@@ -255,6 +255,8 @@ def run_evaluation(sample_size=None, engine="config", top_k=None):
     print("=======================================================")
     print(f"Evaluation completed in:           {eval_duration:.2f} seconds")
     print(f"Total Runs Evaluated:              {total_eval}")
+    print(f"Total Alerts Triggered:            {correct_detection}")
+    print(f"Correct Runbook Triggers:          {correct_runbook}")
     print(f"Anomaly Detection Rate:            {detection_rate * 100:.1f}% ({correct_detection}/{total_eval})")
     print(f"Service Localization Accuracy (Top-1, Detections): {service_accuracy * 100:.1f}% ({correct_service}/{correct_detection})")
     print(f"Service Localization Accuracy (Top-1, Total):      {top1_accuracy * 100:.1f}% ({correct_service}/{total_eval})")
