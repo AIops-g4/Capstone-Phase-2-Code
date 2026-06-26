@@ -287,12 +287,9 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `action_plan[].params.replicas` | integer | optional | Số lượng replicas mong muốn mới (cho `SCALE_REPLICAS`) |
 | `action_plan[].params.secret_name` | string | optional | Tên của secret cần rotate (cho `ROTATE_SECRET`) |
 | `action_plan[].params.grace_period_seconds` | integer | optional | Thời gian chờ tắt pod cũ một cách an toàn tính bằng giây (cho `RESTART_DEPLOYMENT`) |
-| `rollback_snapshot` | object | ✓ | Bản chụp trạng thái cấu hình hiện tại của đối tượng đích **trước** khi thực thi hành động. CDO Platform **bắt buộc** phải lưu trữ snapshot này để phục vụ path ROLLBACK trong `/v1/verify`. Nếu `/v1/verify` trả về `next_action=ROLLBACK`, CDO sẽ sử dụng snapshot này làm điểm revert |
-| `rollback_snapshot.memory_limit_mib` | integer | optional | Giới hạn bộ nhớ hiện tại trước thay đổi (MB) — cho hành động `PATCH_MEMORY_LIMIT` |
-| `rollback_snapshot.replica_count` | integer | optional | Số replicas hiện tại trước thay đổi — cho hành động `SCALE_REPLICAS` |
-| `rollback_snapshot.image_tag` | string | optional | Image tag hiện tại trước thay đổi — cho hành động `ROLLOUT_UNDO` |
-| `rollback_snapshot.secret_version` | string | optional | Phiên bản secret hiện tại trước thay đổi — cho hành động `ROTATE_SECRET` |
 | `blast_radius_config` | object | ✓ | Cấu hình giới hạn vùng ảnh hưởng (Blast Radius) bảo đảm an toàn cho cụm |
+
+> **Lưu ý về Rollback Snapshot**: AI Engine **không** trả về `rollback_snapshot` trong `DecideResponse` vì AI Engine không có quyền truy cập K8s API (xem Deployment Contract §3). **CDO Platform** có trách nhiệm tự đọc trạng thái hiện tại của đối tượng đích từ K8s API (ví dụ: `memory_limit`, `replica_count`, `image_tag`) **trước khi** thực thi `action_plan`, và tự lưu bản snapshot này vào Audit Log. Khi `/v1/verify` trả về `next_action=ROLLBACK`, CDO sử dụng snapshot đã lưu để revert.
 | `blast_radius_config.max_pod_impact_pct` | integer | ✓ | Tỷ lệ phần trăm tối đa các pod bị tác động đồng thời trong cụm |
 | `blast_radius_config.circuit_breaker_error_rate` | number | ✓ | Ngưỡng tỷ lệ lỗi tối đa cho phép để kích hoạt ngắt mạch hệ thống |
 | `blast_radius_config.allowed_namespaces` | array | ✓ | Danh sách các Kubernetes namespace hợp lệ được phép thực thi hành động |
@@ -357,16 +354,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
         "required": ["step", "action", "target", "params"]
       }
     },
-    "rollback_snapshot": {
-      "type": "object",
-      "description": "Bản chụp trạng thái cấu hình hiện tại trước khi thực thi hành động. CDO lưu để phục vụ ROLLBACK path",
-      "properties": {
-        "memory_limit_mib": { "type": "integer", "description": "Giới hạn bộ nhớ hiện tại (MB)" },
-        "replica_count": { "type": "integer", "description": "Số replicas hiện tại" },
-        "image_tag": { "type": "string", "description": "Image tag hiện tại" },
-        "secret_version": { "type": "string", "description": "Phiên bản secret hiện tại" }
-      }
-    },
+
     "blast_radius_config": {
       "type": "object",
       "properties": {
@@ -395,7 +383,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
     "dry_run_mode": { "type": "boolean" },
     "cost_cap_exceeded": { "type": "boolean" }
   },
-  "required": ["matched_runbook", "pattern_type", "action_plan", "rollback_snapshot", "blast_radius_config", "verify_policy", "correlation_id", "idempotency_key", "dry_run_mode"],
+  "required": ["matched_runbook", "pattern_type", "action_plan", "blast_radius_config", "verify_policy", "correlation_id", "idempotency_key", "dry_run_mode"],
   "additionalProperties": false
 }
 ```
@@ -418,11 +406,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
       }
     }
   ],
-  "rollback_snapshot": {
-    "memory_limit_mib": 512,
-    "replica_count": 2,
-    "image_tag": "v1.4.2"
-  },
+
   "blast_radius_config": {
     "max_pod_impact_pct": 25,
     "circuit_breaker_error_rate": 0.20,
