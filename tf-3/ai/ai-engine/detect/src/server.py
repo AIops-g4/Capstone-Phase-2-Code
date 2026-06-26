@@ -29,6 +29,12 @@ app = FastAPI(
     version="1.1.0"
 )
 
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "detect"}
+
+
 # --- Alert Correlation & Deduplication Engine ---
 
 class AlertCorrelationEngine:

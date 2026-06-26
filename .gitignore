@@ -1,6 +1,63 @@
-dataset/compress/*
-dataset/raw/*
-dataset/filtered/*
-tf-3/ai/ai-engine/detect/dataset
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg
 
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
 
+# --- Environment & secrets ---
+.env
+.env.*
+!.env.example
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Dataset (large; download via decide/scripts/setup_dataset.py or detect/README) ---
+dataset/compress/
+dataset/raw/
+dataset/filtered/
+
+tf-3/ai/ai-engine/dataset/RE3-OB/
+tf-3/ai/ai-engine/dataset/RE2*/
+tf-3/ai/ai-engine/dataset/**/*.zip
+tf-3/ai/ai-engine/dataset/**/metrics.csv
+tf-3/ai/ai-engine/dataset/**/simple_metrics.csv
+tf-3/ai/ai-engine/dataset/**/logs.csv
+tf-3/ai/ai-engine/dataset/**/traces.csv
+
+# Legacy per-service dataset paths
+tf-3/ai/ai-engine/detect/dataset/
+tf-3/ai/ai-engine/decide/dataset/
+
+# Duplicate runbooks copy (canonical: ai-engine/dataset/runbooks.json)
+tf-3/ai/ai-engine/decide/runbooks/
+
+# --- Jupyter ---
+.ipynb_checkpoints/

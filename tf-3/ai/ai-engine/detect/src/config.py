@@ -2,8 +2,9 @@ import os
 
 # Define package and dotenv paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-AI_ENGINE_DIR = os.path.dirname(SCRIPT_DIR)
-DOTENV_PATH = os.path.join(AI_ENGINE_DIR, ".env")
+DETECT_DIR = os.path.dirname(SCRIPT_DIR)
+AI_ENGINE_DIR = os.path.dirname(DETECT_DIR)
+DOTENV_PATH = os.path.join(DETECT_DIR, ".env")
 
 def load_dotenv(dotenv_path):
     """
@@ -26,12 +27,28 @@ def load_dotenv(dotenv_path):
 # Load dotenv variables on import
 load_dotenv(DOTENV_PATH)
 
+
+def _resolve_path(value: str, base_dir: str) -> str:
+    if not os.path.isabs(value):
+        return os.path.normpath(os.path.join(base_dir, value))
+    return value
+
+
 # --- Configuration Constants ---
 
 # File Paths
-DATASET_DIR = os.getenv("DATASET_DIR", os.path.join(AI_ENGINE_DIR, "dataset"))
-GROUND_TRUTH_PATH = os.getenv("GROUND_TRUTH_PATH", os.path.join(DATASET_DIR, "ground_truth.json"))
-RUNBOOKS_PATH = os.getenv("RUNBOOKS_PATH", os.path.join(DATASET_DIR, "runbooks.json"))
+DATASET_DIR = _resolve_path(
+    os.getenv("DATASET_DIR", os.path.join(AI_ENGINE_DIR, "dataset")),
+    DETECT_DIR,
+)
+GROUND_TRUTH_PATH = _resolve_path(
+    os.getenv("GROUND_TRUTH_PATH", os.path.join(DATASET_DIR, "ground_truth.json")),
+    DETECT_DIR,
+)
+RUNBOOKS_PATH = _resolve_path(
+    os.getenv("RUNBOOKS_PATH", os.path.join(DATASET_DIR, "runbooks.json")),
+    DETECT_DIR,
+)
 
 # Server Configuration
 API_HOST = os.getenv("API_HOST", "127.0.0.1")

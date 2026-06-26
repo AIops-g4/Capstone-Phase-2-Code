@@ -13,8 +13,8 @@ Phát hiện Bất thường (/v1/detect) ──> Lập Kế hoạch (/v1/decide
 ## 2. Quy tắc chung & Bảo mật
 
 * **Đường dẫn cơ sở (API Path)**: `/v1/`
-* **Xác thực (Authentication)**: Sử dụng **IAM SigV4** cho toàn bộ các cuộc gọi liên dịch vụ (inter-service calls).
-* **Tính bất biến (Idempotency)**: Các yêu cầu ghi/thay đổi trạng thái (`/v1/decide` và `/v1/verify`) bắt buộc gửi kèm header `Idempotency-Key` (định dạng UUID v4) để chống xử lý trùng lặp.
+* **Xác thực (Authentication)**: Xác thực nội bộ trong cụm EKS thông qua **Local Trust (mTLS tùy chọn)** và K8s Network Policies.
+* **Tính bất biến (Idempotency)**: Tất cả các endpoint (`/v1/detect`, `/v1/decide` và `/v1/verify`) bắt buộc gửi kèm header `Idempotency-Key` (định dạng UUID v4) để chống xử lý trùng lặp. **Lưu ý**: Cơ chế Idempotency Lock (DynamoDB atomic conditional write) chỉ được thực thi ở phía server cho endpoint `/v1/decide` — endpoint duy nhất có tác dụng phụ (side effect) gây thay đổi trạng thái hạ tầng. Các endpoint `/v1/detect` và `/v1/verify` chỉ sử dụng `Idempotency-Key` cho mục đích truy vết kiểm toán (audit trail), không áp dụng lock.
 * **Chế độ thử nghiệm (Simulation Mode)**: Khi chạy mô phỏng ngoại tuyến, CDO Platform sẽ gửi dữ liệu telemetry trích xuất từ lịch sử sau thời điểm lỗi xảy ra và truyền vào cửa sổ `post_telemetry_window` của `/v1/verify` để kiểm chứng.
 
 ---
@@ -27,7 +27,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 
 #### A. Request Headers
 * `X-Tenant-Id` (string, Bắt buộc): Định danh duy nhất của Tenant (ví dụ: `"d3b07384-d113-495f-9f58-20d18d357d75"`).
-* `Authorization` (string, Bắt buộc): AWS Signature Version 4.
+
 * `X-Correlation-Id` (string, Tùy chọn): Mã UUID v4 liên kết chuỗi vết lỗi. Nếu không truyền, hệ thống sẽ tự sinh mới.
 * `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến để chống trùng lặp yêu cầu (UUID v4).
 * `X-Dry-Run-Mode` (string, Bắt buộc): Chế độ chạy thử nghiệm (`"true"` hoặc `"false"`).
@@ -194,7 +194,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 
 #### A. Request Headers
 * `X-Tenant-Id` (string, Bắt buộc): Định danh Tenant (ví dụ: `"d3b07384-d113-495f-9f58-20d18d357d75"`).
-* `Authorization` (string, Bắt buộc): AWS Signature Version 4.
+
 * `X-Correlation-Id` (string, Bắt buộc): Mã UUID v4 liên kết chuỗi vết từ bước `/v1/detect` truyền sang.
 * `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến để chống trùng lặp yêu cầu (UUID v4).
 * `X-Dry-Run-Mode` (string, Bắt buộc): Chế độ chạy thử nghiệm (`"true"` hoặc `"false"`).
@@ -232,7 +232,17 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
     },
     "anomaly_context": {
       "type": "object",
-      "description": "Ngữ cảnh lỗi chi tiết"
+      "description": "Ngữ cảnh lỗi chi tiết nhận từ DetectResponse. Cấu trúc phải khớp chính xác với anomaly_context của DetectResponse",
+      "properties": {
+        "target_service": { "type": "string", "description": "Tên dịch vụ nghi ngờ bị lỗi chính" },
+        "suspected_fault_type": { "type": "string", "description": "Phân loại loại lỗi nghi ngờ" },
+        "system": { "type": "string", "description": "Tên hệ thống nghiệp vụ" },
+        "namespace": { "type": "string", "description": "Kubernetes namespace nơi lỗi xảy ra" },
+        "deployment": { "type": "string", "description": "Tên đối tượng Kubernetes Deployment" },
+        "trigger_metric": { "type": "string", "description": "Tên tín hiệu telemetry kích hoạt cảnh báo" },
+        "trigger_value": { "type": "number", "description": "Giá trị cụ thể của tín hiệu kích hoạt" }
+      },
+      "required": ["target_service", "suspected_fault_type", "system"]
     }
   },
   "required": ["correlation_id", "idempotency_key", "dry_run_mode", "anomaly_context"],
@@ -278,6 +288,11 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `action_plan[].params.secret_name` | string | optional | Tên của secret cần rotate (cho `ROTATE_SECRET`) |
 | `action_plan[].params.grace_period_seconds` | integer | optional | Thời gian chờ tắt pod cũ một cách an toàn tính bằng giây (cho `RESTART_DEPLOYMENT`) |
 | `blast_radius_config` | object | ✓ | Cấu hình giới hạn vùng ảnh hưởng (Blast Radius) bảo đảm an toàn cho cụm |
+
+> **Lưu ý về Rollback Snapshot**: AI Engine **không** trả về `rollback_snapshot` trong `DecideResponse` vì AI Engine không có quyền truy cập K8s API (xem Deployment Contract §3). **CDO Platform** có trách nhiệm tự capture trạng thái trước khi thực thi `action_plan`, tùy theo pattern_type:
+>
+> - **Urgent path** (`pattern_type: "urgent"`): CDO đọc trạng thái hiện tại từ K8s API (ví dụ: `memory_limit`, `replica_count`, `image_tag`) **trước khi** apply patch lên cluster, và lưu bản snapshot vào Audit Log. Khi `/v1/verify` trả về `next_action=ROLLBACK`, CDO apply ngược snapshot đã lưu qua K8s API.
+> - **Deferred path** (`pattern_type: "deferred"`): CDO ghi nhận **Git commit SHA hiện tại** của manifest repository **trước khi** tạo commit/PR mới. Khi `/v1/verify` trả về `next_action=ROLLBACK`, CDO thực hiện `git revert` commit hoặc ArgoCD rollback về revision trước đó — không cần đọc K8s API.
 | `blast_radius_config.max_pod_impact_pct` | integer | ✓ | Tỷ lệ phần trăm tối đa các pod bị tác động đồng thời trong cụm |
 | `blast_radius_config.circuit_breaker_error_rate` | number | ✓ | Ngưỡng tỷ lệ lỗi tối đa cho phép để kích hoạt ngắt mạch hệ thống |
 | `blast_radius_config.allowed_namespaces` | array | ✓ | Danh sách các Kubernetes namespace hợp lệ được phép thực thi hành động |
@@ -342,6 +357,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
         "required": ["step", "action", "target", "params"]
       }
     },
+
     "blast_radius_config": {
       "type": "object",
       "properties": {
@@ -393,6 +409,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
       }
     }
   ],
+
   "blast_radius_config": {
     "max_pod_impact_pct": 25,
     "circuit_breaker_error_rate": 0.20,
@@ -421,7 +438,7 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 
 #### A. Request Headers
 * `X-Tenant-Id` (string, Bắt buộc): Định danh Tenant (ví dụ: `"d3b07384-d113-495f-9f58-20d18d357d75"`).
-* `Authorization` (string, Bắt buộc): AWS Signature Version 4.
+
 * `X-Correlation-Id` (string, Bắt buộc): Mã UUID v4 định danh toàn bộ chu trình tự chữa lành phục vụ truy vết.
 * `Idempotency-Key` (string, Bắt buộc): Khóa bảo đảm tính bất biến (UUID v4).
 * `X-Dry-Run-Mode` (string, Bắt buộc): Chế độ chạy thử nghiệm (`"true"` hoặc `"false"`).
@@ -590,10 +607,12 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 
 ### API Error Codes
 - **`400 Bad Request`**: Dữ liệu gửi lên không đúng định dạng schema. CDO cần log và kiểm tra code, **không tự động retry**.
-- **`401 Unauthorized`**: Mã xác thực IAM SigV4 không hợp lệ hoặc phiên làm việc đã hết hạn. CDO cần refresh credentials và gọi lại.
+- **`401 Unauthorized`**: Yêu cầu bị từ chối do cấu hình Local Trust/mTLS không hợp lệ hoặc thiếu/sai phân quyền Tenant.
+- **`403 Forbidden`**: Truy cập bị từ chối do vi phạm phân lập Tenant. Xảy ra khi giá trị `X-Tenant-Id` trong request header không khớp với `tenant_id` xuất hiện trong payload `telemetry_window[]` hoặc `anomaly_context`. CDO cần kiểm tra lại logic ghép tenant trước khi gọi API, **không tự động retry**.
 - **`409 Conflict`**: Trùng lặp `Idempotency-Key` cho cùng một hành động đang xử lý hoặc đã xử lý gần đây.
 - **`429 Too Many Requests`**: Vượt quá hạn mức lưu lượng (RPS/RPM) được cam kết. Phản hồi sẽ đi kèm HTTP header **`Retry-After`** chỉ định rõ số giây cần chờ trước khi CDO thực hiện gọi lại (Exponential Backoff).
-- **`503 Service Unavailable`**: AI Engine bị lỗi hệ thống hoặc quá tải. CDO **bắt buộc phải có luồng fallback nội bộ** (ví dụ: chuyển sang execute runbook tĩnh mặc định hoặc gửi thẳng escalation cho SRE).
+- **`500 Internal Server Error`**: Lỗi nội bộ không xác định (bug code, lỗi runtime, hoặc lỗi xử lý không bắt được). CDO có thể retry tối đa 2 lần với exponential backoff (1s, 3s). Nếu vẫn thất bại, chuyển sang luồng escalation.
+- **`503 Service Unavailable`**: Dịch vụ upstream (AWS Bedrock, DynamoDB, S3) không khả dụng hoặc AI Engine đang quá tải. CDO **bắt buộc phải có luồng fallback nội bộ** (ví dụ: chuyển sang execute runbook tĩnh mặc định hoặc gửi thẳng escalation cho SRE). Khác với 500, mã 503 chỉ ra vấn đề ở dependency bên ngoài chứ không phải lỗi logic nội bộ.
 
 ---
 
@@ -613,4 +632,3 @@ Hợp đồng API này được đóng băng ("FREEZE") để bảo đảm tính
 * Bước 1: Bên đề xuất gửi yêu cầu thay đổi hợp đồng (RFC - Request for Comments) bằng văn bản cho hội đồng kỹ thuật.
 * Bước 2: Tổ chức họp đánh giá tác động với sự tham gia bắt buộc của AI Lead và các CDO Platform Leads.
 * Bước 3: Sau khi thống nhất, cập nhật schema, chạy bộ test tự động và ký duyệt phiên bản hợp đồng mới.
-

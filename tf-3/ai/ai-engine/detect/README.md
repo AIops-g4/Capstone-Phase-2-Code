@@ -21,24 +21,26 @@ pip install fse-baro
 ```
 
 ### Bước 3: Tải và thiết lập bộ dữ liệu (Dataset Setup)
-Chạy các lệnh sau để tự động tải bộ dữ liệu giả lập sự cố RE2 và RE3 từ Google Drive về thư mục `dataset/` và giải nén chúng:
+Dataset nằm ở **`../dataset/`** (thư mục `ai-engine/dataset`, dùng chung cho `detect` và `decide`).
+
+Chạy các lệnh sau từ thư mục `detect/` để tải RE2 và RE3 từ Google Drive:
 
 ```bash
 # Cài đặt công cụ gdown để tải dữ liệu (nếu chưa có)
 pip install gdown
 
-# Tạo thư mục dataset
-mkdir -p dataset
+# Tạo thư mục dataset (ai-engine/dataset)
+mkdir -p ../dataset
 
 # Tải và giải nén bộ dữ liệu RE2
-gdown --id 12VpUPNx_ZWebA-cICyKmQmXjF3KpLJpP -O dataset/re2.zip
-unzip dataset/re2.zip -d dataset/
-rm dataset/re2.zip
+gdown --id 12VpUPNx_ZWebA-cICyKmQmXjF3KpLJpP -O ../dataset/re2.zip
+unzip ../dataset/re2.zip -d ../dataset/
+rm ../dataset/re2.zip
 
 # Tải và giải nén bộ dữ liệu RE3
-gdown --id 1cZpnaZ1ijLUBssXzCnbGVWsT1NlnXtoy -O dataset/re3.zip
-unzip dataset/re3.zip -d dataset/
-rm dataset/re3.zip
+gdown --id 1cZpnaZ1ijLUBssXzCnbGVWsT1NlnXtoy -O ../dataset/re3.zip
+unzip ../dataset/re3.zip -d ../dataset/
+rm ../dataset/re3.zip
 ```
 
 ### Bước 4: Khởi tạo Nhãn Ground Truth và Kịch Bản Runbooks
