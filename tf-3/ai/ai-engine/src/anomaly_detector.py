@@ -9,6 +9,7 @@ from .config import (
     EWMA_THRESHOLD,
     BASELINE_LENGTH,
     USE_RRCF,
+    USE_BOCPD,
     RRCF_NUM_TREES,
     RRCF_TREE_SIZE,
     RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER,
@@ -320,13 +321,72 @@ class RRCFDetector:
         avg_codisp[nonzero] /= index[nonzero]
         
         return avg_codisp.values
+class BOCPDDetector:
+    """
+    Bayesian Online Change Point Detection (BOCPD) wrapper for anomaly detection.
+    """
+    def __init__(self):
+        self.is_fitted = False
+
+    def fit(self, df_baseline: pd.DataFrame):
+        self.is_fitted = True
+
+    def detect(self, df: pd.DataFrame):
+        from functools import partial
+        from baro._bocpd import online_changepoint_detection, constant_hazard, MultivariateT
+        from baro.anomaly_detection import find_cps
+        
+        # Clean metrics data to prevent numerical issues
+        df_clean = df.fillna(0).replace([np.inf, -np.inf], np.nan).ffill().bfill().fillna(0)
+        
+        # Drop constant columns to prevent numerical singularity issues
+        df_clean = df_clean.loc[:, df_clean.nunique() > 1]
+        
+        # If no columns left or empty dataframe, return empty
+        if df_clean.empty:
+            return np.zeros(len(df), dtype=bool), np.zeros(len(df), dtype=float)
+            
+        # Min-Max Normalization
+        for col in df_clean.columns:
+            col_min = df_clean[col].min()
+            col_max = df_clean[col].max()
+            if col_max - col_min > 1e-6:
+                df_clean[col] = (df_clean[col] - col_min) / (col_max - col_min)
+            else:
+                df_clean[col] = 0.0
+                
+        data = df_clean.to_numpy()
+        
+        try:
+            # RUN BOCPD as specified by the user
+            R, maxes = online_changepoint_detection(
+                data,
+                partial(constant_hazard, 50),
+                MultivariateT(dims=data.shape[1])
+            )
+            cps = find_cps(maxes)
+            anomaly_indices = [p[0] for p in cps]
+        except Exception as e:
+            print(f"  [BOCPD Warning] Failed to run custom BOCPD: {e}. Falling back to empty anomalies.")
+            anomaly_indices = []
+        
+        # Convert list of anomaly indices/timesteps to a boolean array
+        anomalies = np.zeros(len(df), dtype=bool)
+        if anomaly_indices:
+            for idx in anomaly_indices:
+                if 0 <= idx < len(df):
+                    anomalies[idx] = True
+                    
+        # Return boolean array and a dummy score (zeros/ones)
+        scores = anomalies.astype(float)
+        return anomalies, scores
 
 def run_metric_anomaly_detection(df_metrics: pd.DataFrame, baseline_len: int = BASELINE_LENGTH):
     """
     Runs the comprehensive metric anomaly detection pipeline.
-    1. Multivariate Anomaly Detection (Isolation Forest or RRCF).
+    1. Multivariate Anomaly Detection (Isolation Forest, RRCF, or BOCPD).
     2. Univariate Anomaly Detection on individual resource metrics (CPU, Memory, Sockets, DiskIO)
-       to pinpoint which metric of which service is anomalous (Isolation Forest or RRCF).
+       to pinpoint which metric of which service is anomalous (Isolation Forest, RRCF, or BOCPD).
     3. EWMA on service-level metrics (Latency, Errors) to detect sudden spikes.
     
     Returns a dictionary of results.
@@ -336,7 +396,9 @@ def run_metric_anomaly_detection(df_metrics: pd.DataFrame, baseline_len: int = B
     df_baseline = df_features.iloc[:baseline_len]
     
     # 2. Multivariate Anomaly Detection
-    if USE_RRCF:
+    if USE_BOCPD:
+        mif = BOCPDDetector()
+    elif USE_RRCF:
         mif = RRCFDetector(
             threshold_multiplier=RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER,
             num_trees=RRCF_NUM_TREES,
@@ -365,8 +427,10 @@ def run_metric_anomaly_detection(df_metrics: pd.DataFrame, baseline_len: int = B
                 "scores": scores
             }
         else:
-            # Resource metrics (cpu, mem, socket, diskio, workload) -> use Univariate Isolation Forest or RRCF
-            if USE_RRCF:
+            # Resource metrics (cpu, mem, socket, diskio, workload) -> use Univariate Isolation Forest, RRCF, or BOCPD
+            if USE_BOCPD:
+                detector = BOCPDDetector()
+            elif USE_RRCF:
                 detector = RRCFDetector(
                     threshold_multiplier=RRCF_UNIVARIATE_THRESHOLD_MULTIPLIER,
                     num_trees=RRCF_NUM_TREES,
