@@ -51,3 +51,10 @@ ANALYSIS_WINDOW_SIZE = int(os.getenv("ANALYSIS_WINDOW_SIZE", "120"))
 # BARO RCA Configuration
 USE_BARO_RCA = os.getenv("USE_BARO_RCA", "False").lower() == "true"
 BARO_TOP_K = int(os.getenv("BARO_TOP_K", "3"))
+
+# RRCF Anomaly Detection Configuration
+USE_RRCF = os.getenv("USE_RRCF", "False").lower() == "true"
+RRCF_NUM_TREES = int(os.getenv("RRCF_NUM_TREES", "100"))
+RRCF_TREE_SIZE = int(os.getenv("RRCF_TREE_SIZE", "256"))
+RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER = float(os.getenv("RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER", "6.0"))
+RRCF_UNIVARIATE_THRESHOLD_MULTIPLIER = float(os.getenv("RRCF_UNIVARIATE_THRESHOLD_MULTIPLIER", "5.0"))
