@@ -60,7 +60,14 @@ class CorrelationAnalyzer:
                 from baro.root_cause_analysis import robust_scorer
                 
                 # Clean metrics data (exclude time column, handle NaNs/Infs)
-                df_clean = df_metrics.drop(columns=["time"], errors="ignore").replace([np.inf, -np.inf], np.nan).ffill().bfill().fillna(0)
+                df_clean = df_metrics.drop(columns=["time"], errors="ignore").replace([np.inf, -np.inf], np.nan).ffill().bfill().fillna(0).copy()
+                
+                # Normalize scales to prevent fake astronomical Z-scores on constant metrics with large raw units (like redis_diskio)
+                for col in df_clean.columns:
+                    std = df_clean[col].std()
+                    mean = df_clean[col].mean()
+                    scale = max(std, 0.05 * abs(mean) + 0.05)
+                    df_clean[col] = df_clean[col] / scale
                 
                 # Perform root cause analysis using robust_scorer directly on the cleaned data, passing the detected anomaly_idx
                 baro_res = robust_scorer(df_clean, anomalies=[anomaly_idx])

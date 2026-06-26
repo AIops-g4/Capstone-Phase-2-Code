@@ -339,14 +339,15 @@ class BOCPDDetector:
         # Clean metrics data to prevent numerical issues
         df_clean = df.fillna(0).replace([np.inf, -np.inf], np.nan).ffill().bfill().fillna(0)
         
-        # 1. Filter key performance indicators (latency and error columns) to reduce dimensionality
+        # 1. Filter out key performance indicators (latency and error columns) to reduce dimensionality
         selected_cols = []
         for c in df_clean.columns:
             if 'queue-master' in c or 'rabbitmq_' in c:
                 continue
             c_lower = c.lower()
             if "latency" in c_lower or "error" in c_lower:
-                selected_cols.append(c)
+                continue
+            selected_cols.append(c)
         if selected_cols:
             df_clean = df_clean[selected_cols]
             
@@ -407,6 +408,11 @@ def run_metric_anomaly_detection(df_metrics: pd.DataFrame, baseline_len: int = B
     df_baseline = df_features.iloc[:baseline_len]
     
     # 2. Multivariate Anomaly Detection
+    # Exclude error and latency columns from multivariate detection
+    multivariate_cols = [c for c in df_features.columns if "latency" not in c.lower() and "error" not in c.lower()]
+    df_multivariate_features = df_features[multivariate_cols]
+    df_multivariate_baseline = df_baseline[multivariate_cols]
+    
     if USE_BOCPD:
         mif = BOCPDDetector()
     elif USE_RRCF:
@@ -418,8 +424,8 @@ def run_metric_anomaly_detection(df_metrics: pd.DataFrame, baseline_len: int = B
     else:
         mif = IsolationForestDetector(threshold_multiplier=IFOREST_MULTIVARIATE_THRESHOLD_MULTIPLIER)
         
-    mif.fit(df_baseline)
-    mif_anomalies, mif_scores = mif.detect(df_features)
+    mif.fit(df_multivariate_baseline)
+    mif_anomalies, mif_scores = mif.detect(df_multivariate_features)
     
     # 3. Univariate and EWMA for each column
     univariate_results = {}
