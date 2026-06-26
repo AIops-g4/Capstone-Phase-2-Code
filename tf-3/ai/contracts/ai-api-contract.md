@@ -289,7 +289,10 @@ Nhận dữ liệu telemetry thời gian thực, thực thi mô hình phát hi�
 | `action_plan[].params.grace_period_seconds` | integer | optional | Thời gian chờ tắt pod cũ một cách an toàn tính bằng giây (cho `RESTART_DEPLOYMENT`) |
 | `blast_radius_config` | object | ✓ | Cấu hình giới hạn vùng ảnh hưởng (Blast Radius) bảo đảm an toàn cho cụm |
 
-> **Lưu ý về Rollback Snapshot**: AI Engine **không** trả về `rollback_snapshot` trong `DecideResponse` vì AI Engine không có quyền truy cập K8s API (xem Deployment Contract §3). **CDO Platform** có trách nhiệm tự đọc trạng thái hiện tại của đối tượng đích từ K8s API (ví dụ: `memory_limit`, `replica_count`, `image_tag`) **trước khi** thực thi `action_plan`, và tự lưu bản snapshot này vào Audit Log. Khi `/v1/verify` trả về `next_action=ROLLBACK`, CDO sử dụng snapshot đã lưu để revert.
+> **Lưu ý về Rollback Snapshot**: AI Engine **không** trả về `rollback_snapshot` trong `DecideResponse` vì AI Engine không có quyền truy cập K8s API (xem Deployment Contract §3). **CDO Platform** có trách nhiệm tự capture trạng thái trước khi thực thi `action_plan`, tùy theo pattern_type:
+>
+> - **Urgent path** (`pattern_type: "urgent"`): CDO đọc trạng thái hiện tại từ K8s API (ví dụ: `memory_limit`, `replica_count`, `image_tag`) **trước khi** apply patch lên cluster, và lưu bản snapshot vào Audit Log. Khi `/v1/verify` trả về `next_action=ROLLBACK`, CDO apply ngược snapshot đã lưu qua K8s API.
+> - **Deferred path** (`pattern_type: "deferred"`): CDO ghi nhận **Git commit SHA hiện tại** của manifest repository **trước khi** tạo commit/PR mới. Khi `/v1/verify` trả về `next_action=ROLLBACK`, CDO thực hiện `git revert` commit hoặc ArgoCD rollback về revision trước đó — không cần đọc K8s API.
 | `blast_radius_config.max_pod_impact_pct` | integer | ✓ | Tỷ lệ phần trăm tối đa các pod bị tác động đồng thời trong cụm |
 | `blast_radius_config.circuit_breaker_error_rate` | number | ✓ | Ngưỡng tỷ lệ lỗi tối đa cho phép để kích hoạt ngắt mạch hệ thống |
 | `blast_radius_config.allowed_namespaces` | array | ✓ | Danh sách các Kubernetes namespace hợp lệ được phép thực thi hành động |
