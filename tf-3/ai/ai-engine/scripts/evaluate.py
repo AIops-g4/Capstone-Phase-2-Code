@@ -17,7 +17,7 @@ from src.correlation_analyzer import CorrelationAnalyzer
 from src.self_healer import SelfHealer
 from src.config import DATASET_DIR, GROUND_TRUTH_PATH, RUNBOOKS_PATH, BASELINE_LENGTH
 
-def run_evaluation(sample_size=None, engine="config", top_k=None):
+def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False):
     if not os.path.exists(GROUND_TRUTH_PATH):
         print(f"Error: Ground truth file not found at {GROUND_TRUTH_PATH}. Please run validate_dataset.py first.")
         return
@@ -50,6 +50,10 @@ def run_evaluation(sample_size=None, engine="config", top_k=None):
     correlation_analyzer = CorrelationAnalyzer(correlation_threshold=0.5)
     
     # Apply overrides for evaluation
+    if use_rrcf:
+        import src.anomaly_detector
+        src.anomaly_detector.USE_RRCF = True
+        print("  [EVAL CONFIG] Forcing Robust Random Cut Forest (RRCF) anomaly detection engine.")
     if engine == "baro":
         correlation_analyzer.use_baro = True
         print("  [EVAL CONFIG] Forcing BARO RCA engine.")
@@ -282,10 +286,12 @@ if __name__ == "__main__":
     parser.add_argument("--sample-size", type=int, default=10, help="Number of runs to sample (default: 10, use 90 for full eval)")
     parser.add_argument("--engine", choices=["config", "default", "baro"], default="config", help="RCA engine to use (default: config, which reads from .env)")
     parser.add_argument("--top-k", type=int, default=None, help="Number of top-K candidates to retrieve and check for accuracy (defaults to .env value)")
+    parser.add_argument("--use-rrcf", action="store_true", help="Force using the Robust Random Cut Forest (RRCF) anomaly detection engine instead of Isolation Forest")
     args = parser.parse_args()
     
     run_evaluation(
         sample_size=args.sample_size, 
         engine=args.engine, 
-        top_k=args.top_k
+        top_k=args.top_k,
+        use_rrcf=args.use_rrcf
     )
