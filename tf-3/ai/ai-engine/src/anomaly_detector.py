@@ -12,8 +12,12 @@ from .config import (
     RRCF_NUM_TREES,
     RRCF_TREE_SIZE,
     RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER,
-    RRCF_UNIVARIATE_THRESHOLD_MULTIPLIER
+    RRCF_UNIVARIATE_THRESHOLD_MULTIPLIER,
+    IFOREST_CONTAMINATION,
+    IFOREST_N_ESTIMATORS,
+    RANDOM_STATE
 )
+
 
 # --- Robust Random Cut Forest (RRCF) Monkey-Patch ---
 # The official rrcf library contains bugs where it crashes with:
@@ -167,7 +171,7 @@ class IsolationForestDetector:
     Isolation Forest Anomaly Detector. Supports both univariate and multivariate inputs.
     Uses dynamic score thresholding based on baseline mean and standard deviation to prevent false positives.
     """
-    def __init__(self, threshold_multiplier=4.0, random_state=42):
+    def __init__(self, threshold_multiplier=4.0, random_state=RANDOM_STATE):
         self.threshold_multiplier = threshold_multiplier
         self.random_state = random_state
         self.model = None
@@ -181,9 +185,9 @@ class IsolationForestDetector:
         
         # Fit with a small nominal contamination
         self.model = IsolationForest(
-            contamination=0.01,
+            contamination=IFOREST_CONTAMINATION,
             random_state=self.random_state,
-            n_estimators=100
+            n_estimators=IFOREST_N_ESTIMATORS
         )
         self.model.fit(df_clean)
         
@@ -214,7 +218,7 @@ class RRCFDetector:
     Robust Random Cut Forest (RRCF) Anomaly Detector. Supports both univariate and multivariate inputs.
     Uses dynamic score thresholding based on baseline mean and standard deviation to prevent false positives.
     """
-    def __init__(self, threshold_multiplier=4.0, num_trees=40, tree_size=128, random_state=42):
+    def __init__(self, threshold_multiplier=4.0, num_trees=40, tree_size=128, random_state=RANDOM_STATE):
         self.threshold_multiplier = threshold_multiplier
         self.num_trees = num_trees
         self.tree_size = tree_size

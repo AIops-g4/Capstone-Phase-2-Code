@@ -5,6 +5,8 @@ import numpy as np
 from drain3.template_miner import TemplateMiner
 from drain3.template_miner_config import TemplateMinerConfig
 
+from .config import DRAIN_SIM_TH, DRAIN_DEPTH, LOG_ERROR_KEYWORDS
+
 class Drain3LogParser:
     """
     Log Parser using Drain3. Clusters raw log messages into templates and
@@ -15,8 +17,8 @@ class Drain3LogParser:
         
         # Configure Drain3 programmatically
         config = TemplateMinerConfig()
-        config.drain_sim_th = 0.4
-        config.drain_depth = 4
+        config.drain_sim_th = DRAIN_SIM_TH
+        config.drain_depth = DRAIN_DEPTH
         config.masking = [
             {"regex_pattern": r"\d+\.\d+\.\d+\.\d+", "mask_with": "IP"},
             {"regex_pattern": r"[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}", "mask_with": "UUID"},
@@ -24,10 +26,7 @@ class Drain3LogParser:
         ]
         
         self.miner = TemplateMiner(config=config)
-        self.error_keywords = re.compile(
-            r"(error|exception|fail|timeout|exhaust|limit|abort|invalid|refused|conn|crash|oom|kill)", 
-            re.IGNORECASE
-        )
+        self.error_keywords = re.compile(LOG_ERROR_KEYWORDS, re.IGNORECASE)
         self.template_to_error_flag = {}
 
     def parse_logs(self, df_logs: pd.DataFrame, time_start: int, time_end: int):
