@@ -17,7 +17,7 @@ from src.correlation_analyzer import CorrelationAnalyzer
 from src.self_healer import SelfHealer
 from src.config import DATASET_DIR, GROUND_TRUTH_PATH, RUNBOOKS_PATH, BASELINE_LENGTH
 
-def run_evaluation(sample_size=None):
+def run_evaluation(sample_size=None, engine="config", top_k=None):
     if not os.path.exists(GROUND_TRUTH_PATH):
         print(f"Error: Ground truth file not found at {GROUND_TRUTH_PATH}. Please run validate_dataset.py first.")
         return
@@ -49,6 +49,23 @@ def run_evaluation(sample_size=None):
     healer = SelfHealer(RUNBOOKS_PATH)
     correlation_analyzer = CorrelationAnalyzer(correlation_threshold=0.5)
     
+    # Apply overrides for evaluation
+    if engine == "baro":
+        correlation_analyzer.use_baro = True
+        print("  [EVAL CONFIG] Forcing BARO RCA engine.")
+    elif engine == "default":
+        correlation_analyzer.use_baro = False
+        print("  [EVAL CONFIG] Forcing Default (Pearson + Z-Score) RCA engine.")
+    else:
+        print(f"  [EVAL CONFIG] Using RCA engine from config (USE_BARO_RCA={correlation_analyzer.use_baro}).")
+        
+    if top_k is not None:
+        correlation_analyzer.baro_top_k = top_k
+        print(f"  [EVAL CONFIG] Forcing top-K candidates to retrieve: {top_k}")
+        
+    eval_top_k = correlation_analyzer.baro_top_k
+    print(f"  [EVAL CONFIG] Top-K Accuracy will be computed for K = {eval_top_k}")
+    
     results = []
     
     total_eval = 0
@@ -56,7 +73,12 @@ def run_evaluation(sample_size=None):
     correct_service = 0
     correct_fault = 0
     correct_runbook = 0
+    correct_top_k = 0
     rto_list = []
+    anomaly_points_list = []
+    
+    y_true = []
+    y_pred = []
     
     start_eval_time = time.time()
     
@@ -113,6 +135,8 @@ def run_evaluation(sample_size=None):
             
         # Combined anomaly signal (Multivariate Isolation Forest OR EWMA SLIs)
         combined_anoms = mif_anoms | ewma_all_anoms
+        num_anomaly_points = int(np.sum(combined_anoms))
+        anomaly_points_list.append(num_anomaly_points)
         
         # Search for the first anomaly after or near the injection point
         # Allow up to 30 seconds before injection (in case of clock skew) up to end of timeseries
@@ -123,7 +147,9 @@ def run_evaluation(sample_size=None):
                 break
                 
         if detection_idx == -1:
-            print("  [RESULT] Anomaly Detection FAILED (False Negative).")
+            print(f"  [RESULT] Anomaly Detection FAILED (False Negative). Anomaly points flagged: {num_anomaly_points}")
+            y_true.append(true_service)
+            y_pred.append("undetected")
             results.append({
                 "run_key": run_key,
                 "detected": False,
@@ -140,7 +166,7 @@ def run_evaluation(sample_size=None):
         detect_time = df_metrics.iloc[detection_idx]["time"]
         rto = int(detect_time - inject_time)
         rto_list.append(rto)
-        print(f"  [DETECTED] Anomaly flagged at second {detection_idx} (Time: {detect_time}, RTO: {rto}s)")
+        print(f"  [DETECTED] Anomaly flagged at second {detection_idx} (Time: {detect_time}, RTO: {rto}s). Anomaly points in run: {num_anomaly_points}")
         
         # 3. Parse logs with Drain3 around the detection time
         # We parse the logs for the entire run to simulate realistic logging
@@ -172,7 +198,17 @@ def run_evaluation(sample_size=None):
         if runbook_ok:
             correct_runbook += 1
             
+        y_true.append(true_service)
+        y_pred.append(pred_service)
+        
+        # Top-K check
+        top_k_candidates = correlation_analyzer.last_top_k[:eval_top_k]
+        in_top_k = true_service in top_k_candidates
+        if in_top_k:
+            correct_top_k += 1
+            
         print(f"  [DIAGNOSIS] Predicted Service: {pred_service} [{'OK' if service_ok else 'WRONG'}]")
+        print(f"  [DIAGNOSIS] Top-{eval_top_k} Candidates: {', '.join(top_k_candidates)} [{'OK' if in_top_k else 'WRONG'}]")
         print(f"  [DIAGNOSIS] Predicted Fault:   {pred_fault} [{'OK' if fault_ok else 'WRONG'}]")
         print(f"  [HEALING]   Matched Runbook:   {pred_runbook} [{'OK' if runbook_ok else 'WRONG'}]")
         print(f"  [REASONING] {reasoning}\n")
@@ -196,12 +232,23 @@ def run_evaluation(sample_size=None):
     runbook_accuracy = correct_runbook / correct_detection if correct_detection > 0 else 0
     avg_rto = np.mean(rto_list) if rto_list else 0
     
-    # Calculate Precision, Recall, F1 for root cause service localization
-    # Recall = detected & correct / total
-    # Precision = correct / detected
-    recall = correct_service / total_eval if total_eval > 0 else 0
-    precision = service_accuracy  # Out of all detections, how many were correct service
-    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    total_anomaly_points = int(np.sum(anomaly_points_list)) if anomaly_points_list else 0
+    avg_anomaly_points = np.mean(anomaly_points_list) if anomaly_points_list else 0
+    
+    # Top-1 and Top-K accuracy (out of all evaluated runs)
+    top1_accuracy = correct_service / total_eval if total_eval > 0 else 0
+    topk_accuracy = correct_top_k / total_eval if total_eval > 0 else 0
+    
+    # Calculate Macro-Averaged Precision, Recall, F1 for root cause service localization
+    from sklearn.metrics import precision_recall_fscore_support
+    unique_true_classes = sorted(list(set(y_true)))
+    precision, recall, f1_score, _ = precision_recall_fscore_support(
+        y_true, 
+        y_pred, 
+        labels=unique_true_classes, 
+        average="macro", 
+        zero_division=0
+    )
     
     print("\n=======================================================")
     print("                EVALUATION SUMMARY REPORT              ")
@@ -209,14 +256,18 @@ def run_evaluation(sample_size=None):
     print(f"Evaluation completed in:           {eval_duration:.2f} seconds")
     print(f"Total Runs Evaluated:              {total_eval}")
     print(f"Anomaly Detection Rate:            {detection_rate * 100:.1f}% ({correct_detection}/{total_eval})")
-    print(f"Service Localization Accuracy:     {service_accuracy * 100:.1f}% ({correct_service}/{correct_detection})")
+    print(f"Service Localization Accuracy (Top-1, Detections): {service_accuracy * 100:.1f}% ({correct_service}/{correct_detection})")
+    print(f"Service Localization Accuracy (Top-1, Total):      {top1_accuracy * 100:.1f}% ({correct_service}/{total_eval})")
+    print(f"Service Localization Accuracy (Top-{eval_top_k}, Total):      {topk_accuracy * 100:.1f}% ({correct_top_k}/{total_eval})")
     print(f"Fault Type Localization Accuracy:  {fault_accuracy * 100:.1f}% ({correct_fault}/{correct_detection})")
     print(f"Runbook Matching Accuracy:         {runbook_accuracy * 100:.1f}% ({correct_runbook}/{correct_detection})")
     print(f"Average Recovery Time (RTO):       {avg_rto:.1f} seconds")
+    print(f"Total Anomaly Points Detected:     {total_anomaly_points}")
+    print(f"Average Anomaly Points per Run:    {avg_anomaly_points:.1f}")
     print("-------------------------------------------------------")
-    print(f"Precision (Service Root Cause):    {precision:.3f}")
-    print(f"Recall (Service Root Cause):       {recall:.3f}")
-    print(f"F1-Score (Service Root Cause):      {f1_score:.3f} (Threshold: 0.85)")
+    print(f"Macro-Precision (Service Root Cause): {precision:.3f}")
+    print(f"Macro-Recall (Service Root Cause):    {recall:.3f}")
+    print(f"Macro-F1-Score (Service Root Cause):  {f1_score:.3f} (Threshold: 0.85)")
     print("=======================================================\n")
     
     if f1_score >= 0.85:
@@ -227,6 +278,12 @@ def run_evaluation(sample_size=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate AIOps AI Engine Offline")
     parser.add_argument("--sample-size", type=int, default=10, help="Number of runs to sample (default: 10, use 90 for full eval)")
+    parser.add_argument("--engine", choices=["config", "default", "baro"], default="config", help="RCA engine to use (default: config, which reads from .env)")
+    parser.add_argument("--top-k", type=int, default=None, help="Number of top-K candidates to retrieve and check for accuracy (defaults to .env value)")
     args = parser.parse_args()
     
-    run_evaluation(sample_size=args.sample_size)
+    run_evaluation(
+        sample_size=args.sample_size, 
+        engine=args.engine, 
+        top_k=args.top_k
+    )

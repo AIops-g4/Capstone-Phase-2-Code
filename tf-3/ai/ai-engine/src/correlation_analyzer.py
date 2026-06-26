@@ -1,7 +1,13 @@
 import pandas as pd
 import numpy as np
 
-from .config import CORRELATION_THRESHOLD, BASELINE_LENGTH, ANALYSIS_WINDOW_SIZE
+from .config import (
+    CORRELATION_THRESHOLD, 
+    BASELINE_LENGTH, 
+    ANALYSIS_WINDOW_SIZE, 
+    USE_BARO_RCA, 
+    BARO_TOP_K
+)
 
 class CorrelationAnalyzer:
     """
@@ -11,6 +17,9 @@ class CorrelationAnalyzer:
     def __init__(self, correlation_threshold=CORRELATION_THRESHOLD, baseline_len=BASELINE_LENGTH):
         self.correlation_threshold = correlation_threshold
         self.baseline_len = baseline_len
+        self.use_baro = USE_BARO_RCA
+        self.baro_top_k = BARO_TOP_K
+        self.last_top_k = []
 
     def analyze(self, 
                 df_metrics: pd.DataFrame, 
@@ -34,6 +43,33 @@ class CorrelationAnalyzer:
         - reasoning: Str, explanation of the findings.
         - confidence: Float, confidence score of the diagnosis (0.0 to 1.0).
         """
+        self.last_top_k = []
+        if self.use_baro:
+            try:
+                from baro.root_cause_analysis import robust_scorer
+                inject_time = float(df_metrics.iloc[anomaly_idx]["time"])
+                baro_res = robust_scorer(df_metrics, inject_time=inject_time)
+                ranks = baro_res.get("ranks", [])
+                
+                # Map metric ranks to service ranks
+                for r in ranks:
+                    service, _ = self._map_metric_to_service_fault(r)
+                    if service not in self.last_top_k:
+                        self.last_top_k.append(service)
+                        
+                if self.last_top_k:
+                    best_service = self.last_top_k[0]
+                    _, suspected_fault_type = self._map_metric_to_service_fault(ranks[0])
+                    
+                    confidence = 0.90
+                    reasoning = (f"[BARO RCA] Diagnosed {best_service} ({suspected_fault_type}) as root cause. "
+                                 f"Top candidates: {', '.join(ranks[:self.baro_top_k])}.")
+                    if len(reasoning) > 300:
+                        reasoning = reasoning[:297] + "..."
+                    return best_service, suspected_fault_type, reasoning, confidence
+            except Exception as e:
+                print(f"  [BARO ERROR] Failed to run BARO robust_scorer: {e}. Falling back to default RCA.")
+
         # 1. Define window around the anomaly
         start_idx = max(0, anomaly_idx - window_size)
         end_idx = min(len(df_metrics) - 1, anomaly_idx + 10)
@@ -137,14 +173,16 @@ class CorrelationAnalyzer:
                         "score": score
                     })
                     
-        # 5. Determine the best service
+        # 5. Determine the best service and populate last_top_k ranking
+        sorted_services = sorted(service_scores.items(), key=lambda x: x[1], reverse=True)
+        self.last_top_k = [s[0] for s in sorted_services]
+        
         best_service = None
         max_service_score = -1.0
         
-        for s, score in service_scores.items():
-            if score > max_service_score:
-                max_service_score = score
-                best_service = s
+        if sorted_services:
+            best_service = sorted_services[0][0]
+            max_service_score = sorted_services[0][1]
                 
         if not best_service or max_service_score <= 0.0:
             # Absolute fallback to checkoutservice cpu
@@ -233,3 +271,25 @@ class CorrelationAnalyzer:
             reasoning = reasoning[:297] + "..."
             
         return best_service, suspected_fault_type, reasoning, confidence
+
+    def _map_metric_to_service_fault(self, metric_name: str):
+        parts = metric_name.split("_", 1)
+        if len(parts) < 2:
+            return metric_name, "cpu"
+        service = parts[0]
+        metric_suffix = parts[1].lower()
+        
+        fault_type = "cpu"
+        if "cpu" in metric_suffix:
+            fault_type = "cpu"
+        elif "mem" in metric_suffix:
+            fault_type = "mem"
+        elif "latency" in metric_suffix:
+            fault_type = "delay"
+        elif "error" in metric_suffix:
+            fault_type = "loss"
+        elif "disk" in metric_suffix:
+            fault_type = "disk"
+        elif "socket" in metric_suffix:
+            fault_type = "socket"
+        return service, fault_type
