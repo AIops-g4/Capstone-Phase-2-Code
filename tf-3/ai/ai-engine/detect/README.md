@@ -41,6 +41,13 @@ unzip dataset/re3.zip -d dataset/
 rm dataset/re3.zip
 ```
 
+### Bước 4: Khởi tạo Nhãn Ground Truth và Kịch Bản Runbooks
+Sau khi đã tải và giải nén bộ dữ liệu, chạy script sau để tự động quét thư mục dữ liệu, trích xuất thời điểm tiêm lỗi và khởi tạo các file nhãn `ground_truth.json` cũng như danh sách kịch bản tự phục hồi `runbooks.json`:
+
+```bash
+conda run -n w6-mini-project python scripts/generate_dataset_metadata.py
+```
+
 ---
 
 ## 2. Khởi Chạy API Server (Chế độ Production)
