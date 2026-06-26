@@ -47,3 +47,7 @@ BASELINE_LENGTH = int(os.getenv("BASELINE_LENGTH", "600"))
 # Correlation & Diagnostics Hyperparameters
 CORRELATION_THRESHOLD = float(os.getenv("CORRELATION_THRESHOLD", "0.4"))
 ANALYSIS_WINDOW_SIZE = int(os.getenv("ANALYSIS_WINDOW_SIZE", "120"))
+
+# BARO RCA Configuration
+USE_BARO_RCA = os.getenv("USE_BARO_RCA", "False").lower() == "true"
+BARO_TOP_K = int(os.getenv("BARO_TOP_K", "3"))
