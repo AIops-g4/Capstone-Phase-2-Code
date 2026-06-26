@@ -339,6 +339,17 @@ class BOCPDDetector:
         # Clean metrics data to prevent numerical issues
         df_clean = df.fillna(0).replace([np.inf, -np.inf], np.nan).ffill().bfill().fillna(0)
         
+        # 1. Filter key performance indicators (latency and error columns) to reduce dimensionality
+        selected_cols = []
+        for c in df_clean.columns:
+            if 'queue-master' in c or 'rabbitmq_' in c:
+                continue
+            c_lower = c.lower()
+            if "latency" in c_lower or "error" in c_lower:
+                selected_cols.append(c)
+        if selected_cols:
+            df_clean = df_clean[selected_cols]
+            
         # Drop constant columns to prevent numerical singularity issues
         df_clean = df_clean.loc[:, df_clean.nunique() > 1]
         
@@ -358,7 +369,7 @@ class BOCPDDetector:
         data = df_clean.to_numpy()
         
         try:
-            # RUN BOCPD as specified by the user
+            # RUN BOCPD on filtered data (1s resolution)
             R, maxes = online_changepoint_detection(
                 data,
                 partial(constant_hazard, 50),
@@ -367,7 +378,7 @@ class BOCPDDetector:
             cps = find_cps(maxes)
             anomaly_indices = [p[0] for p in cps]
         except Exception as e:
-            print(f"  [BOCPD Warning] Failed to run custom BOCPD: {e}. Falling back to empty anomalies.")
+            print(f"  [BOCPD Warning] Failed to run optimized custom BOCPD: {e}. Falling back to empty anomalies.")
             anomaly_indices = []
         
         # Convert list of anomaly indices/timesteps to a boolean array

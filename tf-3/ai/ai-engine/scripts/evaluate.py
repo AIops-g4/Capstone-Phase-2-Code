@@ -131,27 +131,22 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         if use_bocpd:
             start_idx = max(0, inject_row_idx - EVAL_BOCPD_WINDOW_BEFORE)
             end_idx = min(len(df_metrics) - 1, inject_row_idx + EVAL_BOCPD_WINDOW_AFTER)
-            df_metrics = df_metrics.iloc[start_idx:end_idx+1].reset_index(drop=True)
+            df_metrics_sliced = df_metrics.iloc[start_idx:end_idx+1].reset_index(drop=True)
             # Re-determine injection row index in the sliced DataFrame
-            inject_row_idx = df_metrics[df_metrics["time"] >= inject_time].index.min()
-            if pd.isna(inject_row_idx):
-                inject_row_idx = len(df_metrics) - 1
-            baseline_len = EVAL_BOCPD_BASELINE_LENGTH
+            inject_row_idx_sliced = df_metrics_sliced[df_metrics_sliced["time"] >= inject_time].index.min()
+            if pd.isna(inject_row_idx_sliced):
+                inject_row_idx_sliced = len(df_metrics_sliced) - 1
+            baseline_len_sliced = min(EVAL_BOCPD_BASELINE_LENGTH, inject_row_idx_sliced)
+            detection_results = run_metric_anomaly_detection(df_metrics_sliced, baseline_len_sliced)
         else:
-            baseline_len = BASELINE_LENGTH
+            detection_results = run_metric_anomaly_detection(df_metrics, BASELINE_LENGTH)
             
-        time_start = int(df_metrics["time"].min())
-        time_end = int(df_metrics["time"].max())
-            
-        # 2. Anomaly Detection on Metrics
-        detection_results = run_metric_anomaly_detection(df_metrics, baseline_len)
-        
         mif_anoms = detection_results["multivariate"]["anomalies"]
         
         # Search for detection point starting from the injection time
         detection_idx = -1
         # We also check EWMA anomalies for latency and error columns
-        ewma_all_anoms = np.zeros(len(df_metrics), dtype=bool)
+        ewma_all_anoms = np.zeros(len(mif_anoms), dtype=bool)
         for col, res in detection_results["ewma"].items():
             ewma_all_anoms = ewma_all_anoms | res["anomalies"]
             
@@ -162,11 +157,18 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         
         # Search for the first anomaly after or near the injection point
         # Allow up to 30 seconds before injection (in case of clock skew) up to end of timeseries
-        search_start = max(0, inject_row_idx - 30)
-        for i in range(search_start, len(df_metrics)):
-            if combined_anoms[i]:
-                detection_idx = i
-                break
+        if use_bocpd:
+            search_start = max(0, inject_row_idx_sliced - 30)
+            for i in range(search_start, len(df_metrics_sliced)):
+                if combined_anoms[i]:
+                    detection_idx = i
+                    break
+        else:
+            search_start = max(0, inject_row_idx - 30)
+            for i in range(search_start, len(df_metrics)):
+                if combined_anoms[i]:
+                    detection_idx = i
+                    break
                 
         if detection_idx == -1:
             print(f"  [RESULT] Anomaly Detection FAILED (False Negative). Anomaly points flagged: {num_anomaly_points}")
@@ -183,6 +185,12 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
             
         # Anomaly detected successfully!
         correct_detection += 1
+        
+        # Map back to full unsliced metrics if we used sliced detection
+        if use_bocpd:
+            detect_time = df_metrics_sliced.iloc[detection_idx]["time"]
+            detection_idx = df_metrics[df_metrics["time"] == detect_time].index[0]
+            
         detect_time = df_metrics.iloc[detection_idx]["time"]
         rto = int(detect_time - inject_time)
         rto_list.append(rto)
@@ -190,11 +198,13 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         
         # 3. Parse logs with Drain3 around the detection time
         # We parse the logs for the entire run to simulate realistic logging
+        time_start = int(df_metrics["time"].min())
+        time_end = int(df_metrics["time"].max())
         log_parser_run = Drain3LogParser(service_aware=True)
         df_log_ts, temp_info = log_parser_run.parse_logs(df_logs, time_start, time_end)
         
         # 4. Correlation-based Root Cause Localization
-        correlation_analyzer.baseline_len = baseline_len
+        correlation_analyzer.baseline_len = BASELINE_LENGTH
         pred_service, pred_fault, reasoning, confidence = correlation_analyzer.analyze(
             df_metrics=df_metrics,
             df_logs=df_log_ts,
