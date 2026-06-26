@@ -64,25 +64,11 @@ conda run -n w6-mini-project python src/server.py
 
 Kịch bản đánh giá ngoại tuyến giúp kiểm tra độ chính xác và hiệu năng của AI Engine trên tập dữ liệu sự cố giả lập gồm **90 kịch bản lỗi**.
 
-### Chạy đánh giá với cấu hình mặc định (Isolation Forest - Tốc độ nhanh & Chính xác cao):
+Chạy lệnh duy nhất sau để thực hiện đánh giá hoàn chỉnh sử dụng thuật toán phát hiện bất thường BOCPD và engine phân tích nguyên nhân gốc BARO:
+
 ```bash
-# Đánh giá trên toàn bộ 90 mẫu sự cố
-conda run -n w6-mini-project python scripts/evaluate.py --sample-size 90
-
-# Hoặc đánh giá nhanh trên một mẫu đại diện (ví dụ: 10 mẫu)
-conda run -n w6-mini-project python scripts/evaluate.py --sample-size 10
+conda run -n w6-mini-project python scripts/evaluate.py --sample-size 90 --engine baro --use-bocpd
 ```
-
-### Chạy đánh giá với thuật toán BOCPD (Sử dụng cơ chế Dual-Track tăng tốc 10x):
-```bash
-conda run -n w6-mini-project python scripts/evaluate.py --sample-size 10 --use-bocpd
-```
-
-### Các tùy chọn tham số (Arguments):
-* `--sample-size <N>`: Số lượng mẫu sự cố cần lấy ra đánh giá (dùng tối đa 90).
-* `--use-bocpd`: Bắt buộc sử dụng thuật toán BOCPD để phát hiện bất thường đa biến.
-* `--use-rrcf`: Bắt buộc sử dụng thuật toán Robust Random Cut Forest (RRCF).
-* `--engine <config|default|baro>`: Chọn engine phân tích nguyên nhân gốc (`default` là Pearson/Z-score, `baro` là BARO RCA).
 
 ---
 
