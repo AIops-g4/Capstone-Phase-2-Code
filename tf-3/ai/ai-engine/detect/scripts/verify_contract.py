@@ -65,7 +65,12 @@ DETECT_RESPONSE_SCHEMA = {
         "anomaly_context": {
             "type": "object",
             "properties": {
-                "target_service": { "type": "string" },
+                "target_service": {
+                    "anyOf": [
+                        { "type": "string" },
+                        { "type": "array", "items": { "type": "string" } }
+                    ]
+                },
                 "suspected_fault_type": { "type": "string" },
                 "system": { "type": "string" },
                 "namespace": { "type": "string" },
@@ -106,7 +111,12 @@ DECIDE_REQUEST_SCHEMA = {
         "anomaly_context": {
             "type": "object",
             "properties": {
-                "target_service": { "type": "string" },
+                "target_service": {
+                    "anyOf": [
+                        { "type": "string" },
+                        { "type": "array", "items": { "type": "string" } }
+                    ]
+                },
                 "suspected_fault_type": { "type": "string" },
                 "system": { "type": "string" },
                 "namespace": { "type": "string" },
@@ -530,11 +540,15 @@ def run_contract_verification():
         res_detect_data = res_detect.json()
         res_valid_detect = validate_json(res_detect_data, DETECT_RESPONSE_SCHEMA, "DetectResponse (Anomaly)")
         
+        target_service = res_detect_data["anomaly_context"]["target_service"] if res_detect_data.get("anomaly_context") else None
+        if isinstance(target_service, list) and target_service:
+            target_service = target_service[0]
+            
         detect_business_valid = (
             res_detect.status_code == 200 and
             res_detect_data["anomaly_detected"] is True and
             res_detect_data["anomaly_context"] is not None and
-            res_detect_data["anomaly_context"]["target_service"] == "checkoutservice" and
+            target_service == "checkoutservice" and
             res_detect_data["anomaly_context"]["suspected_fault_type"] == "cpu"
         )
         print(f"  Detect Business logic check: {'[PASS]' if detect_business_valid else '[FAIL]'}")
@@ -683,10 +697,14 @@ def run_contract_verification():
         res_valid_detect_sym = validate_json(res_detect_sym_data, DETECT_RESPONSE_SCHEMA, "DetectResponse (Symptom)")
         
         # Verify correlation correlated it to the active checkoutservice incident (returned primary_corr_id)
+        target_service_sym = res_detect_sym_data["anomaly_context"]["target_service"] if res_detect_sym_data.get("anomaly_context") else None
+        if isinstance(target_service_sym, list) and target_service_sym:
+            target_service_sym = target_service_sym[0]
+            
         detect_sym_valid = (
             res_detect_sym.status_code == 200 and
             res_detect_sym_data["correlation_id"] == primary_corr_id and
-            res_detect_sym_data["anomaly_context"]["target_service"] == "frontend" and
+            target_service_sym == "frontend" and
             "[CORRELATED ALERT]" in res_detect_sym_data["reasoning"]
         )
         print(f"  Symptom Correlation check (returned ID == primary ID): {'[PASS]' if detect_sym_valid else '[FAIL]'}")

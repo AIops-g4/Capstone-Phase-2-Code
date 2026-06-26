@@ -3,7 +3,7 @@ import uuid
 import json
 import numpy as np
 import pandas as pd
-from typing import List, Dict, Any, Optional, Literal
+from typing import List, Dict, Any, Optional, Literal, Union
 from fastapi import FastAPI, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -125,7 +125,7 @@ class DetectRequest(BaseModel):
 
 class AnomalyContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    target_service: str = Field(..., description="Identified faulty service")
+    target_service: Union[str, List[str]] = Field(..., description="Identified faulty service or top 5 services")
     suspected_fault_type: str = Field(..., description="Identified fault type")
     system: str = Field(default="E-COMMERCE", description="System name")
     namespace: Optional[str] = Field(default="production", description="Kubernetes namespace")
@@ -330,8 +330,12 @@ async def detect_anomalies(request: DetectRequest):
         if len(reasoning) > 300:
             reasoning = reasoning[:297] + "..."
             
+    top_5_services = correlation_analyzer.last_top_k[:5]
+    if not top_5_services:
+        top_5_services = [target_service]
+        
     context = AnomalyContext(
-        target_service=target_service,
+        target_service=top_5_services,
         suspected_fault_type=suspected_fault_type,
         system="E-COMMERCE",
         namespace="production",
@@ -357,6 +361,7 @@ async def decide_action_plan(request: DecideRequest):
     """
     ctx = request.anomaly_context
     target_service = ctx.target_service
+    top_service = target_service[0] if isinstance(target_service, list) and target_service else target_service
     suspected_fault_type = ctx.suspected_fault_type
     
     # 1. Check if this is a correlated symptom or duplicate using the server-side AlertCorrelationEngine state
@@ -366,7 +371,7 @@ async def decide_action_plan(request: DecideRequest):
     corr_id = request.correlation_id
     if corr_id in alert_correlator.active_incidents:
         incident = alert_correlator.active_incidents[corr_id]
-        if target_service == incident["root_cause_service"]:
+        if top_service == incident["root_cause_service"]:
             if incident.get("decided", False):
                 is_suppressed = True
                 suppression_reason = "duplicate alert for root-cause (already decided)"
@@ -377,7 +382,7 @@ async def decide_action_plan(request: DecideRequest):
             suppression_reason = f"correlated downstream symptom of upstream {incident['root_cause_service']}"
             
     if is_suppressed:
-        print(f"  [DEDUPLICATION] Suppressing healing action plan for {target_service} ({suspected_fault_type}): {suppression_reason}.")
+        print(f"  [DEDUPLICATION] Suppressing healing action plan for {top_service} ({suspected_fault_type}): {suppression_reason}.")
         return DecideResponse(
             matched_runbook="CorrelatedSymptomSuppression",
             pattern_type="urgent",
@@ -395,7 +400,7 @@ async def decide_action_plan(request: DecideRequest):
         )
         
     # 2. Execute healing plan for primary root cause
-    decision = healer.decide(target_service, suspected_fault_type)
+    decision = healer.decide(top_service, suspected_fault_type)
     
     return DecideResponse(
         matched_runbook=decision["matched_runbook"],
