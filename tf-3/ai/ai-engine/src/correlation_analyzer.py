@@ -57,33 +57,13 @@ class CorrelationAnalyzer:
         self.last_top_k = []
         if self.use_baro:
             try:
-                from baro.anomaly_detection import bocpd
                 from baro.root_cause_analysis import robust_scorer
                 
-                # 1. Clean metrics data to prevent numerical issues and infinite loops in BOCPD
-                df_clean = df_metrics.replace([np.inf, -np.inf], np.nan).ffill().bfill().fillna(0)
+                # Clean metrics data (exclude time column, handle NaNs/Infs)
+                df_clean = df_metrics.drop(columns=["time"], errors="ignore").replace([np.inf, -np.inf], np.nan).ffill().bfill().fillna(0)
                 
-                # 2. Slice metrics around the anomaly index to focus the analysis window
-                # Focus on a window of 300 seconds before and 30 seconds after the anomaly
-                start_idx = max(0, anomaly_idx - 300)
-                end_idx = min(len(df_clean) - 1, anomaly_idx + 30)
-                df_sliced = df_clean.iloc[start_idx:end_idx + 1].copy().reset_index(drop=True)
-                
-                # 3. Downsample the sliced metrics by a factor of 5 to dramatically accelerate BOCPD
-                downsample_factor = 5
-                df_downsampled = df_sliced.groupby(np.arange(len(df_sliced)) // downsample_factor).mean()
-                
-                # 4. Perform anomaly detection using BOCPD on the downsampled data
-                anomalies_down = bocpd(df_downsampled)
-                
-                # 5. Map the detected anomalies back to the high-resolution sliced dataframe
-                anomalies_sliced = [idx * downsample_factor for idx in anomalies_down]
-                if not anomalies_sliced:
-                    # Fallback to the relative anomaly index within the sliced window
-                    anomalies_sliced = [anomaly_idx - start_idx]
-                    
-                # 6. Perform root cause analysis using robust_scorer on the sliced data
-                baro_res = robust_scorer(df_sliced, anomalies=anomalies_sliced)
+                # Perform root cause analysis using robust_scorer directly on the cleaned data, passing the detected anomaly_idx
+                baro_res = robust_scorer(df_clean, anomalies=[anomaly_idx])
                 ranks = baro_res.get("ranks", [])
                 
                 # Map metric ranks to service ranks
@@ -103,7 +83,7 @@ class CorrelationAnalyzer:
                         reasoning = reasoning[:297] + "..."
                     return best_service, suspected_fault_type, reasoning, confidence
             except Exception as e:
-                print(f"  [BARO ERROR] Failed to run optimized BARO BOCPD + robust_scorer: {e}. Falling back to default RCA.")
+                print(f"  [BARO ERROR] Failed to run simplified BARO BOCPD + robust_scorer: {e}. Falling back to default RCA.")
 
         # 1. Define window around the anomaly
         start_idx = max(0, anomaly_idx - window_size)

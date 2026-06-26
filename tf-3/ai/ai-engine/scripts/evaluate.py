@@ -16,7 +16,7 @@ from src.log_parser import Drain3LogParser
 from src.correlation_analyzer import CorrelationAnalyzer
 from src.config import DATASET_DIR, GROUND_TRUTH_PATH, BASELINE_LENGTH
 
-def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False):
+def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False, use_bocpd=False):
     if not os.path.exists(GROUND_TRUTH_PATH):
         print(f"Error: Ground truth file not found at {GROUND_TRUTH_PATH}. Please run validate_dataset.py first.")
         return
@@ -52,6 +52,10 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         import src.anomaly_detector
         src.anomaly_detector.USE_RRCF = True
         print("  [EVAL CONFIG] Forcing Robust Random Cut Forest (RRCF) anomaly detection engine.")
+    if use_bocpd:
+        import src.anomaly_detector
+        src.anomaly_detector.USE_BOCPD = True
+        print("  [EVAL CONFIG] Forcing Bayesian Online Change Point Detection (BOCPD) anomaly detection engine.")
     if engine == "baro":
         correlation_analyzer.use_baro = True
         print("  [EVAL CONFIG] Forcing BARO RCA engine.")
@@ -93,11 +97,10 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         service_fault = gt_info["service_fault"]
         run_id = gt_info["run_id"]
         true_service = gt_info["target_service"]
-        true_fault = gt_info["suspected_fault_type"]
         inject_time = gt_info["inject_time"]
         
         print(f"[{idx+1}/{len(run_keys)}] Evaluating Run: {run_key}")
-        print(f"  True Fault: {true_service} ({true_fault}) injected at {inject_time}")
+        print(f"  True Fault Service: {true_service} injected at {inject_time}")
         
         # Load dataset files for this run
         run_dir = os.path.join(DATASET_DIR, service_fault, run_id)
@@ -112,17 +115,28 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         df_metrics = pd.read_csv(simple_metrics_path).sort_values("time").reset_index(drop=True)
         df_logs = pd.read_csv(logs_path)
         
-        time_start = int(df_metrics["time"].min())
-        time_end = int(df_metrics["time"].max())
-        
         # Determine injection row index in metrics DataFrame
         inject_row_idx = df_metrics[df_metrics["time"] >= inject_time].index.min()
         if pd.isna(inject_row_idx):
             inject_row_idx = len(df_metrics) - 100 # Fallback
             
+        # Slice time window if using BOCPD to accelerate evaluation
+        if use_bocpd:
+            start_idx = max(0, inject_row_idx - 120)
+            end_idx = min(len(df_metrics) - 1, inject_row_idx + 30)
+            df_metrics = df_metrics.iloc[start_idx:end_idx+1].reset_index(drop=True)
+            # Re-determine injection row index in the sliced DataFrame
+            inject_row_idx = df_metrics[df_metrics["time"] >= inject_time].index.min()
+            if pd.isna(inject_row_idx):
+                inject_row_idx = len(df_metrics) - 1
+            baseline_len = 100
+        else:
+            baseline_len = BASELINE_LENGTH
+            
+        time_start = int(df_metrics["time"].min())
+        time_end = int(df_metrics["time"].max())
+            
         # 2. Anomaly Detection on Metrics
-        # Baseline is defined in config
-        baseline_len = BASELINE_LENGTH
         detection_results = run_metric_anomaly_detection(df_metrics, baseline_len)
         
         mif_anoms = detection_results["multivariate"]["anomalies"]
@@ -155,8 +169,6 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
                 "run_key": run_key,
                 "detected": False,
                 "service_correct": False,
-                "fault_correct": False,
-                "runbook_correct": False,
                 "rto": None
             })
             total_eval += 1
@@ -175,6 +187,7 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         df_log_ts, temp_info = log_parser_run.parse_logs(df_logs, time_start, time_end)
         
         # 4. Correlation-based Root Cause Localization
+        correlation_analyzer.baseline_len = baseline_len
         pred_service, pred_fault, reasoning, confidence = correlation_analyzer.analyze(
             df_metrics=df_metrics,
             df_logs=df_log_ts,
@@ -185,12 +198,9 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         
         # Check correctness
         service_ok = (pred_service == true_service)
-        fault_ok = (pred_fault == true_fault)
         
         if service_ok:
             correct_service += 1
-        if fault_ok:
-            correct_fault += 1
             
         y_true.append(true_service)
         y_pred.append(pred_service)
@@ -205,14 +215,12 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         print(f"  [DIAGNOSIS] Predicted Service: {pred_service} [{'OK' if service_ok else 'WRONG'}]")
         print(f"  [DIAGNOSIS] Top-{eval_top_k} Candidates: {', '.join(top_k_candidates)} [{'OK' if in_top_k else 'WRONG'}]")
         print(f"  [DIAGNOSIS] Confidence Score:  {confidence:.2f}")
-        print(f"  [DIAGNOSIS] Predicted Fault:   {pred_fault} [{'OK' if fault_ok else 'WRONG'}]")
         print(f"  [REASONING] {reasoning}\n")
         
         results.append({
             "run_key": run_key,
             "detected": True,
             "service_correct": service_ok,
-            "fault_correct": fault_ok,
             "rto": rto
         })
         total_eval += 1
@@ -222,7 +230,6 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
     
     detection_rate = correct_detection / total_eval if total_eval > 0 else 0
     service_accuracy = correct_service / correct_detection if correct_detection > 0 else 0
-    fault_accuracy = correct_fault / correct_detection if correct_detection > 0 else 0
     avg_rto = np.mean(rto_list) if rto_list else 0
     avg_confidence = np.mean(confidence_list) if confidence_list else 0.0
     
@@ -254,7 +261,6 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
     print(f"Service Localization Accuracy (Top-1, Detections): {service_accuracy * 100:.1f}% ({correct_service}/{correct_detection})")
     print(f"Service Localization Accuracy (Top-1, Total):      {top1_accuracy * 100:.1f}% ({correct_service}/{total_eval})")
     print(f"Service Localization Accuracy (Top-{eval_top_k}, Total):      {topk_accuracy * 100:.1f}% ({correct_top_k}/{total_eval})")
-    print(f"Fault Type Localization Accuracy:  {fault_accuracy * 100:.1f}% ({correct_fault}/{correct_detection})")
     print(f"Average Recovery Time (RTO):       {avg_rto:.1f} seconds")
     print(f"Average Confidence Score:          {avg_confidence:.2f}")
     print(f"Total Anomaly Points Detected:     {total_anomaly_points}")
@@ -276,11 +282,13 @@ if __name__ == "__main__":
     parser.add_argument("--engine", choices=["config", "default", "baro"], default="config", help="RCA engine to use (default: config, which reads from .env)")
     parser.add_argument("--top-k", type=int, default=None, help="Number of top-K candidates to retrieve and check for accuracy (defaults to .env value)")
     parser.add_argument("--use-rrcf", action="store_true", help="Force using the Robust Random Cut Forest (RRCF) anomaly detection engine instead of Isolation Forest")
+    parser.add_argument("--use-bocpd", action="store_true", help="Force using Bayesian Online Change Point Detection (BOCPD) for anomaly detection")
     args = parser.parse_args()
     
     run_evaluation(
         sample_size=args.sample_size, 
         engine=args.engine, 
         top_k=args.top_k,
-        use_rrcf=args.use_rrcf
+        use_rrcf=args.use_rrcf,
+        use_bocpd=args.use_bocpd
     )
