@@ -1,7 +1,7 @@
 {
   "CPUSaturationRecoveryRunbook": {
     "name": "CPUSaturationRecoveryRunbook",
-    "description": "Handle CPU saturation by scaling replicas.",
+    "description": "Runbook to handle high CPU usage or CPU saturation anomalies by scaling up replicas.",
     "pattern_type": "urgent",
     "action_plan": [
       {
@@ -25,13 +25,14 @@
     "verify_policy": {
       "window_seconds": 120,
       "success_conditions": [
-        "pod_ready == true"
+        "pod_ready == true",
+        "container_resource_usage < 80000000"
       ]
     }
   },
   "MemoryLeakRecoveryRunbook": {
     "name": "MemoryLeakRecoveryRunbook",
-    "description": "Handle memory pressure by patching memory limits.",
+    "description": "Runbook to handle memory leaks or OOM-killed containers by patching memory limits.",
     "pattern_type": "urgent",
     "action_plan": [
       {
@@ -64,7 +65,7 @@
   },
   "NetworkLatencyRecoveryRunbook": {
     "name": "NetworkLatencyRecoveryRunbook",
-    "description": "Handle network latency via rolling restart.",
+    "description": "Runbook to handle network delay or high latency by performing a rolling restart of the deployment.",
     "pattern_type": "urgent",
     "action_plan": [
       {
@@ -95,7 +96,7 @@
   },
   "PacketLossRecoveryRunbook": {
     "name": "PacketLossRecoveryRunbook",
-    "description": "Handle packet loss via rolling restart.",
+    "description": "Runbook to handle network packet loss by performing a rolling restart of the deployment.",
     "pattern_type": "urgent",
     "action_plan": [
       {
@@ -126,7 +127,7 @@
   },
   "DiskIORecoveryRunbook": {
     "name": "DiskIORecoveryRunbook",
-    "description": "Handle disk I/O bottlenecks via rolling restart.",
+    "description": "Runbook to handle disk I/O bottlenecks by performing a rolling restart of the deployment to clear buffers.",
     "pattern_type": "urgent",
     "action_plan": [
       {
@@ -156,7 +157,7 @@
   },
   "SocketExhaustionRecoveryRunbook": {
     "name": "SocketExhaustionRecoveryRunbook",
-    "description": "Handle socket exhaustion by scaling replicas.",
+    "description": "Runbook to handle socket connection exhaustion by scaling up replicas to distribute the connection load.",
     "pattern_type": "urgent",
     "action_plan": [
       {
@@ -186,7 +187,7 @@
   },
   "DefaultRecoveryRunbook": {
     "name": "DefaultRecoveryRunbook",
-    "description": "Fallback restart for code-level / unknown faults (RE3 f1-f5).",
+    "description": "Default fallback runbook that restarts the anomalous deployment.",
     "pattern_type": "urgent",
     "action_plan": [
       {

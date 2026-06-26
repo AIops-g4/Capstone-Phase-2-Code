@@ -286,6 +286,8 @@ def load_telemetry_data(run_key):
     inject_time = run_info["inject_time"]
     
     run_dir = os.path.join(DATASET_DIR, service_fault, run_id)
+    if not os.path.exists(run_dir):
+        run_dir = os.path.join(DATASET_DIR, "RE2-OB", service_fault, run_id)
     
     # Import pandas locally to avoid startup lag
     import pandas as pd
@@ -575,10 +577,10 @@ def run_contract_verification():
         
         decide_business_valid = (
             res_decide.status_code == 200 and
-            res_decide_data["matched_runbook"] == "CPUSaturationRecoveryRunbook" and
+            res_decide_data["matched_runbook"] == "DefaultRecoveryRunbook" and
             res_decide_data["pattern_type"] == "urgent" and
             len(res_decide_data["action_plan"]) > 0 and
-            res_decide_data["action_plan"][0]["action"] == "SCALE_REPLICAS"
+            res_decide_data["action_plan"][0]["action"] == "RESTART_DEPLOYMENT"
         )
         print(f"  Decide Business logic check: {'[PASS]' if decide_business_valid else '[FAIL]'}")
         

@@ -1,7 +1,8 @@
 import os
 import json
 
-DATASET_DIR = "/home/duckq1ulaptop/Desktop/aiops-g4/capstone/tf-3/ai/ai-engine/dataset"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATASET_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "..", "dataset")
 GROUND_TRUTH_PATH = os.path.join(DATASET_DIR, "ground_truth.json")
 RUNBOOKS_PATH = os.path.join(DATASET_DIR, "runbooks.json")
 

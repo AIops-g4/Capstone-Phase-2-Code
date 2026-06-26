@@ -47,10 +47,9 @@ dataset/filtered/
 tf-3/ai/ai-engine/dataset/RE3-OB/
 tf-3/ai/ai-engine/dataset/RE2*/
 tf-3/ai/ai-engine/dataset/**/*.zip
-tf-3/ai/ai-engine/dataset/**/metrics.csv
-tf-3/ai/ai-engine/dataset/**/simple_metrics.csv
-tf-3/ai/ai-engine/dataset/**/logs.csv
-tf-3/ai/ai-engine/dataset/**/traces.csv
+
+# Ignore all subdirectories in dataset (which contain the large CSVs)
+tf-3/ai/ai-engine/dataset/*/
 
 # Legacy per-service dataset paths
 tf-3/ai/ai-engine/detect/dataset/

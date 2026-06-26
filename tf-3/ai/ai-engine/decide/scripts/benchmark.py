@@ -91,7 +91,7 @@ def main():
     parser.add_argument("--sample-size", type=int, default=None, help="Limit number of runs")
     parser.add_argument(
         "--output",
-        default=os.path.join(DECIDE_DIR, "benchmark_report_re3.json"),
+        default=os.path.join(DECIDE_DIR, "benchmark_report_re2.json"),
         help="Output JSON path",
     )
     args = parser.parse_args()
@@ -101,7 +101,7 @@ def main():
         json.dump(report, f, indent=2)
 
     print("=" * 60)
-    print("  DECIDE BENCHMARK (RE3)")
+    print("  DECIDE BENCHMARK (RE2)")
     print("=" * 60)
     print(f"Decider:          {report['decider_type']}")
     print(f"Runs evaluated:   {report['total_runs']}")

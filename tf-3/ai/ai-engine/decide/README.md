@@ -14,13 +14,13 @@ pip install -r requirements.txt
 
 Or use the parent venv at `../.venv`.
 
-## Download RE3 & build labels
+## Download RE2 & build labels
 
 ```powershell
 python scripts/setup_dataset.py
 ```
 
-Downloads RE3 from Google Drive (same ID as `detect/README.md`), extracts to `../dataset/` (shared with detect), writes:
+Downloads RE2 from Google Drive (same ID as `detect/README.md`), extracts to `../dataset/` (shared with detect), writes:
 - `../dataset/ground_truth.json`
 - `../dataset/runbooks.json`
 
@@ -32,13 +32,13 @@ python -m uvicorn src.server:app --host 127.0.0.1 --port 8051 --reload
 
 Swagger: http://127.0.0.1:8051/docs
 
-## Benchmark on RE3
+## Benchmark on RE2
 
 ```powershell
 python scripts/benchmark.py
 ```
 
-Output: `benchmark_report_re3.json` (runbook accuracy + p99 latency).
+Output: `benchmark_report_re2.json` (runbook accuracy + p99 latency).
 
 ## Smoke test (server must be running)
 

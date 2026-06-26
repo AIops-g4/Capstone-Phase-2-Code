@@ -29,7 +29,7 @@ Dữ liệu nằm tại `ai-engine/dataset/` (dùng cho cả detect và decide):
 
 ```text
 ai-engine/
-  dataset/              ← RE3-OB/, ground_truth.json, runbooks.json
+  dataset/              ← RE2-OB/ (hoặc các thư mục lỗi), ground_truth.json, runbooks.json
   detect/
   decide/
 ```
@@ -64,7 +64,7 @@ dir dataset
 Cần có ít nhất:
 - `ground_truth.json`
 - `runbooks.json`
-- thư mục dữ liệu (ví dụ `RE3-OB\`)
+- thư mục dữ liệu (ví dụ các thư mục như `checkoutservice_cpu_1\`)
 
 Nếu thiếu `runbooks.json`:
 
