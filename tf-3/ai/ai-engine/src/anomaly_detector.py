@@ -7,8 +7,128 @@ from .config import (
     IFOREST_UNIVARIATE_THRESHOLD_MULTIPLIER,
     EWMA_ALPHA,
     EWMA_THRESHOLD,
-    BASELINE_LENGTH
+    BASELINE_LENGTH,
+    USE_RRCF,
+    RRCF_NUM_TREES,
+    RRCF_TREE_SIZE,
+    RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER,
+    RRCF_UNIVARIATE_THRESHOLD_MULTIPLIER
 )
+
+# --- Robust Random Cut Forest (RRCF) Monkey-Patch ---
+# The official rrcf library contains bugs where it crashes with:
+# 1. ValueError/NaN choice when trying to split a subset of identical points or if the dataset has only 1 unique point.
+# 2. ValueError when a cut fails to partition points due to duplicate values or float precision.
+# 3. AttributeError (NoneType sibling) in codisp when a tree is left with None children due to unhandled split failures.
+# This monkey-patch implements a robust recursive tree construction method that solves all these edge cases.
+try:
+    import rrcf
+    from rrcf.rrcf import Leaf, Branch
+
+    def _robust_mktree(self, X, S, N, I, parent=None, side='root', depth=0):
+        # Increment depth as we traverse down
+        depth += 1
+        
+        # Case 1: The subset has only 1 point. This can only happen at the root of the tree
+        # if the entire dataset contains only 1 unique point after duplicate removal.
+        if S.sum() == 1:
+            i = np.flatnonzero(S).item()
+            leaf = Leaf(i=i, d=depth, u=parent, x=X[i, :], n=N[i])
+            if side == 'root':
+                self.root = leaf
+            elif side == 'l':
+                parent.l = leaf
+            elif side == 'r':
+                parent.r = leaf
+                
+            if I is not None:
+                J = np.flatnonzero(I == i)
+                J = self.index_labels[J]
+                for j in J:
+                    self.leaves[j] = leaf
+            else:
+                i = self.index_labels[i]
+                self.leaves[i] = leaf
+            return
+
+        # Case 2: The subset has multiple points.
+        xmax = X[S].max(axis=0)
+        xmin = X[S].min(axis=0)
+        
+        # Check if all points in the subset are identical across all dimensions
+        if (xmax - xmin).sum() == 0:
+            # All points are identical. We cannot perform a spatial split.
+            # We manually create a Branch and force a clean index-based split.
+            q = 0
+            p = xmin[0]
+            branch = Branch(q=q, p=p, u=parent)
+            if side == 'root':
+                self.root = branch
+            elif side == 'l':
+                parent.l = branch
+            elif side == 'r':
+                parent.r = branch
+                
+            indices = np.flatnonzero(S)
+            mid = len(indices) // 2
+            S1 = np.zeros_like(S)
+            S1[indices[:mid]] = True
+            S2 = np.zeros_like(S)
+            S2[indices[mid:]] = True
+        else:
+            # Standard cut
+            S1, S2, branch = self._cut(X, S, parent=parent, side=side)
+            if side == 'root':
+                self.root = branch
+            
+            # If the cut failed to partition the points (due to float precision),
+            # force a clean index-based split to guarantee both subsets are non-empty.
+            if S1.sum() == 0 or S2.sum() == 0:
+                indices = np.flatnonzero(S)
+                mid = len(indices) // 2
+                S1 = np.zeros_like(S)
+                S1[indices[:mid]] = True
+                S2 = np.zeros_like(S)
+                S2[indices[mid:]] = True
+
+        # Recursively build left subtree
+        if S1.sum() > 1:
+            self._mktree(X, S1, N, I, parent=branch, side='l', depth=depth)
+        else:
+            i = np.flatnonzero(S1).item()
+            leaf = Leaf(i=i, d=depth, u=branch, x=X[i, :], n=N[i])
+            branch.l = leaf
+            if I is not None:
+                J = np.flatnonzero(I == i)
+                J = self.index_labels[J]
+                for j in J:
+                    self.leaves[j] = leaf
+            else:
+                i = self.index_labels[i]
+                self.leaves[i] = leaf
+
+        # Recursively build right subtree
+        if S2.sum() > 1:
+            self._mktree(X, S2, N, I, parent=branch, side='r', depth=depth)
+        else:
+            i = np.flatnonzero(S2).item()
+            leaf = Leaf(i=i, d=depth, u=branch, x=X[i, :], n=N[i])
+            branch.r = leaf
+            if I is not None:
+                J = np.flatnonzero(I == i)
+                J = self.index_labels[J]
+                for j in J:
+                    self.leaves[j] = leaf
+            else:
+                i = self.index_labels[i]
+                self.leaves[i] = leaf
+
+        depth -= 1
+
+    rrcf.RCTree._mktree = _robust_mktree
+    print("  [RRCF Patch] Successfully applied robust RCTree._mktree patch.")
+except Exception as e:
+    print(f"  [RRCF Patch] Warning: Failed to apply rrcf safety patch: {e}")
 
 class EWMAAnomalyDetector:
     """
@@ -89,12 +209,120 @@ class IsolationForestDetector:
         
         return anomalies, scores
 
+class RRCFDetector:
+    """
+    Robust Random Cut Forest (RRCF) Anomaly Detector. Supports both univariate and multivariate inputs.
+    Uses dynamic score thresholding based on baseline mean and standard deviation to prevent false positives.
+    """
+    def __init__(self, threshold_multiplier=4.0, num_trees=40, tree_size=128, random_state=42):
+        self.threshold_multiplier = threshold_multiplier
+        self.num_trees = num_trees
+        self.tree_size = tree_size
+        self.random_state = random_state
+        self.score_threshold = 0.0
+        self.is_fitted = False
+
+    def fit(self, df_baseline: pd.DataFrame):
+        """
+        Fit the RRCF model on normal baseline data and calibrate the threshold.
+        """
+        df_clean = df_baseline.fillna(0)
+        X = df_clean.values.astype(np.float64)
+        
+        # Calibrate threshold on the baseline scores
+        self.is_fitted = True
+        baseline_scores = self._compute_scores(X)
+        mean_score = np.mean(baseline_scores)
+        std_score = np.std(baseline_scores)
+        
+        # Regularize standard deviation to prevent division by zero
+        regularized_std = max(std_score, 1e-4)
+        
+        self.score_threshold = mean_score + self.threshold_multiplier * regularized_std
+        print(f"  [RRCF Calibration] Baseline score mean: {mean_score:.4f}, std: {std_score:.4f}. Threshold set to: {self.score_threshold:.4f}")
+
+    def detect(self, df: pd.DataFrame):
+        """
+        Predict anomalies on the dataset. Returns boolean anomaly flags and anomaly scores.
+        """
+        if not self.is_fitted:
+            raise ValueError("Model must be fitted before detection.")
+            
+        df_clean = df.fillna(0)
+        X = df_clean.values.astype(np.float64)
+        scores = self._compute_scores(X)
+        anomalies = scores > self.score_threshold
+        
+        return anomalies, scores
+
+    def _compute_scores(self, X: np.ndarray) -> np.ndarray:
+        """
+        Computes average CoDisp anomaly scores for all points in X using the Robust Random Cut Forest.
+        Implements the forest construction and CoDisp accumulation logic provided in the user's specification.
+        """
+        import rrcf
+        X_float = X.astype(np.float64).copy()
+        
+        # Add scaled relative jitter to prevent duplicate rows and constant columns
+        # This is a critical safety step to prevent numerical issues on flat/constant metrics
+        stds = np.std(X_float, axis=0)
+        means = np.mean(np.abs(X_float), axis=0)
+        scale = np.nan_to_num(stds, nan=0.0) + 1e-5 * (np.nan_to_num(means, nan=0.0) + 1.0)
+        rng = np.random.default_rng(self.random_state)
+        X_float += rng.normal(0, 1e-6, size=X_float.shape) * scale
+        
+        n = X_float.shape[0]
+        tree_size = self.tree_size
+        num_trees = self.num_trees
+        
+        # Determine effective tree size (cannot exceed number of available samples)
+        if n < tree_size:
+            tree_size = n
+            
+        # Seed numpy's global RNG to ensure deterministic runs (matching user seed usage)
+        np.random.seed(self.random_state)
+        
+        forest = []
+        # If tree_size is 0 (e.g. empty dataset), return zeros
+        if n == 0 or tree_size == 0:
+            return np.zeros(n)
+            
+        # Construct forest matching user's pattern: partition-based sampling
+        while len(forest) < num_trees:
+            if n // tree_size > 0:
+                # Select random subsets of points uniformly from point set
+                ixs = np.random.choice(n, size=(n // tree_size, tree_size), replace=False)
+                # Add sampled trees to forest (using index_labels=ix)
+                trees = [rrcf.RCTree(X_float[ix], index_labels=ix) for ix in ixs]
+                forest.extend(trees)
+            else:
+                # Fallback: if we have fewer points than the tree_size, sample all points as a single tree
+                ix = np.arange(n)
+                # Shuffle the indices to introduce random variation if multiple trees are built
+                np.random.shuffle(ix)
+                tree = rrcf.RCTree(X_float[ix], index_labels=ix)
+                forest.append(tree)
+                
+        # Compute average CoDisp exactly like the user's sample code
+        avg_codisp = pd.Series(0.0, index=np.arange(n))
+        index = np.zeros(n)
+        for tree in forest:
+            codisp = pd.Series({leaf : tree.codisp(leaf) for leaf in tree.leaves})
+            avg_codisp[codisp.index] += codisp
+            np.add.at(index, codisp.index.values, 1)
+            
+        # Divide by frequency, avoiding division by zero
+        nonzero = index > 0
+        avg_codisp[nonzero] /= index[nonzero]
+        
+        return avg_codisp.values
+
 def run_metric_anomaly_detection(df_metrics: pd.DataFrame, baseline_len: int = BASELINE_LENGTH):
     """
     Runs the comprehensive metric anomaly detection pipeline.
-    1. Multivariate Isolation Forest on all metrics.
-    2. Univariate Isolation Forest on individual resource metrics (CPU, Memory, Sockets, DiskIO)
-       to pinpoint which metric of which service is anomalous.
+    1. Multivariate Anomaly Detection (Isolation Forest or RRCF).
+    2. Univariate Anomaly Detection on individual resource metrics (CPU, Memory, Sockets, DiskIO)
+       to pinpoint which metric of which service is anomalous (Isolation Forest or RRCF).
     3. EWMA on service-level metrics (Latency, Errors) to detect sudden spikes.
     
     Returns a dictionary of results.
@@ -103,12 +331,20 @@ def run_metric_anomaly_detection(df_metrics: pd.DataFrame, baseline_len: int = B
     df_features = df_metrics.drop(columns=["time"], errors="ignore")
     df_baseline = df_features.iloc[:baseline_len]
     
-    # 2. Multivariate Isolation Forest
-    mif = IsolationForestDetector(threshold_multiplier=IFOREST_MULTIVARIATE_THRESHOLD_MULTIPLIER)
+    # 2. Multivariate Anomaly Detection
+    if USE_RRCF:
+        mif = RRCFDetector(
+            threshold_multiplier=RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER,
+            num_trees=RRCF_NUM_TREES,
+            tree_size=RRCF_TREE_SIZE
+        )
+    else:
+        mif = IsolationForestDetector(threshold_multiplier=IFOREST_MULTIVARIATE_THRESHOLD_MULTIPLIER)
+        
     mif.fit(df_baseline)
     mif_anomalies, mif_scores = mif.detect(df_features)
     
-    # 3. Univariate Isolation Forest and EWMA for each column
+    # 3. Univariate and EWMA for each column
     univariate_results = {}
     ewma_results = {}
     
@@ -125,8 +361,16 @@ def run_metric_anomaly_detection(df_metrics: pd.DataFrame, baseline_len: int = B
                 "scores": scores
             }
         else:
-            # Resource metrics (cpu, mem, socket, diskio, workload) -> use Univariate Isolation Forest
-            detector = IsolationForestDetector(threshold_multiplier=IFOREST_UNIVARIATE_THRESHOLD_MULTIPLIER)
+            # Resource metrics (cpu, mem, socket, diskio, workload) -> use Univariate Isolation Forest or RRCF
+            if USE_RRCF:
+                detector = RRCFDetector(
+                    threshold_multiplier=RRCF_UNIVARIATE_THRESHOLD_MULTIPLIER,
+                    num_trees=RRCF_NUM_TREES,
+                    tree_size=RRCF_TREE_SIZE
+                )
+            else:
+                detector = IsolationForestDetector(threshold_multiplier=IFOREST_UNIVARIATE_THRESHOLD_MULTIPLIER)
+                
             # Take baseline for this single column
             col_baseline = pd.DataFrame({col: df_baseline[col]})
             detector.fit(col_baseline)
