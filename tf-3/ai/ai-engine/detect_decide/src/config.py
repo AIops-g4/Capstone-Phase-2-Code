@@ -125,6 +125,21 @@ RCA_STD_REG_ADDITIVE = float(os.getenv("RCA_STD_REG_ADDITIVE", "0.05"))
 SERVICES_LIST = [s.strip() for s in os.getenv("SERVICES_LIST", "checkoutservice,currencyservice,emailservice,productcatalogservice,recommendationservice,adservice,cartservice,frontend,paymentservice,redis,shippingservice").split(",") if s.strip()]
 METRIC_TYPES_LIST = [m.strip() for m in os.getenv("METRIC_TYPES_LIST", "cpu,mem,latency,error,socket,diskio").split(",") if m.strip()]
 
+# Decide — full fault → runbook mapping (aligned with decide/src/config.py)
+FAULT_RUNBOOK_MAPPING = {
+    "cpu": "CPUSaturationRecoveryRunbook",
+    "mem": "MemoryLeakRecoveryRunbook",
+    "delay": "NetworkLatencyRecoveryRunbook",
+    "loss": "PacketLossRecoveryRunbook",
+    "disk": "DiskIORecoveryRunbook",
+    "socket": "SocketExhaustionRecoveryRunbook",
+    "f1": "DefaultRecoveryRunbook",
+    "f2": "DefaultRecoveryRunbook",
+    "f3": "DefaultRecoveryRunbook",
+    "f4": "DefaultRecoveryRunbook",
+    "f5": "DefaultRecoveryRunbook",
+}
+
 # LLM Configurable Parameters
 USE_LLM_DECISION = os.getenv("USE_LLM_DECISION", "False").lower() == "true"
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()

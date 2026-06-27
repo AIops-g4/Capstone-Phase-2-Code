@@ -3,7 +3,7 @@
 import json
 import os
 
-from src.config import FAULT_RUNBOOK_MAPPING, RUNBOOKS_PATH
+from .config import FAULT_RUNBOOK_MAPPING, RUNBOOKS_PATH
 
 
 def get_runbooks() -> dict:

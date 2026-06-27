@@ -1,6 +1,8 @@
-# Hướng dẫn test End-to-End — Detect → Decide → Verify
+# Hướng dẫn test End-to-End — Detect → Decide → Verify (Unified)
 
 Tài liệu này hướng dẫn **tự test** luồng AIOps AI Engine trên máy local (Windows / PowerShell).
+
+> **Cập nhật:** Detect và Decide đã **gộp vào một server** (port **8050**). Logic decide dùng **full fault → runbook mapping** (giống `decide/`), không còn bản lite (chỉ cpu + default).
 
 ---
 
@@ -9,50 +11,55 @@ Tài liệu này hướng dẫn **tự test** luồng AIOps AI Engine trên máy
 ```text
 Bạn (đóng vai CDO)
     │
-    ├─► detect :8050  POST /v1/detect   → anomaly_context
-    │
-    ├─► decide :8051  POST /v1/decide   → action_plan (runbook)
-    │
-    └─► detect :8050  POST /v1/verify   → xác nhận healing
+    └─► detect :8050  (một server duy nhất)
+            POST /v1/detect   → anomaly_context
+            POST /v1/decide   → action_plan (runbook)
+            POST /v1/verify   → xác nhận healing
 ```
 
-| Service | Port | Endpoint | Ghi chú |
-|---------|------|----------|---------|
-| **detect** | `8050` | `/v1/detect`, `/v1/verify` | Phát hiện bất thường + xác minh sau heal |
-| **decide** | `8051` | `/v1/decide` | Khớp runbook & sinh action plan |
+| Endpoint | Port | Ghi chú |
+|----------|------|---------|
+| `POST /v1/detect` | **8050** | BOCPD + BARO RCA |
+| `POST /v1/decide` | **8050** | Full rule-based decide (cpu/mem/delay/…) |
+| `POST /v1/verify` | **8050** | Kiểm tra sau khi CDO execute |
 
-> **Lưu ý:** `decide` là service **riêng** trên port **8051**. Không gọi `/v1/decide` trên detect (8050) khi test kiến trúc mới.
+Swagger: http://127.0.0.1:8050/docs
+
+### Decide tools (trong `detect_decide/`)
+
+Benchmark và catalog runbook nằm trong unified server folder:
+
+- `detect_decide/scripts/benchmark_decide.py` — đo runbook accuracy offline
+- `detect_decide/scripts/benchmark_e2e.py` — đo **chuỗi detect → decide** (90 runs)
+- `detect_decide/src/runbook_catalog.py` — tạo lại `dataset/runbooks.json`
+
+**E2E chỉ cần detect :8050** — CDO gọi cả 3 endpoint trên cùng base URL.
 
 ### Dataset dùng chung
 
-Dữ liệu nằm tại `ai-engine/dataset/` (dùng cho cả detect và decide):
-
 ```text
 ai-engine/
-  dataset/              ← RE2-OB/ (hoặc các thư mục lỗi), ground_truth.json, runbooks.json
-  detect/
-  decide/
+  dataset/              ← RE2 data, ground_truth.json, runbooks.json
+  detect_decide/        ← Unified server (detect + decide + verify)
 ```
 
 ---
 
 ## 2. Chuẩn bị
 
-### 2.1. Mở 3 terminal
+### 2.1. Mở 2 terminal
 
 | Terminal | Mục đích |
 |----------|----------|
 | **T1** | Chạy detect server (8050) |
-| **T2** | Chạy decide server (8051) |
-| **T3** | Gửi request / chạy script test |
+| **T2** | Gửi request / chạy script test |
 
 ### 2.2. Kích hoạt môi trường Python
 
 ```powershell
-cd "c:\Users\husky\Downloads\Project Folder\Capstone-Phase-2-Code\tf-3\ai\ai-engine"
+cd "c:\Users\AdminPC\Downloads\Project\Ourfile\Capstone-Phase-2-Code\tf-3\ai\ai-engine"
 .\.venv\Scripts\Activate.ps1
-pip install -r detect\requirements.txt   # nếu lỗi "file not found", xem detect/requirements.txt
-pip install -r decide\requirements.txt
+pip install -r detect\requirements.txt
 ```
 
 ### 2.3. Kiểm tra dataset
@@ -61,48 +68,38 @@ pip install -r decide\requirements.txt
 dir dataset
 ```
 
-Cần có ít nhất:
+Cần có:
 - `ground_truth.json`
 - `runbooks.json`
-- thư mục dữ liệu (ví dụ các thư mục như `checkoutservice_cpu_1\`)
+- thư mục RE2 (ví dụ `checkoutservice_cpu\1\`)
 
 Nếu thiếu `runbooks.json`:
 
 ```powershell
-cd decide
-python scripts\setup_dataset.py
+cd detect
+python -c "from src.runbook_catalog import write_runbooks; write_runbooks()"
 ```
 
 ---
 
 ## 3. Khởi động server
 
-### T1 — Detect (port 8050)
+### T1 — Unified detect server (port 8050)
 
 ```powershell
-cd "...\ai-engine\detect"
+cd "c:\Users\AdminPC\Downloads\Project\Ourfile\Capstone-Phase-2-Code\tf-3\ai\ai-engine\detect"
 python -m uvicorn src.server:app --host 127.0.0.1 --port 8050 --reload
 ```
 
-Giữ terminal **mở**.
+Giữ terminal **mở**. Server load `runbooks.json` từ `dataset/` khi xử lý `/v1/decide`.
 
-### T2 — Decide (port 8051)
-
-```powershell
-cd "...\ai-engine\decide"
-python -m uvicorn src.server:app --host 127.0.0.1 --port 8051 --reload
-```
-
-Giữ terminal **mở**.
-
-### Health check (T3)
+### Health check (T2)
 
 ```powershell
-curl http://127.0.0.1:8050/health
-curl http://127.0.0.1:8051/health
+curl http://127.0.0.1:8050/docs
 ```
 
-Kỳ vọng decide: `{"status":"ok","service":"decide"}`
+Mở Swagger — phải thấy **3 endpoint**: `/v1/detect`, `/v1/decide`, `/v1/verify`.
 
 ---
 
@@ -160,6 +157,8 @@ Kỳ vọng decide: `{"status":"ok","service":"decide"}`
 
 Nếu `anomaly_detected: false` → tăng spike metric hoặc thêm log lỗi rồi gọi lại.
 
+> **Lưu ý:** `target_service` có thể là **list top-5** services từ BARO. Decide tự lấy service #1.
+
 ### Cách B — Script
 
 ```powershell
@@ -167,13 +166,15 @@ cd detect
 python scripts\test_api.py
 ```
 
+(Test cả detect → decide → verify trên **8050**.)
+
 ---
 
-## 5. Bước 2 — POST /v1/decide (port 8051)
+## 5. Bước 2 — POST /v1/decide (cùng port 8050)
 
-1. Mở: http://127.0.0.1:8051/docs
+1. Vẫn trên: http://127.0.0.1:8050/docs
 2. Chọn `POST /v1/decide` → **Try it out**
-3. Dùng **cùng** `correlation_id` / `idempotency_key` từ detect, dán `anomaly_context` nhận được:
+3. Dùng **cùng** `correlation_id` / `idempotency_key`, dán `anomaly_context` từ detect:
 
 ```json
 {
@@ -192,7 +193,7 @@ python scripts\test_api.py
 }
 ```
 
-> `anomaly_context` thực tế lấy từ response detect — không tự bịa nếu detect đã trả về.
+> Dùng `anomaly_context` **thật** từ response detect khi test E2E thật.
 
 ### Kết quả kỳ vọng (fault `cpu`)
 
@@ -202,28 +203,30 @@ python scripts\test_api.py
 | `action_plan[0].action` | `SCALE_REPLICAS` |
 | `action_plan[0].target` | `deployment/checkoutservice` |
 
-### Test fault RE3 (tùy chọn)
+### Test fault `mem`
 
-Thử `suspected_fault_type: "f1"`, `target_service: "cartservice"`:
-
-- Kỳ vọng: `DefaultRecoveryRunbook` + `RESTART_DEPLOYMENT`
-
-### Smoke test tự động (chỉ decide)
-
-```powershell
-cd decide
-python scripts\test_api.py
+```json
+"suspected_fault_type": "mem",
+"target_service": "cartservice"
 ```
 
-(Cần server decide đang chạy trên 8051.)
+| Trường | Giá trị |
+|--------|---------|
+| `matched_runbook` | `MemoryLeakRecoveryRunbook` |
+| `action_plan[0].action` | `PATCH_MEMORY_LIMIT` |
+
+### Test fault RE3 (tùy chọn)
+
+`suspected_fault_type: "f1"`, `target_service: "cartservice"`:
+
+- Kỳ vọng: `DefaultRecoveryRunbook` + `RESTART_DEPLOYMENT`
 
 ---
 
 ## 6. Bước 3 — POST /v1/verify (port 8050)
 
-1. Mở: http://127.0.0.1:8050/docs
-2. Chọn `POST /v1/verify` → **Try it out**
-3. Payload mẫu (giả lập CDO đã thực thi action):
+1. `POST /v1/verify` trên http://127.0.0.1:8050/docs
+2. Payload mẫu (giả lập CDO đã execute action):
 
 ```json
 {
@@ -241,7 +244,7 @@ python scripts\test_api.py
       "ts": "2024-01-15T18:50:00Z",
       "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
       "service": "checkoutservice",
-      "signal_name": "service_error_rate",
+      "signal_name": "checkoutservice_error",
       "value": 0.0,
       "labels": {"namespace": "production"}
     },
@@ -249,8 +252,8 @@ python scripts\test_api.py
       "ts": "2024-01-15T18:50:00Z",
       "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
       "service": "checkoutservice",
-      "signal_name": "latency",
-      "value": 0.05,
+      "signal_name": "checkoutservice_latency-50",
+      "value": 0.02,
       "labels": {"namespace": "production"}
     }
   ]
@@ -259,117 +262,150 @@ python scripts\test_api.py
 
 ### Kết quả kỳ vọng
 
-- `healing_verified: true`
-- Không có `escalation_bundle` nếu metric đã về bình thường
+| Trường | Giá trị |
+|--------|---------|
+| `success` | `true` |
+| `next_action` | `DONE` |
+| `regression_detected` | `false` |
 
 ---
 
 ## 7. Checklist end-to-end
 
 ```
-[ ] T1: detect chạy ổn trên 8050
-[ ] T2: decide chạy ổn trên 8051
+[ ] T1: detect server chạy 8050 (detect + decide + verify)
+[ ] Swagger có đủ 3 endpoint
 [ ] POST /v1/detect → anomaly_detected = true
 [ ] Copy anomaly_context từ detect
-[ ] POST /v1/decide (8051) → đúng runbook + action_plan
-[ ] POST /v1/verify (8050) → healing_verified = true
+[ ] POST /v1/decide (8050) → đúng runbook + action_plan
+[ ] POST /v1/verify (8050) → success = true, next_action = DONE
 ```
 
 ---
 
-## 8. Benchmark decide (không cần server)
+## 8. Benchmark (không cần server E2E)
 
-Test engine quyết định trên `dataset/ground_truth.json`:
+> Tất cả lệnh chạy từ folder `detect_decide/`.
+
+### 8.1. E2E — Detect → Decide (khuyên dùng, 1 script)
+
+Đo **cả chuỗi**: anomaly detection + BARO RCA → `SelfHealer` chọn runbook.
 
 ```powershell
-cd decide
-python scripts\benchmark.py
+cd detect_decide
+python scripts\benchmark_e2e.py --sample-size 90 --engine baro --top-k 3
 ```
 
-Tùy chọn giới hạn số run:
+Output: `detect_decide/benchmark_report_e2e.json`
+
+| Metric | Ý nghĩa |
+|--------|---------|
+| `detect.service_top1_accuracy` | RCA đúng service |
+| `detect.macro_precision` / `macro_f1` | Precision / F1 (Jira) |
+| `decide.runbook_accuracy_e2e` | Runbook đúng **sau detect** (dùng fault từ RCA) |
+| `decide.runbook_accuracy_oracle_fault` | Runbook nếu fault đúng (upper bound) |
+| `decide.pipeline_success_rate` | Detect + đúng service + đúng runbook |
+
+Thêm `-v` để in từng run.
+
+### 8.2. Detect RCA riêng — Top-1 / Top-3
 
 ```powershell
-python scripts\benchmark.py --sample 30
+cd detect_decide
+python scripts\evaluate.py --sample-size 90 --engine baro --use-bocpd --top-k 3
 ```
 
-Output: `decide/benchmark_report_re3.json`
+### 8.3. Decide runbook accuracy riêng (oracle fault)
+
+```powershell
+cd detect_decide
+python scripts\benchmark_decide.py
+```
+
+Output: `detect_decide/benchmark_report_re2.json` — fault từ ground truth (không qua detect).
+
+### 8.4. Setup ground truth (nếu chưa có)
+
+```powershell
+cd detect_decide
+python scripts\generate_ground_truth.py
+```
 
 ---
 
-## 9. Fault → Runbook mapping
+## 9. Fault → Runbook mapping (detect & decide dùng chung)
 
-| `suspected_fault_type` | Runbook |
-|------------------------|---------|
-| `cpu` | CPUSaturationRecoveryRunbook |
-| `mem` | MemoryLeakRecoveryRunbook |
-| `delay` | NetworkLatencyRecoveryRunbook |
-| `loss` | PacketLossRecoveryRunbook |
-| `disk` | DiskIORecoveryRunbook |
-| `socket` | SocketExhaustionRecoveryRunbook |
-| `f1`–`f5` (RE3) | DefaultRecoveryRunbook |
-| khác | DefaultRecoveryRunbook |
+| `suspected_fault_type` | Runbook | Action chính |
+|------------------------|---------|--------------|
+| `cpu` | CPUSaturationRecoveryRunbook | SCALE_REPLICAS |
+| `mem` | MemoryLeakRecoveryRunbook | PATCH_MEMORY_LIMIT |
+| `delay` | NetworkLatencyRecoveryRunbook | RESTART_DEPLOYMENT |
+| `loss` | PacketLossRecoveryRunbook | RESTART_DEPLOYMENT |
+| `disk` | DiskIORecoveryRunbook | RESTART_DEPLOYMENT |
+| `socket` | SocketExhaustionRecoveryRunbook | SCALE_REPLICAS |
+| `f1`–`f5` (RE3) | DefaultRecoveryRunbook | RESTART_DEPLOYMENT |
+| khác | DefaultRecoveryRunbook | RESTART_DEPLOYMENT |
+
+Mapping nằm trong `detect/src/config.py` (`FAULT_RUNBOOK_MAPPING`).
 
 ---
 
-## 10. Sơ đồ sequence
+## 10. Sơ đồ sequence (unified)
 
 ```mermaid
 sequenceDiagram
     participant B as Bạn (CDO)
     participant D as detect:8050
-    participant C as decide:8051
 
     B->>D: POST /v1/detect (telemetry_window)
     D-->>B: anomaly_context
-    B->>C: POST /v1/decide (anomaly_context)
-    C-->>B: action_plan + runbook
-    Note over B: CDO thực thi action (giả lập)
+    B->>D: POST /v1/decide (anomaly_context)
+    D-->>B: action_plan + runbook
+    Note over B: CDO execute action (giả lập / K8s)
     B->>D: POST /v1/verify (post_telemetry)
-    D-->>B: healing_verified
+    D-->>B: success + next_action
 ```
 
 ---
 
-## 11. Xử lý lỗi thường gặp
+## 11. CDO simulator (tự động)
+
+### Full loop 1 run RE2 (data thật)
+
+Server **8050** phải đang chạy:
+
+```powershell
+cd detect
+python cdo_simulator\simulate_self_healing.py checkoutservice_cpu_1
+```
+
+### 6 contract scenarios (mock telemetry)
+
+```powershell
+python cdo_simulator\simulate_all_scenarios.py
+```
+
+> Trên Windows: sửa `server_cmd` trong file thành `[sys.executable, "-m", "src.server"]` nếu path Linux bị lỗi.
+
+Output JSON mẫu: `detect/cdo_simulator/test_jsons/`
+
+---
+
+## 12. Xử lý lỗi thường gặp
 
 | Triệu chứng | Nguyên nhân | Cách xử lý |
 |-------------|-------------|------------|
-| `Connection refused` 8050 | Detect chưa chạy | Start uvicorn trong `detect/` |
-| `Connection refused` 8051 | Decide chưa chạy | Start uvicorn trong `decide/` |
-| `WinError 10048` port 8051 | Port đã bị chiếm | Xem mục 11.1 bên dưới |
-| Decide trả runbook sai | `suspected_fault_type` sai | Dùng đúng `anomaly_context` từ detect |
-| `runbooks.json not found` | Dataset chưa setup | `python decide\scripts\setup_dataset.py` |
-| Gọi decide trên 8050 | Nhầm service cũ | Phải dùng **8051** |
-
-### 11.1. Port 8051 đã bị chiếm
-
-```powershell
-netstat -ano | findstr :8051
-```
-
-Tìm PID ở cột cuối, rồi:
-
-```powershell
-taskkill /PID <PID> /F
-```
-
-Hoặc chạy decide trên port khác (ví dụ 8052):
-
-```powershell
-cd decide
-python -m uvicorn src.server:app --host 127.0.0.1 --port 8052 --reload
-```
-
-Khi đó gọi API tại `http://127.0.0.1:8052` thay vì 8051.
-
-### 11.2. Script `cdo_simulator` (detect cũ)
-
-`detect/cdo_simulator/simulate_self_healing.py` gọi **cả detect, decide, verify trên 8050**. Với kiến trúc tách service, dùng hướng dẫn thủ công ở trên, hoặc sửa URL decide trong script thành `http://127.0.0.1:8051`.
+| `Connection refused` 8050 | Server chưa chạy | Start uvicorn trong `detect/` |
+| `WinError 10048` | Port bị chiếm | `netstat -ano \| findstr :8050` → `taskkill /PID <PID> /F` |
+| Decide trả Default cho `mem` | Lite logic cũ / thiếu mapping | Pull branch mới — phải trả `MemoryLeakRecoveryRunbook` |
+| `runbooks.json not found` | Dataset chưa setup | `write_runbooks()` hoặc `generate_dataset_metadata.py` |
+| Verify `success: false` | post_telemetry error/latency cao | Giảm `value` error/latency trong payload |
+| Gọi decide trên 8051 | Kiến trúc cũ (tách service) | E2E mới: **tất cả trên 8050** |
 
 ---
 
-## 12. Tài liệu liên quan
+## 13. Tài liệu liên quan
 
 - Contract API: `tf-3/ai/contracts/ai-api-contract.md`
-- Detect README: `detect/README.md`
-- Decide README: `decide/README.md`
+- Detect README: `tf-3/ai/ai-engine/detect/README.md`
+- Scripts guide: `tf-3/ai/ai-engine/detect/SCRIPTS-AND-SIMULATOR-GUIDE.md`

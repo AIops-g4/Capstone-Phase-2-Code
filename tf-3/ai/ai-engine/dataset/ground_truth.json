@@ -6,6 +6,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705354566,
     "metrics_path": "checkoutservice_cpu\\1\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_cpu\\1\\simple_metrics.csv",
     "logs_path": "checkoutservice_cpu\\1\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -16,6 +17,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1708475361,
     "metrics_path": "checkoutservice_cpu\\2\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_cpu\\2\\simple_metrics.csv",
     "logs_path": "checkoutservice_cpu\\2\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -26,6 +28,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705623539,
     "metrics_path": "checkoutservice_cpu\\3\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_cpu\\3\\simple_metrics.csv",
     "logs_path": "checkoutservice_cpu\\3\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -36,6 +39,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705666511,
     "metrics_path": "checkoutservice_delay\\1\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_delay\\1\\simple_metrics.csv",
     "logs_path": "checkoutservice_delay\\1\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -46,6 +50,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705668921,
     "metrics_path": "checkoutservice_delay\\2\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_delay\\2\\simple_metrics.csv",
     "logs_path": "checkoutservice_delay\\2\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -56,6 +61,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705671342,
     "metrics_path": "checkoutservice_delay\\3\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_delay\\3\\simple_metrics.csv",
     "logs_path": "checkoutservice_delay\\3\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -66,6 +72,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705373910,
     "metrics_path": "checkoutservice_disk\\1\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_disk\\1\\simple_metrics.csv",
     "logs_path": "checkoutservice_disk\\1\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -76,6 +83,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705765528,
     "metrics_path": "checkoutservice_disk\\2\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_disk\\2\\simple_metrics.csv",
     "logs_path": "checkoutservice_disk\\2\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -86,6 +94,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705767825,
     "metrics_path": "checkoutservice_disk\\3\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_disk\\3\\simple_metrics.csv",
     "logs_path": "checkoutservice_disk\\3\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -96,6 +105,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705376266,
     "metrics_path": "checkoutservice_loss\\1\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_loss\\1\\simple_metrics.csv",
     "logs_path": "checkoutservice_loss\\1\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -106,6 +116,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705673762,
     "metrics_path": "checkoutservice_loss\\2\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_loss\\2\\simple_metrics.csv",
     "logs_path": "checkoutservice_loss\\2\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -116,6 +127,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1708489141,
     "metrics_path": "checkoutservice_loss\\3\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_loss\\3\\simple_metrics.csv",
     "logs_path": "checkoutservice_loss\\3\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -126,6 +138,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705462070,
     "metrics_path": "checkoutservice_mem\\1\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_mem\\1\\simple_metrics.csv",
     "logs_path": "checkoutservice_mem\\1\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -136,6 +149,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705626077,
     "metrics_path": "checkoutservice_mem\\2\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_mem\\2\\simple_metrics.csv",
     "logs_path": "checkoutservice_mem\\2\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -146,6 +160,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705627856,
     "metrics_path": "checkoutservice_mem\\3\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_mem\\3\\simple_metrics.csv",
     "logs_path": "checkoutservice_mem\\3\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -156,6 +171,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705656313,
     "metrics_path": "checkoutservice_socket\\1\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_socket\\1\\simple_metrics.csv",
     "logs_path": "checkoutservice_socket\\1\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -166,6 +182,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705660355,
     "metrics_path": "checkoutservice_socket\\2\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_socket\\2\\simple_metrics.csv",
     "logs_path": "checkoutservice_socket\\2\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -176,6 +193,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705664091,
     "metrics_path": "checkoutservice_socket\\3\\metrics.csv",
+    "simple_metrics_path": "checkoutservice_socket\\3\\simple_metrics.csv",
     "logs_path": "checkoutservice_socket\\3\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -186,6 +204,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705682817,
     "metrics_path": "currencyservice_cpu\\1\\metrics.csv",
+    "simple_metrics_path": "currencyservice_cpu\\1\\simple_metrics.csv",
     "logs_path": "currencyservice_cpu\\1\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -196,6 +215,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705685216,
     "metrics_path": "currencyservice_cpu\\2\\metrics.csv",
+    "simple_metrics_path": "currencyservice_cpu\\2\\simple_metrics.csv",
     "logs_path": "currencyservice_cpu\\2\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -206,6 +226,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705687618,
     "metrics_path": "currencyservice_cpu\\3\\metrics.csv",
+    "simple_metrics_path": "currencyservice_cpu\\3\\simple_metrics.csv",
     "logs_path": "currencyservice_cpu\\3\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -216,6 +237,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705702012,
     "metrics_path": "currencyservice_delay\\1\\metrics.csv",
+    "simple_metrics_path": "currencyservice_delay\\1\\simple_metrics.csv",
     "logs_path": "currencyservice_delay\\1\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -226,6 +248,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705704343,
     "metrics_path": "currencyservice_delay\\2\\metrics.csv",
+    "simple_metrics_path": "currencyservice_delay\\2\\simple_metrics.csv",
     "logs_path": "currencyservice_delay\\2\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -236,6 +259,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705706604,
     "metrics_path": "currencyservice_delay\\3\\metrics.csv",
+    "simple_metrics_path": "currencyservice_delay\\3\\simple_metrics.csv",
     "logs_path": "currencyservice_delay\\3\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -246,6 +270,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705386669,
     "metrics_path": "currencyservice_disk\\1\\metrics.csv",
+    "simple_metrics_path": "currencyservice_disk\\1\\simple_metrics.csv",
     "logs_path": "currencyservice_disk\\1\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -256,6 +281,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705692434,
     "metrics_path": "currencyservice_disk\\2\\metrics.csv",
+    "simple_metrics_path": "currencyservice_disk\\2\\simple_metrics.csv",
     "logs_path": "currencyservice_disk\\2\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -266,6 +292,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705694833,
     "metrics_path": "currencyservice_disk\\3\\metrics.csv",
+    "simple_metrics_path": "currencyservice_disk\\3\\simple_metrics.csv",
     "logs_path": "currencyservice_disk\\3\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -276,6 +303,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705388941,
     "metrics_path": "currencyservice_loss\\1\\metrics.csv",
+    "simple_metrics_path": "currencyservice_loss\\1\\simple_metrics.csv",
     "logs_path": "currencyservice_loss\\1\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -286,6 +314,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705708871,
     "metrics_path": "currencyservice_loss\\2\\metrics.csv",
+    "simple_metrics_path": "currencyservice_loss\\2\\simple_metrics.csv",
     "logs_path": "currencyservice_loss\\2\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -296,6 +325,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705711158,
     "metrics_path": "currencyservice_loss\\3\\metrics.csv",
+    "simple_metrics_path": "currencyservice_loss\\3\\simple_metrics.csv",
     "logs_path": "currencyservice_loss\\3\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -306,6 +336,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705464519,
     "metrics_path": "currencyservice_mem\\1\\metrics.csv",
+    "simple_metrics_path": "currencyservice_mem\\1\\simple_metrics.csv",
     "logs_path": "currencyservice_mem\\1\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -316,6 +347,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705749889,
     "metrics_path": "currencyservice_mem\\2\\metrics.csv",
+    "simple_metrics_path": "currencyservice_mem\\2\\simple_metrics.csv",
     "logs_path": "currencyservice_mem\\2\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -326,6 +358,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705690057,
     "metrics_path": "currencyservice_mem\\3\\metrics.csv",
+    "simple_metrics_path": "currencyservice_mem\\3\\simple_metrics.csv",
     "logs_path": "currencyservice_mem\\3\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -336,6 +369,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705479661,
     "metrics_path": "currencyservice_socket\\1\\metrics.csv",
+    "simple_metrics_path": "currencyservice_socket\\1\\simple_metrics.csv",
     "logs_path": "currencyservice_socket\\1\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -346,6 +380,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705697241,
     "metrics_path": "currencyservice_socket\\2\\metrics.csv",
+    "simple_metrics_path": "currencyservice_socket\\2\\simple_metrics.csv",
     "logs_path": "currencyservice_socket\\2\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -356,6 +391,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705699619,
     "metrics_path": "currencyservice_socket\\3\\metrics.csv",
+    "simple_metrics_path": "currencyservice_socket\\3\\simple_metrics.csv",
     "logs_path": "currencyservice_socket\\3\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -366,6 +402,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705350165,
     "metrics_path": "emailservice_cpu\\1\\metrics.csv",
+    "simple_metrics_path": "emailservice_cpu\\1\\simple_metrics.csv",
     "logs_path": "emailservice_cpu\\1\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -376,6 +413,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705592998,
     "metrics_path": "emailservice_cpu\\2\\metrics.csv",
+    "simple_metrics_path": "emailservice_cpu\\2\\simple_metrics.csv",
     "logs_path": "emailservice_cpu\\2\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -386,6 +424,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705595469,
     "metrics_path": "emailservice_cpu\\3\\metrics.csv",
+    "simple_metrics_path": "emailservice_cpu\\3\\simple_metrics.csv",
     "logs_path": "emailservice_cpu\\3\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -396,6 +435,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705733346,
     "metrics_path": "emailservice_delay\\1\\metrics.csv",
+    "simple_metrics_path": "emailservice_delay\\1\\simple_metrics.csv",
     "logs_path": "emailservice_delay\\1\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -406,6 +446,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705735702,
     "metrics_path": "emailservice_delay\\2\\metrics.csv",
+    "simple_metrics_path": "emailservice_delay\\2\\simple_metrics.csv",
     "logs_path": "emailservice_delay\\2\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -416,6 +457,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705738059,
     "metrics_path": "emailservice_delay\\3\\metrics.csv",
+    "simple_metrics_path": "emailservice_delay\\3\\simple_metrics.csv",
     "logs_path": "emailservice_delay\\3\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -426,6 +468,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705370095,
     "metrics_path": "emailservice_disk\\1\\metrics.csv",
+    "simple_metrics_path": "emailservice_disk\\1\\simple_metrics.csv",
     "logs_path": "emailservice_disk\\1\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -436,6 +479,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705602964,
     "metrics_path": "emailservice_disk\\2\\metrics.csv",
+    "simple_metrics_path": "emailservice_disk\\2\\simple_metrics.csv",
     "logs_path": "emailservice_disk\\2\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -446,6 +490,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705719294,
     "metrics_path": "emailservice_disk\\3\\metrics.csv",
+    "simple_metrics_path": "emailservice_disk\\3\\simple_metrics.csv",
     "logs_path": "emailservice_disk\\3\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -456,6 +501,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705351632,
     "metrics_path": "emailservice_loss\\1\\metrics.csv",
+    "simple_metrics_path": "emailservice_loss\\1\\simple_metrics.csv",
     "logs_path": "emailservice_loss\\1\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -466,6 +512,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705740414,
     "metrics_path": "emailservice_loss\\2\\metrics.csv",
+    "simple_metrics_path": "emailservice_loss\\2\\simple_metrics.csv",
     "logs_path": "emailservice_loss\\2\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -476,6 +523,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705742773,
     "metrics_path": "emailservice_loss\\3\\metrics.csv",
+    "simple_metrics_path": "emailservice_loss\\3\\simple_metrics.csv",
     "logs_path": "emailservice_loss\\3\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -486,6 +534,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705475505,
     "metrics_path": "emailservice_mem\\1\\metrics.csv",
+    "simple_metrics_path": "emailservice_mem\\1\\simple_metrics.csv",
     "logs_path": "emailservice_mem\\1\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -496,6 +545,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705597985,
     "metrics_path": "emailservice_mem\\2\\metrics.csv",
+    "simple_metrics_path": "emailservice_mem\\2\\simple_metrics.csv",
     "logs_path": "emailservice_mem\\2\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -506,6 +556,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705600502,
     "metrics_path": "emailservice_mem\\3\\metrics.csv",
+    "simple_metrics_path": "emailservice_mem\\3\\simple_metrics.csv",
     "logs_path": "emailservice_mem\\3\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -516,6 +567,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705726260,
     "metrics_path": "emailservice_socket\\1\\metrics.csv",
+    "simple_metrics_path": "emailservice_socket\\1\\simple_metrics.csv",
     "logs_path": "emailservice_socket\\1\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -526,6 +578,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705728625,
     "metrics_path": "emailservice_socket\\2\\metrics.csv",
+    "simple_metrics_path": "emailservice_socket\\2\\simple_metrics.csv",
     "logs_path": "emailservice_socket\\2\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -536,6 +589,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705730978,
     "metrics_path": "emailservice_socket\\3\\metrics.csv",
+    "simple_metrics_path": "emailservice_socket\\3\\simple_metrics.csv",
     "logs_path": "emailservice_socket\\3\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -546,6 +600,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705340542,
     "metrics_path": "productcatalogservice_cpu\\1\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_cpu\\1\\simple_metrics.csv",
     "logs_path": "productcatalogservice_cpu\\1\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -556,6 +611,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705486848,
     "metrics_path": "productcatalogservice_cpu\\2\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_cpu\\2\\simple_metrics.csv",
     "logs_path": "productcatalogservice_cpu\\2\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -566,6 +622,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705489222,
     "metrics_path": "productcatalogservice_cpu\\3\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_cpu\\3\\simple_metrics.csv",
     "logs_path": "productcatalogservice_cpu\\3\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -576,6 +633,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705394578,
     "metrics_path": "productcatalogservice_delay\\1\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_delay\\1\\simple_metrics.csv",
     "logs_path": "productcatalogservice_delay\\1\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -586,6 +644,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705514496,
     "metrics_path": "productcatalogservice_delay\\2\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_delay\\2\\simple_metrics.csv",
     "logs_path": "productcatalogservice_delay\\2\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -596,6 +655,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705516829,
     "metrics_path": "productcatalogservice_delay\\3\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_delay\\3\\simple_metrics.csv",
     "logs_path": "productcatalogservice_delay\\3\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -606,6 +666,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705360699,
     "metrics_path": "productcatalogservice_disk\\1\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_disk\\1\\simple_metrics.csv",
     "logs_path": "productcatalogservice_disk\\1\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -616,6 +677,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705496111,
     "metrics_path": "productcatalogservice_disk\\2\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_disk\\2\\simple_metrics.csv",
     "logs_path": "productcatalogservice_disk\\2\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -626,6 +688,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1708472972,
     "metrics_path": "productcatalogservice_disk\\3\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_disk\\3\\simple_metrics.csv",
     "logs_path": "productcatalogservice_disk\\3\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -636,6 +699,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705342830,
     "metrics_path": "productcatalogservice_loss\\1\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_loss\\1\\simple_metrics.csv",
     "logs_path": "productcatalogservice_loss\\1\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -646,6 +710,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705519114,
     "metrics_path": "productcatalogservice_loss\\2\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_loss\\2\\simple_metrics.csv",
     "logs_path": "productcatalogservice_loss\\2\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -656,6 +721,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705717097,
     "metrics_path": "productcatalogservice_loss\\3\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_loss\\3\\simple_metrics.csv",
     "logs_path": "productcatalogservice_loss\\3\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -666,6 +732,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705357616,
     "metrics_path": "productcatalogservice_mem\\1\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_mem\\1\\simple_metrics.csv",
     "logs_path": "productcatalogservice_mem\\1\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -676,6 +743,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705491651,
     "metrics_path": "productcatalogservice_mem\\2\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_mem\\2\\simple_metrics.csv",
     "logs_path": "productcatalogservice_mem\\2\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -686,6 +754,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705493908,
     "metrics_path": "productcatalogservice_mem\\3\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_mem\\3\\simple_metrics.csv",
     "logs_path": "productcatalogservice_mem\\3\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -696,6 +765,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705392233,
     "metrics_path": "productcatalogservice_socket\\1\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_socket\\1\\simple_metrics.csv",
     "logs_path": "productcatalogservice_socket\\1\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -706,6 +776,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705509677,
     "metrics_path": "productcatalogservice_socket\\2\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_socket\\2\\simple_metrics.csv",
     "logs_path": "productcatalogservice_socket\\2\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -716,6 +787,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705512067,
     "metrics_path": "productcatalogservice_socket\\3\\metrics.csv",
+    "simple_metrics_path": "productcatalogservice_socket\\3\\simple_metrics.csv",
     "logs_path": "productcatalogservice_socket\\3\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -726,6 +798,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705345765,
     "metrics_path": "recommendationservice_cpu\\1\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_cpu\\1\\simple_metrics.csv",
     "logs_path": "recommendationservice_cpu\\1\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -736,6 +809,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705525832,
     "metrics_path": "recommendationservice_cpu\\2\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_cpu\\2\\simple_metrics.csv",
     "logs_path": "recommendationservice_cpu\\2\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -746,6 +820,7 @@
     "suspected_fault_type": "cpu",
     "inject_time": 1705528257,
     "metrics_path": "recommendationservice_cpu\\3\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_cpu\\3\\simple_metrics.csv",
     "logs_path": "recommendationservice_cpu\\3\\logs.csv",
     "matched_runbook": "CPUSaturationRecoveryRunbook"
   },
@@ -756,6 +831,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705400377,
     "metrics_path": "recommendationservice_delay\\1\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_delay\\1\\simple_metrics.csv",
     "logs_path": "recommendationservice_delay\\1\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -766,6 +842,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705545315,
     "metrics_path": "recommendationservice_delay\\2\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_delay\\2\\simple_metrics.csv",
     "logs_path": "recommendationservice_delay\\2\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -776,6 +853,7 @@
     "suspected_fault_type": "delay",
     "inject_time": 1705547762,
     "metrics_path": "recommendationservice_delay\\3\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_delay\\3\\simple_metrics.csv",
     "logs_path": "recommendationservice_delay\\3\\logs.csv",
     "matched_runbook": "NetworkLatencyRecoveryRunbook"
   },
@@ -786,6 +864,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705366522,
     "metrics_path": "recommendationservice_disk\\1\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_disk\\1\\simple_metrics.csv",
     "logs_path": "recommendationservice_disk\\1\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -796,6 +875,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705535461,
     "metrics_path": "recommendationservice_disk\\2\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_disk\\2\\simple_metrics.csv",
     "logs_path": "recommendationservice_disk\\2\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -806,6 +886,7 @@
     "suspected_fault_type": "disk",
     "inject_time": 1705537934,
     "metrics_path": "recommendationservice_disk\\3\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_disk\\3\\simple_metrics.csv",
     "logs_path": "recommendationservice_disk\\3\\logs.csv",
     "matched_runbook": "DiskIORecoveryRunbook"
   },
@@ -816,6 +897,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705347231,
     "metrics_path": "recommendationservice_loss\\1\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_loss\\1\\simple_metrics.csv",
     "logs_path": "recommendationservice_loss\\1\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -826,6 +908,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705583459,
     "metrics_path": "recommendationservice_loss\\2\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_loss\\2\\simple_metrics.csv",
     "logs_path": "recommendationservice_loss\\2\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -836,6 +919,7 @@
     "suspected_fault_type": "loss",
     "inject_time": 1705757332,
     "metrics_path": "recommendationservice_loss\\3\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_loss\\3\\simple_metrics.csv",
     "logs_path": "recommendationservice_loss\\3\\logs.csv",
     "matched_runbook": "PacketLossRecoveryRunbook"
   },
@@ -846,6 +930,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705458232,
     "metrics_path": "recommendationservice_mem\\1\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_mem\\1\\simple_metrics.csv",
     "logs_path": "recommendationservice_mem\\1\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -856,6 +941,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705530692,
     "metrics_path": "recommendationservice_mem\\2\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_mem\\2\\simple_metrics.csv",
     "logs_path": "recommendationservice_mem\\2\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -866,6 +952,7 @@
     "suspected_fault_type": "mem",
     "inject_time": 1705533073,
     "metrics_path": "recommendationservice_mem\\3\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_mem\\3\\simple_metrics.csv",
     "logs_path": "recommendationservice_mem\\3\\logs.csv",
     "matched_runbook": "MemoryLeakRecoveryRunbook"
   },
@@ -876,6 +963,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705398242,
     "metrics_path": "recommendationservice_socket\\1\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_socket\\1\\simple_metrics.csv",
     "logs_path": "recommendationservice_socket\\1\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -886,6 +974,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705540396,
     "metrics_path": "recommendationservice_socket\\2\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_socket\\2\\simple_metrics.csv",
     "logs_path": "recommendationservice_socket\\2\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   },
@@ -896,6 +985,7 @@
     "suspected_fault_type": "socket",
     "inject_time": 1705542843,
     "metrics_path": "recommendationservice_socket\\3\\metrics.csv",
+    "simple_metrics_path": "recommendationservice_socket\\3\\simple_metrics.csv",
     "logs_path": "recommendationservice_socket\\3\\logs.csv",
     "matched_runbook": "SocketExhaustionRecoveryRunbook"
   }

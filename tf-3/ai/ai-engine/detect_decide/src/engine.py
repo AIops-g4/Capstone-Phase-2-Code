@@ -7,7 +7,7 @@ from .telemetry import TelemetryProcessor
 from .anomaly_detector import AnomalyDetectionPipeline
 from .correlation_analyzer import RootCauseAnalyzer
 from .incident import IncidentManager
-from .decide_bridge import IntegratedDecideEngine
+from .self_healer import SelfHealer
 from .verifier import VerificationEngine
 from .config import (
     RUNBOOKS_PATH,
@@ -25,7 +25,7 @@ class AIOpsEngine:
         self.detection_pipeline = AnomalyDetectionPipeline()
         self.rca_analyzer = RootCauseAnalyzer()
         self.incident_manager = IncidentManager()
-        self.healing_engine = IntegratedDecideEngine(RUNBOOKS_PATH)
+        self.healing_engine = SelfHealer(RUNBOOKS_PATH)
         self.verifier = VerificationEngine()
 
     def detect_anomalies(
@@ -194,8 +194,13 @@ class AIOpsEngine:
                 "cost_cap_exceeded": False
             }
             
-        # 2. Decide healing action for primary root cause
-        decision = self.healing_engine.decide(top_service, suspected_fault_type)
+        # 2. Decide healing action for primary root cause (full decide/ rule-based mapping)
+        decide_ctx = dict(anomaly_context)
+        decide_ctx["target_service"] = top_service
+        if not decide_ctx.get("deployment"):
+            decide_ctx["deployment"] = f"deployment/{top_service}"
+        decide_ctx.setdefault("namespace", "production")
+        decision = self.healing_engine.decide(decide_ctx)
         
         return {
             "matched_runbook": decision["matched_runbook"],

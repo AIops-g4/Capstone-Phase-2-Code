@@ -134,4 +134,4 @@ if __name__ == "__main__":
             
         test_verify()
     except Exception as e:
-        print(f"Error connecting to server: {e}. Make sure the FastAPI server is running on port 8000.")
+        print(f"Error connecting to server: {e}. Make sure the FastAPI server is running on port 8050.")
