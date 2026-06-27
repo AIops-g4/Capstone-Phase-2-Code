@@ -1,0 +1,213 @@
+{
+  "correlation_id": "374b2ba6-11b7-4be5-846b-042e0ad90095",
+  "idempotency_key": "cc576ac3-ea3b-457f-98db-eb43f7d738c8",
+  "dry_run_mode": false,
+  "action_executed": {
+    "action": "RESTART_DEPLOYMENT",
+    "target": "deployment/checkoutservice",
+    "status": "COMPLETED",
+    "execution_time_seconds": 15
+  },
+  "post_telemetry_window": [
+    {
+      "ts": "2026-06-27T01:05:44.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_error",
+      "value": 0.08,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:44.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_latency-50",
+      "value": 0.02,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:45.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_error",
+      "value": 0.08,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:45.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_latency-50",
+      "value": 0.02,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:46.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_error",
+      "value": 0.08,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:46.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_latency-50",
+      "value": 0.02,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:47.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_error",
+      "value": 0.08,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:47.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_latency-50",
+      "value": 0.02,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:48.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_error",
+      "value": 0.08,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:48.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_latency-50",
+      "value": 0.02,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:49.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_error",
+      "value": 0.08,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:49.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_latency-50",
+      "value": 0.02,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:50.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_error",
+      "value": 0.08,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:50.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_latency-50",
+      "value": 0.02,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:51.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_error",
+      "value": 0.08,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:51.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_latency-50",
+      "value": 0.02,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:52.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_error",
+      "value": 0.08,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:52.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_latency-50",
+      "value": 0.02,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:53.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_error",
+      "value": 0.08,
+      "labels": {
+        "namespace": "production"
+      }
+    },
+    {
+      "ts": "2026-06-27T01:05:53.959544Z",
+      "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
+      "service": "checkoutservice",
+      "signal_name": "checkoutservice_latency-50",
+      "value": 0.02,
+      "labels": {
+        "namespace": "production"
+      }
+    }
+  ]
+}

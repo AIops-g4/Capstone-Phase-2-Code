@@ -16,7 +16,8 @@ from .config import (
     RRCF_UNIVARIATE_THRESHOLD_MULTIPLIER,
     IFOREST_CONTAMINATION,
     IFOREST_N_ESTIMATORS,
-    RANDOM_STATE
+    RANDOM_STATE,
+    BOCPD_HAZARD
 )
 
 
@@ -135,7 +136,19 @@ try:
 except Exception as e:
     print(f"  [RRCF Patch] Warning: Failed to apply rrcf safety patch: {e}")
 
-class EWMAAnomalyDetector:
+
+class BaseDetector:
+    """
+    Abstract interface for all anomaly detector engines.
+    """
+    def fit(self, df_baseline: pd.DataFrame) -> None:
+        pass
+
+    def detect(self, df: pd.DataFrame) -> tuple:
+        raise NotImplementedError("Detect method must be implemented by subclasses.")
+
+
+class EWMAAnomalyDetector(BaseDetector):
     """
     Exponentially Weighted Moving Average (EWMA) Anomaly Detector for univariate time series.
     Suitable for service level indicators like latency and error rates.
@@ -144,11 +157,7 @@ class EWMAAnomalyDetector:
         self.alpha = alpha
         self.threshold = threshold
 
-    def detect(self, series: pd.Series, baseline_len: int = BASELINE_LENGTH):
-        """
-        Detect anomalies in a series.
-        baseline_len defines the initial period used to compute standard deviation baseline.
-        """
+    def detect_series(self, series: pd.Series, baseline_len: int = BASELINE_LENGTH):
         # Calculate EWMA
         ewma = series.ewm(alpha=self.alpha, adjust=False).mean()
         
@@ -165,9 +174,15 @@ class EWMAAnomalyDetector:
         anomalies = np.abs(residuals) > self.threshold * std
         scores = np.abs(residuals) / std
         
-        return anomalies, scores
+        return anomalies.values, scores.values
 
-class IsolationForestDetector:
+    def detect(self, df: pd.DataFrame) -> tuple:
+        # Fallback interface for BaseDetector compatibility
+        col = df.columns[0]
+        return self.detect_series(df[col])
+
+
+class IsolationForestDetector(BaseDetector):
     """
     Isolation Forest Anomaly Detector. Supports both univariate and multivariate inputs.
     Uses dynamic score thresholding based on baseline mean and standard deviation to prevent false positives.
@@ -179,12 +194,7 @@ class IsolationForestDetector:
         self.score_threshold = 0.0
 
     def fit(self, df_baseline: pd.DataFrame):
-        """
-        Fit the Isolation Forest model on normal baseline data and calibrate the threshold.
-        """
         df_clean = df_baseline.fillna(0)
-        
-        # Fit with a small nominal contamination
         self.model = IsolationForest(
             contamination=IFOREST_CONTAMINATION,
             random_state=self.random_state,
@@ -192,9 +202,7 @@ class IsolationForestDetector:
         )
         self.model.fit(df_clean)
         
-        # Calibrate threshold on the baseline scores
-        # decision_function returns negative values for outliers, positive for inliers.
-        # We invert it: higher score = more anomalous
+        # Calibrate threshold on baseline scores
         baseline_scores = -self.model.decision_function(df_clean)
         mean_score = np.mean(baseline_scores)
         std_score = np.std(baseline_scores)
@@ -202,9 +210,6 @@ class IsolationForestDetector:
         print(f"  [IForest Calibration] Baseline score mean: {mean_score:.4f}, std: {std_score:.4f}. Threshold set to: {self.score_threshold:.4f}")
 
     def detect(self, df: pd.DataFrame):
-        """
-        Predict anomalies on the dataset. Returns boolean anomaly flags and anomaly scores.
-        """
         if self.model is None:
             raise ValueError("Model must be fitted before detection.")
             
@@ -214,7 +219,8 @@ class IsolationForestDetector:
         
         return anomalies, scores
 
-class RRCFDetector:
+
+class RRCFDetector(BaseDetector):
     """
     Robust Random Cut Forest (RRCF) Anomaly Detector. Supports both univariate and multivariate inputs.
     Uses dynamic score thresholding based on baseline mean and standard deviation to prevent false positives.
@@ -228,28 +234,19 @@ class RRCFDetector:
         self.is_fitted = False
 
     def fit(self, df_baseline: pd.DataFrame):
-        """
-        Fit the RRCF model on normal baseline data and calibrate the threshold.
-        """
         df_clean = df_baseline.fillna(0)
         X = df_clean.values.astype(np.float64)
         
-        # Calibrate threshold on the baseline scores
         self.is_fitted = True
         baseline_scores = self._compute_scores(X)
         mean_score = np.mean(baseline_scores)
         std_score = np.std(baseline_scores)
         
-        # Regularize standard deviation to prevent division by zero
         regularized_std = max(std_score, 1e-4)
-        
         self.score_threshold = mean_score + self.threshold_multiplier * regularized_std
         print(f"  [RRCF Calibration] Baseline score mean: {mean_score:.4f}, std: {std_score:.4f}. Threshold set to: {self.score_threshold:.4f}")
 
     def detect(self, df: pd.DataFrame):
-        """
-        Predict anomalies on the dataset. Returns boolean anomaly flags and anomaly scores.
-        """
         if not self.is_fitted:
             raise ValueError("Model must be fitted before detection.")
             
@@ -261,15 +258,9 @@ class RRCFDetector:
         return anomalies, scores
 
     def _compute_scores(self, X: np.ndarray) -> np.ndarray:
-        """
-        Computes average CoDisp anomaly scores for all points in X using the Robust Random Cut Forest.
-        Implements the forest construction and CoDisp accumulation logic provided in the user's specification.
-        """
         import rrcf
         X_float = X.astype(np.float64).copy()
         
-        # Add scaled relative jitter to prevent duplicate rows and constant columns
-        # This is a critical safety step to prevent numerical issues on flat/constant metrics
         stds = np.std(X_float, axis=0)
         means = np.mean(np.abs(X_float), axis=0)
         scale = np.nan_to_num(stds, nan=0.0) + 1e-5 * (np.nan_to_num(means, nan=0.0) + 1.0)
@@ -280,35 +271,25 @@ class RRCFDetector:
         tree_size = self.tree_size
         num_trees = self.num_trees
         
-        # Determine effective tree size (cannot exceed number of available samples)
         if n < tree_size:
             tree_size = n
             
-        # Seed numpy's global RNG to ensure deterministic runs (matching user seed usage)
         np.random.seed(self.random_state)
-        
         forest = []
-        # If tree_size is 0 (e.g. empty dataset), return zeros
         if n == 0 or tree_size == 0:
             return np.zeros(n)
             
-        # Construct forest matching user's pattern: partition-based sampling
         while len(forest) < num_trees:
             if n // tree_size > 0:
-                # Select random subsets of points uniformly from point set
                 ixs = np.random.choice(n, size=(n // tree_size, tree_size), replace=False)
-                # Add sampled trees to forest (using index_labels=ix)
                 trees = [rrcf.RCTree(X_float[ix], index_labels=ix) for ix in ixs]
                 forest.extend(trees)
             else:
-                # Fallback: if we have fewer points than the tree_size, sample all points as a single tree
                 ix = np.arange(n)
-                # Shuffle the indices to introduce random variation if multiple trees are built
                 np.random.shuffle(ix)
                 tree = rrcf.RCTree(X_float[ix], index_labels=ix)
                 forest.append(tree)
-                
-        # Compute average CoDisp exactly like the user's sample code
+                 
         avg_codisp = pd.Series(0.0, index=np.arange(n))
         index = np.zeros(n)
         for tree in forest:
@@ -316,14 +297,16 @@ class RRCFDetector:
             avg_codisp[codisp.index] += codisp
             np.add.at(index, codisp.index.values, 1)
             
-        # Divide by frequency, avoiding division by zero
         nonzero = index > 0
         avg_codisp[nonzero] /= index[nonzero]
         
         return avg_codisp.values
-class BOCPDDetector:
+
+
+class BOCPDDetector(BaseDetector):
     """
     Bayesian Online Change Point Detection (BOCPD) wrapper for anomaly detection.
+    Filters out latency/error columns to run purely on resource metrics.
     """
     def __init__(self):
         self.is_fitted = False
@@ -336,7 +319,6 @@ class BOCPDDetector:
         from baro._bocpd import online_changepoint_detection, constant_hazard, MultivariateT
         from baro.anomaly_detection import find_cps
         
-        # Clean metrics data to prevent numerical issues
         df_clean = df.fillna(0).replace([np.inf, -np.inf], np.nan).ffill().bfill().fillna(0)
         
         # 1. Filter out key performance indicators (latency and error columns) to reduce dimensionality
@@ -351,14 +333,11 @@ class BOCPDDetector:
         if selected_cols:
             df_clean = df_clean[selected_cols]
             
-        # Drop constant columns to prevent numerical singularity issues
         df_clean = df_clean.loc[:, df_clean.nunique() > 1]
         
-        # If no columns left or empty dataframe, return empty
         if df_clean.empty:
             return np.zeros(len(df), dtype=bool), np.zeros(len(df), dtype=float)
             
-        # Min-Max Normalization
         for col in df_clean.columns:
             col_min = df_clean[col].min()
             col_max = df_clean[col].max()
@@ -370,10 +349,9 @@ class BOCPDDetector:
         data = df_clean.to_numpy()
         
         try:
-            # RUN BOCPD on filtered data (1s resolution)
             R, maxes = online_changepoint_detection(
                 data,
-                partial(constant_hazard, 50),
+                partial(constant_hazard, BOCPD_HAZARD),
                 MultivariateT(dims=data.shape[1])
             )
             cps = find_cps(maxes)
@@ -382,73 +360,74 @@ class BOCPDDetector:
             print(f"  [BOCPD Warning] Failed to run optimized custom BOCPD: {e}. Falling back to empty anomalies.")
             anomaly_indices = []
         
-        # Convert list of anomaly indices/timesteps to a boolean array
         anomalies = np.zeros(len(df), dtype=bool)
         if anomaly_indices:
             for idx in anomaly_indices:
                 if 0 <= idx < len(df):
                     anomalies[idx] = True
                     
-        # Return boolean array and a dummy score (zeros/ones)
         scores = anomalies.astype(float)
         return anomalies, scores
 
-def run_metric_anomaly_detection(df_metrics: pd.DataFrame, baseline_len: int = BASELINE_LENGTH):
+
+class AnomalyDetectionPipeline:
     """
-    Runs the comprehensive metric anomaly detection pipeline.
-    1. Multivariate Anomaly Detection (Isolation Forest, RRCF, or BOCPD).
-    2. Univariate Anomaly Detection on individual resource metrics (CPU, Memory, Sockets, DiskIO)
-       to pinpoint which metric of which service is anomalous (Isolation Forest, RRCF, or BOCPD).
-    3. EWMA on service-level metrics (Latency, Errors) to detect sudden spikes.
-    
-    Returns a dictionary of results.
+    OOP pipeline that coordinates the execution of multivariate and EWMA anomaly detectors.
     """
-    # 1. Prepare data (exclude time column)
-    df_features = df_metrics.drop(columns=["time"], errors="ignore")
-    df_baseline = df_features.iloc[:baseline_len]
-    
-    # 2. Multivariate Anomaly Detection
-    # Exclude error and latency columns from multivariate detection
-    multivariate_cols = [c for c in df_features.columns if "latency" not in c.lower() and "error" not in c.lower()]
-    df_multivariate_features = df_features[multivariate_cols]
-    df_multivariate_baseline = df_baseline[multivariate_cols]
-    
-    if USE_BOCPD:
-        mif = BOCPDDetector()
-    elif USE_RRCF:
-        mif = RRCFDetector(
-            threshold_multiplier=RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER,
-            num_trees=RRCF_NUM_TREES,
-            tree_size=RRCF_TREE_SIZE
-        )
-    else:
-        mif = IsolationForestDetector(threshold_multiplier=IFOREST_MULTIVARIATE_THRESHOLD_MULTIPLIER)
+    def __init__(self):
+        pass
+
+    def run_pipeline(self, df_metrics: pd.DataFrame, baseline_len: int = BASELINE_LENGTH) -> dict:
+        df_features = df_metrics.drop(columns=["time"], errors="ignore")
+        df_baseline = df_features.iloc[:baseline_len]
         
-    mif.fit(df_multivariate_baseline)
-    mif_anomalies, mif_scores = mif.detect(df_multivariate_features)
-    
-    # 3. EWMA for service-level metrics (Latency, Errors)
-    univariate_results = {}
-    ewma_results = {}
-    
-    # Identify service columns
-    for col in df_features.columns:
-        series = df_features[col]
+        # 1. Run Multivariate Anomaly Detection (on resource metrics)
+        multivariate_cols = [c for c in df_features.columns if "latency" not in c.lower() and "error" not in c.lower()]
+        df_multivariate_features = df_features[multivariate_cols]
+        df_multivariate_baseline = df_baseline[multivariate_cols]
         
-        # Check if the column is a service level indicator (latency, error) -> use EWMA
-        if "latency" in col or "error" in col:
-            detector = EWMAAnomalyDetector(alpha=EWMA_ALPHA, threshold=EWMA_THRESHOLD)
-            anoms, scores = detector.detect(series, baseline_len)
-            ewma_results[col] = {
-                "anomalies": anoms,
-                "scores": scores
-            }
+        if USE_BOCPD:
+            mif = BOCPDDetector()
+        elif USE_RRCF:
+            mif = RRCFDetector(
+                threshold_multiplier=RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER,
+                num_trees=RRCF_NUM_TREES,
+                tree_size=RRCF_TREE_SIZE
+            )
+        else:
+            mif = IsolationForestDetector(threshold_multiplier=IFOREST_MULTIVARIATE_THRESHOLD_MULTIPLIER)
             
-    return {
-        "multivariate": {
-            "anomalies": mif_anomalies,
-            "scores": mif_scores
-        },
-        "univariate": univariate_results,
-        "ewma": ewma_results
-    }
+        mif.fit(df_multivariate_baseline)
+        mif_anomalies, mif_scores = mif.detect(df_multivariate_features)
+        
+        # 2. Run EWMA on service-level metrics (Latency, Errors)
+        univariate_results = {}
+        ewma_results = {}
+        
+        for col in df_features.columns:
+            series = df_features[col]
+            
+            if "latency" in col or "error" in col:
+                detector = EWMAAnomalyDetector(alpha=EWMA_ALPHA, threshold=EWMA_THRESHOLD)
+                anoms, scores = detector.detect_series(series, baseline_len)
+                ewma_results[col] = {
+                    "anomalies": anoms,
+                    "scores": scores
+                }
+                
+        return {
+            "multivariate": {
+                "anomalies": mif_anomalies,
+                "scores": mif_scores
+            },
+            "univariate": univariate_results,
+            "ewma": ewma_results
+        }
+
+
+def run_metric_anomaly_detection(df_metrics: pd.DataFrame, baseline_len: int = BASELINE_LENGTH) -> dict:
+    """
+    Backward-compatible wrapper function for running anomaly detection pipeline.
+    """
+    pipeline = AnomalyDetectionPipeline()
+    return pipeline.run_pipeline(df_metrics, baseline_len)

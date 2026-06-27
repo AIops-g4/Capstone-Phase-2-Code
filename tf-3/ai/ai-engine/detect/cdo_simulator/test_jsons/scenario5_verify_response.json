@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "regression_detected": false,
+  "next_action": "ESCALATE",
+  "escalation_bundle": {
+    "reason": "Target service failed to recover: High error rate detected: checkoutservice_error = 0.08; High error rate detected: checkoutservice_error = 0.08; High error rate detected: checkoutservice_error = 0.08; High error rate detected: checkoutservice_error = 0.08; High error rate detected: checkoutservice_error = 0.08; High error rate detected: checkoutservice_error = 0.08; High error rate detected: checkoutservice_error = 0.08; High error rate detected: checkoutservice_error = 0.08; High error rate detected: checkoutservice_error = 0.08; High error rate detected: checkoutservice_error = 0.08"
+  }
+}

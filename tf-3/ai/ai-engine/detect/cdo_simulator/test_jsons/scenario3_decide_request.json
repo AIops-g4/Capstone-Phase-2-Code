@@ -1,0 +1,20 @@
+{
+  "correlation_id": "374b2ba6-11b7-4be5-846b-042e0ad90095",
+  "idempotency_key": "8018e916-03be-4765-a315-d487490820e0",
+  "dry_run_mode": false,
+  "anomaly_context": {
+    "target_service": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ],
+    "suspected_fault_type": "cpu",
+    "system": "E-COMMERCE",
+    "namespace": "production",
+    "deployment": "checkoutservice",
+    "trigger_metric": "checkoutservice_cpu",
+    "trigger_value": 0.99
+  }
+}

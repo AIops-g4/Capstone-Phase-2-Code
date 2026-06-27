@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "regression_detected": false,
+  "next_action": "RETRY",
+  "escalation_bundle": {
+    "reason": "Healing action 'RESTART_DEPLOYMENT' on 'deployment/checkoutservice' failed to execute on CDO executor."
+  }
+}
