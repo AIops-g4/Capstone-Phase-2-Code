@@ -367,7 +367,11 @@ Operational safety comes from policy enforcement around the model rather than fr
 
 *Note: Cross-service root cause analysis is explicitly Out of Scope for this Capstone. Therefore, if a shared dependency fails and causes dozens of services to trigger anomalies simultaneously, the system relies entirely on the **Circuit Breaker** and **Blast Radius** policies.*
 
-*When the volume of concurrent remediation requests exceeds safety thresholds (e.g., > 3 actions per minute, or > 5% of cluster affected), the engine will halt automated execution and immediately **escalate to the on-call engineer** with a bundled context report containing all related anomalies.* :contentReference[oaicite:3]{index=3}
+When the volume of concurrent remediation requests exceeds safety thresholds (e.g., > 3 actions per minute, or > 5% of cluster affected), the engine will halt automated execution and immediately **escalate to the on-call engineer** with a bundled context report containing all related anomalies: 
+- The "Dumb" Detection: Because cross-service RCA is out of scope, Component 1 (Detect) will indeed see this as 10 separate anomalies and Component 2 (Decision) will propose 10 separate remediation actions.
+- The "Smart" Safety Guard (Circuit Breaker): Before any action is executed, it must pass Component 3 (Safety Engine). The Capstone explicitly requires a Circuit Breaker and Blast Radius check.
+- Tripping the Breaker: If the system sees 10 restart requests coming in at the exact same time, it will violate the Blast Radius rule (e.g., "Cannot affect more than 5% of the cluster") or trip the Circuit Breaker (e.g., "Max 3 automated actions per 5 minutes").
+- Safe Escalation: Because the Circuit Breaker tripped, the system will abort all automated actions (preventing the system from restarting everything and causing chaos). It will then bundle all the context and escalate to the human engineer (which is also a hard requirement in the prompt).
 
 ---
 
