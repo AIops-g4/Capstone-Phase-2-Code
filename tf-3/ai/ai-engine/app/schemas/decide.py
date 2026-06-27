@@ -16,6 +16,7 @@ class ActionType(str, Enum):
     ROTATE_SECRET = "ROTATE_SECRET"
 
 class ActionParams(BaseModel):
+    """Parameters for each action step per AI API Contract §3.2."""
     namespace: str
     container: Optional[str] = None
     memory_request_mb: Optional[int] = None
@@ -40,8 +41,10 @@ class VerifyPolicy(BaseModel):
     success_conditions: Optional[List[str]] = None
 
 class DecideRequest(BaseModel):
-    correlation_id: UUID
-    idempotency_key: UUID
+    """Request schema per AI API Contract §3.2 DecideRequest.
+    idempotency_key and correlation_id use UUID v4 format to avoid duplication."""
+    correlation_id: UUID = Field(description="UUID v4 liên kết từ /v1/detect")
+    idempotency_key: UUID = Field(description="Khóa chống trùng lặp - UUID v4")
     dry_run_mode: bool
     anomaly_context: AnomalyContext
 
@@ -49,6 +52,7 @@ class DecideRequest(BaseModel):
         extra = "forbid"
 
 class DecideResponse(BaseModel):
+    """Response schema per AI API Contract §3.2 DecideResponse."""
     matched_runbook: str
     pattern_type: PatternType
     action_plan: List[ActionPlanStep]

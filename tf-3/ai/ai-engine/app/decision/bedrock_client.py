@@ -21,6 +21,7 @@ class BedrockDecisionEngine:
     def decide(self, anomaly_context: Dict[str, Any], runbooks: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Calls AWS Bedrock (Claude 3 Haiku) to evaluate the anomaly and return an action plan JSON.
+        Falls back to rule-based decision if Bedrock is unavailable (per AI API Contract §4 Fallback).
         """
         if not self.client:
             logger.warning("AWS Bedrock client not available. Returning fallback JSON.")
@@ -63,21 +64,118 @@ class BedrockDecisionEngine:
             return self._fallback_decision(anomaly_context, runbooks)
 
     def _fallback_decision(self, anomaly_context: Dict[str, Any], runbooks: List[Dict[str, Any]]) -> Dict[str, Any]:
-        target = anomaly_context.get("deployment", "unknown")
-        namespace = anomaly_context.get("namespace", "default")
-        return {
-            "matched_runbook": "DatabaseConnectionRecoveryRunbook",
+        """
+        Rule-based fallback per AI API Contract §4 — Fallback Rule-Based conditions.
+        Maps suspected_fault_type to the most appropriate runbook and action.
+        """
+        fault_type = anomaly_context.get("suspected_fault_type", "unknown")
+        target_service = anomaly_context.get("deployment", anomaly_context.get("target_service", "unknown"))
+        namespace = anomaly_context.get("namespace", "production")
+        container = "main"  # Default container name matching demo output
+
+        # Smart fault-type → runbook mapping based on runbooks.json signal_triggers
+        fault_to_runbook = {
+            "database_connection_failure": {
+                "runbook": "DatabaseConnectionRecoveryRunbook",
+                "pattern_type": "urgent",
+                "action": "PATCH_MEMORY_LIMIT",
+                "params": {
+                    "namespace": namespace,
+                    "container": container,
+                    "memory_request_mb": 512,
+                    "memory_limit_mb": 768
+                }
+            },
+            "service_error_spike": {
+                "runbook": "DatabaseConnectionRecoveryRunbook",
+                "pattern_type": "urgent",
+                "action": "RESTART_DEPLOYMENT",
+                "params": {
+                    "namespace": namespace,
+                    "grace_period_seconds": 30
+                }
+            },
+            "pod_oom_killed": {
+                "runbook": "PodOOMKilledRunbook",
+                "pattern_type": "urgent",
+                "action": "PATCH_MEMORY_LIMIT",
+                "params": {
+                    "namespace": namespace,
+                    "container": container,
+                    "memory_request_mb": 512,
+                    "memory_limit_mb": 1024
+                }
+            },
+            "memory_pressure": {
+                "runbook": "PodOOMKilledRunbook",
+                "pattern_type": "urgent",
+                "action": "PATCH_MEMORY_LIMIT",
+                "params": {
+                    "namespace": namespace,
+                    "container": container,
+                    "memory_request_mb": 512,
+                    "memory_limit_mb": 1024
+                }
+            },
+            "service_health_check_failure": {
+                "runbook": "ServiceUnhealthyRunbook",
+                "pattern_type": "urgent",
+                "action": "RESTART_DEPLOYMENT",
+                "params": {
+                    "namespace": namespace,
+                    "grace_period_seconds": 30
+                }
+            },
+            "crash_loop_backoff": {
+                "runbook": "ServiceUnhealthyRunbook",
+                "pattern_type": "urgent",
+                "action": "ROLLOUT_UNDO",
+                "params": {
+                    "namespace": namespace
+                }
+            },
+            "queue_congestion": {
+                "runbook": "QueueBacklogRunbook",
+                "pattern_type": "deferred",
+                "action": "SCALE_REPLICAS",
+                "params": {
+                    "namespace": namespace,
+                    "replicas": 3
+                }
+            },
+            "certificate_expiring": {
+                "runbook": "CertExpiryRotationRunbook",
+                "pattern_type": "deferred",
+                "action": "ROTATE_SECRET",
+                "params": {
+                    "namespace": namespace,
+                    "secret_name": f"tf-3/{target_service}/cert"
+                }
+            },
+        }
+
+        # Get matched config or use safe default
+        match = fault_to_runbook.get(fault_type, {
+            "runbook": "DatabaseConnectionRecoveryRunbook",
             "pattern_type": "urgent",
+            "action": "PATCH_MEMORY_LIMIT",
+            "params": {
+                "namespace": namespace,
+                "container": container,
+                "memory_request_mb": 512,
+                "memory_limit_mb": 768
+            }
+        })
+
+        return {
+            "matched_runbook": match["runbook"],
+            "pattern_type": match["pattern_type"],
             "action_plan": [
                 {
                     "step": 1,
-                    "action": "PATCH_MEMORY_LIMIT",
-                    "target": f"deployment/{target}",
-                    "params": {
-                        "namespace": namespace,
-                        "memory_request_mb": 512,
-                        "memory_limit_mb": 768
-                    }
+                    "action": match["action"],
+                    "target": f"deployment/{target_service}",
+                    "params": match["params"]
                 }
             ]
         }

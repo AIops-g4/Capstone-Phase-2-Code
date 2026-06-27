@@ -2,6 +2,36 @@
   {
     "id": "DatabaseConnectionRecoveryRunbook",
     "description": "Recovers database connection issues by patching memory limits and restarting the deployment.",
-    "action": "PATCH_MEMORY_LIMIT"
+    "pattern_type": "urgent",
+    "signal_triggers": ["db_connection_pool_saturation", "service_error_rate"],
+    "actions": ["PATCH_MEMORY_LIMIT", "RESTART_DEPLOYMENT"]
+  },
+  {
+    "id": "PodOOMKilledRunbook",
+    "description": "Handles pod OOMKilled events by increasing memory limits and restarting the affected deployment.",
+    "pattern_type": "urgent",
+    "signal_triggers": ["pod_oom_event", "container_resource_usage"],
+    "actions": ["PATCH_MEMORY_LIMIT", "RESTART_DEPLOYMENT"]
+  },
+  {
+    "id": "ServiceUnhealthyRunbook",
+    "description": "Restarts unhealthy deployments that fail liveness/readiness probes, with rollback if restart fails.",
+    "pattern_type": "urgent",
+    "signal_triggers": ["service_unhealthy", "container_restart_count"],
+    "actions": ["RESTART_DEPLOYMENT", "ROLLOUT_UNDO"]
+  },
+  {
+    "id": "QueueBacklogRunbook",
+    "description": "Scales up worker replicas when message queue backlog exceeds threshold via GitOps deferred path.",
+    "pattern_type": "deferred",
+    "signal_triggers": ["queue_backlog"],
+    "actions": ["SCALE_REPLICAS"]
+  },
+  {
+    "id": "CertExpiryRotationRunbook",
+    "description": "Rotates expiring secrets/certificates before they cause service disruption.",
+    "pattern_type": "deferred",
+    "signal_triggers": ["secret_expiry_warning"],
+    "actions": ["ROTATE_SECRET"]
   }
 ]
