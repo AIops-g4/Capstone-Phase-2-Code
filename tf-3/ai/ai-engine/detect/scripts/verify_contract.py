@@ -591,10 +591,10 @@ def run_contract_verification():
         
         decide_business_valid = (
             res_decide.status_code == 200 and
-            res_decide_data["matched_runbook"] == "DefaultRecoveryRunbook" and
+            res_decide_data["matched_runbook"] == "CPUSaturationRecoveryRunbook" and
             res_decide_data["pattern_type"] == "urgent" and
             len(res_decide_data["action_plan"]) > 0 and
-            res_decide_data["action_plan"][0]["action"] == "RESTART_DEPLOYMENT"
+            res_decide_data["action_plan"][0]["action"] == "SCALE_REPLICAS"
         )
         print(f"  Decide Business logic check: {'[PASS]' if decide_business_valid else '[FAIL]'}")
         

@@ -7,7 +7,7 @@ from .telemetry import TelemetryProcessor
 from .anomaly_detector import AnomalyDetectionPipeline
 from .correlation_analyzer import RootCauseAnalyzer
 from .incident import IncidentManager
-from .self_healer import HealingEngine
+from .decide_bridge import IntegratedDecideEngine
 from .verifier import VerificationEngine
 from .config import (
     RUNBOOKS_PATH,
@@ -25,7 +25,7 @@ class AIOpsEngine:
         self.detection_pipeline = AnomalyDetectionPipeline()
         self.rca_analyzer = RootCauseAnalyzer()
         self.incident_manager = IncidentManager()
-        self.healing_engine = HealingEngine(RUNBOOKS_PATH)
+        self.healing_engine = IntegratedDecideEngine(RUNBOOKS_PATH)
         self.verifier = VerificationEngine()
 
     def detect_anomalies(
