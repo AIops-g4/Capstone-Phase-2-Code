@@ -427,7 +427,7 @@ def run_metric_anomaly_detection(df_metrics: pd.DataFrame, baseline_len: int = B
     mif.fit(df_multivariate_baseline)
     mif_anomalies, mif_scores = mif.detect(df_multivariate_features)
     
-    # 3. Univariate and EWMA for each column
+    # 3. EWMA for service-level metrics (Latency, Errors)
     univariate_results = {}
     ewma_results = {}
     
@@ -440,28 +440,6 @@ def run_metric_anomaly_detection(df_metrics: pd.DataFrame, baseline_len: int = B
             detector = EWMAAnomalyDetector(alpha=EWMA_ALPHA, threshold=EWMA_THRESHOLD)
             anoms, scores = detector.detect(series, baseline_len)
             ewma_results[col] = {
-                "anomalies": anoms,
-                "scores": scores
-            }
-        else:
-            # Resource metrics (cpu, mem, socket, diskio, workload) -> use Univariate Isolation Forest, RRCF, or BOCPD
-            if USE_BOCPD:
-                detector = BOCPDDetector()
-            elif USE_RRCF:
-                detector = RRCFDetector(
-                    threshold_multiplier=RRCF_UNIVARIATE_THRESHOLD_MULTIPLIER,
-                    num_trees=RRCF_NUM_TREES,
-                    tree_size=RRCF_TREE_SIZE
-                )
-            else:
-                detector = IsolationForestDetector(threshold_multiplier=IFOREST_UNIVARIATE_THRESHOLD_MULTIPLIER)
-                
-            # Take baseline for this single column
-            col_baseline = pd.DataFrame({col: df_baseline[col]})
-            detector.fit(col_baseline)
-            col_features = pd.DataFrame({col: df_features[col]})
-            anoms, scores = detector.detect(col_features)
-            univariate_results[col] = {
                 "anomalies": anoms,
                 "scores": scores
             }
