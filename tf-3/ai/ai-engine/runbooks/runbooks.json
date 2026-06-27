@@ -1,0 +1,7 @@
+[
+  {
+    "id": "DatabaseConnectionRecoveryRunbook",
+    "description": "Recovers database connection issues by patching memory limits and restarting the deployment.",
+    "action": "PATCH_MEMORY_LIMIT"
+  }
+]

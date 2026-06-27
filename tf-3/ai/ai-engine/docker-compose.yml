@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  ai-engine:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - BEDROCK_REGION=us-east-1
+      - COST_CAP_PER_TENANT_USD=50.0
+    restart: unless-stopped
