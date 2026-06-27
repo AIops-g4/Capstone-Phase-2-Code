@@ -180,7 +180,7 @@ def validate_decide_success(status_code: int, body: Any, headers: Dict[str, str]
     assert isinstance(plan, list), f"'action_plan' must be a list, got {type(plan)}"
     assert len(plan) > 0, "'action_plan' should not be empty"
     
-    allowed_actions = ["RESTART_DEPLOYMENT", "SCALE_UP_PODS", "UPDATE_ENV_SECRET", "ADJUST_MEMORY_LIMIT", "DELETE_POD"]
+    allowed_actions = ["RESTART_DEPLOYMENT", "PATCH_MEMORY_LIMIT", "SCALE_REPLICAS", "ROLLOUT_UNDO", "ROTATE_SECRET"]
     for idx, step in enumerate(plan):
         assert isinstance(step, dict), f"Action plan step at index {idx} must be a dict"
         assert "step" in step, f"Missing 'step' in action plan step at index {idx}"

@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Header
 from app.schemas.detect import DetectRequest, DetectResponse
 from app.schemas.common import AnomalyContext
+from app.detector.analyzer import TelemetryAnalyzer
 import uuid
 
 router = APIRouter()
+analyzer = TelemetryAnalyzer(z_threshold=2.5)
 
 @router.post("/detect", response_model=DetectResponse)
 async def detect_anomaly(
@@ -14,16 +16,25 @@ async def detect_anomaly(
     Endpoint Phát hiện Bất thường: Nhận dữ liệu telemetry thời gian thực, 
     thực thi mô hình phát hiện bất thường và đánh giá mức độ nghiêm trọng.
     """
-    # Mock response based on the API contract
+    is_anomaly, severity, confidence, reasoning = analyzer.analyze(request.telemetry_window)
+    
+    context = None
+    if is_anomaly and request.telemetry_window:
+        # Extract context from the triggering metric
+        trigger_point = request.telemetry_window[-1]
+        context = AnomalyContext(
+            target_service=trigger_point.service,
+            suspected_fault_type="statistical_anomaly",
+            system="E-COMMERCE",
+            trigger_metric=trigger_point.signal_name,
+            trigger_value=float(trigger_point.value) if isinstance(trigger_point.value, (int, float)) else None
+        )
+        
     return DetectResponse(
-        anomaly_detected=True,
-        severity=0.85,
-        anomaly_context=AnomalyContext(
-            target_service="order-service",
-            suspected_fault_type="database_connection_failure",
-            system="E-COMMERCE"
-        ),
-        confidence=0.92,
-        reasoning="Mocked: Error rate exceeds safe limits",
+        anomaly_detected=is_anomaly,
+        severity=severity,
+        anomaly_context=context,
+        confidence=confidence,
+        reasoning=reasoning,
         correlation_id=request.correlation_id or uuid.uuid4()
     )

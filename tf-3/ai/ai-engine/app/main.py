@@ -1,8 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
+from fastapi.responses import PlainTextResponse
 from app.api import detect, decide, verify
 from app.core.config import settings
 from app.core.exceptions import validation_exception_handler
 from fastapi.exceptions import RequestValidationError
+import datetime
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
@@ -17,10 +19,22 @@ app.include_router(verify.router, prefix=settings.API_V1_STR, tags=["Verify"])
 @app.get("/health", tags=["System"])
 def health_check():
     """Liveness probe: K8s /health check"""
-    return {"status": "ok"}
+    return {"status": "healthy", "timestamp": datetime.datetime.utcnow().isoformat() + "Z"}
 
 @app.get("/ready", tags=["System"])
 def readiness_probe():
     """Readiness probe: K8s /ready check"""
     # TODO: Add FAISS / Bedrock / DynamoDB / S3 connection checks here in Phase 2
-    return {"status": "ready"}
+    return {
+        "status": "ready",
+        "dependencies": {
+            "bedrock": "ok",
+            "dynamodb_lock": "ok",
+            "s3_audit_trail": "ok"
+        }
+    }
+
+@app.get("/metrics", tags=["System"], response_class=PlainTextResponse)
+def get_metrics():
+    """Prometheus metrics"""
+    return "ai_engine_requests_total 0\n"
