@@ -21,7 +21,8 @@ def load_dotenv(dotenv_path):
                     # Clean key and value
                     clean_key = key.strip()
                     clean_val = val.strip().strip('"').strip("'")
-                    os.environ[clean_key] = clean_val
+                    if clean_key not in os.environ:
+                        os.environ[clean_key] = clean_val
         print(f"Loaded environment variables from: {dotenv_path}")
 
 # Load dotenv variables on import
@@ -111,4 +112,36 @@ VERIFY_REGRESSION_ERROR_THRESHOLD = float(os.getenv("VERIFY_REGRESSION_ERROR_THR
 EVAL_BOCPD_WINDOW_BEFORE = int(os.getenv("EVAL_BOCPD_WINDOW_BEFORE", "120"))
 EVAL_BOCPD_WINDOW_AFTER = int(os.getenv("EVAL_BOCPD_WINDOW_AFTER", "30"))
 EVAL_BOCPD_BASELINE_LENGTH = int(os.getenv("EVAL_BOCPD_BASELINE_LENGTH", "100"))
+
+# OOP Modular & Configurable Hyperparameters
+DEPENDENCY_GRAPH_PATH = os.getenv("DEPENDENCY_GRAPH_PATH", os.path.join(DATASET_DIR, "dependency_graph.json"))
+BOCPD_HAZARD = int(os.getenv("BOCPD_HAZARD", "50"))
+RCA_ANALYSIS_WINDOW_AFTER = int(os.getenv("RCA_ANALYSIS_WINDOW_AFTER", "10"))
+BARO_RCA_CONFIDENCE = float(os.getenv("BARO_RCA_CONFIDENCE", "0.90"))
+RCA_STD_REG_MULTIPLIER = float(os.getenv("RCA_STD_REG_MULTIPLIER", "0.05"))
+RCA_STD_REG_ADDITIVE = float(os.getenv("RCA_STD_REG_ADDITIVE", "0.05"))
+
+# Parse lists of services and metric types
+SERVICES_LIST = [s.strip() for s in os.getenv("SERVICES_LIST", "checkoutservice,currencyservice,emailservice,productcatalogservice,recommendationservice,adservice,cartservice,frontend,paymentservice,redis,shippingservice").split(",") if s.strip()]
+METRIC_TYPES_LIST = [m.strip() for m in os.getenv("METRIC_TYPES_LIST", "cpu,mem,latency,error,socket,diskio").split(",") if m.strip()]
+
+# LLM Configurable Parameters
+USE_LLM_DECISION = os.getenv("USE_LLM_DECISION", "False").lower() == "true"
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
+
+# OpenAI Configurations
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
+
+# Anthropic Configurations
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_API_URL = os.getenv("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages")
+
+# AWS Bedrock Configurations
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+AWS_SESSION_TOKEN = os.getenv("AWS_SESSION_TOKEN", "")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_ENDPOINT_URL = os.getenv("AWS_ENDPOINT_URL", "")
 
