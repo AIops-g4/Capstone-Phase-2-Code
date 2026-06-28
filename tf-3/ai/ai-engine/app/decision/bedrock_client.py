@@ -34,10 +34,10 @@ class BedrockDecisionEngine:
         self.timeout_ms = settings.BEDROCK_TIMEOUT_MS
 
     def decide(
-        self, anomaly_context: Dict[str, Any], runbooks: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+        self, anomaly_context: Dict[str, Any], runbooks: List[Dict[str, Any]], tenant_id: str
+    ) -> tuple[Dict[str, Any], float]:
         """
-        Calls AWS Bedrock Claude to evaluate the anomaly and return an action plan JSON.
+        Calls AWS Bedrock Claude to evaluate the anomaly and return (action plan JSON, cost).
         Raises an exception on any failure (caught by DecisionRouter for fallback).
         """
         if not self.client:
@@ -75,7 +75,15 @@ Available Runbooks:
             # Parse JSON from Claude's response
             decision = json.loads(response_text)
             logger.info(f"Bedrock LLM returned decision: {decision.get('matched_runbook', 'N/A')}")
-            return decision
+
+            # Calculate token-based cost
+            usage = response_body.get('usage', {})
+            input_tokens = usage.get('input_tokens', 1000)
+            output_tokens = usage.get('output_tokens', 500)
+            cost = (input_tokens * 0.00025 + output_tokens * 0.00125) / 1000
+            cost = max(cost, 0.0005)
+
+            return decision, cost
 
         except json.JSONDecodeError as e:
             # Condition 4: LLM response parse failure
@@ -85,3 +93,4 @@ Available Runbooks:
             # Conditions 2 & 3: timeout, 429, 5xx, connection error
             logger.error(f"Bedrock invocation failed: {e}")
             raise
+

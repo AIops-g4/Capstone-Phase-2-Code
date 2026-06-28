@@ -22,10 +22,15 @@ audit_writer = AuditWriter()
 logger = logging.getLogger(__name__)
 
 
+from typing import Optional
+
 @router.post("/verify", response_model=VerifyResponse)
 async def verify_action(
     request: VerifyRequest,
-    x_tenant_id: str = Header(..., description="Unique tenant identifier (UUID v4)"),
+    x_tenant_id: str = Header(..., alias="X-Tenant-Id", description="Unique tenant identifier (UUID v4)"),
+    x_correlation_id: str = Header(..., alias="X-Correlation-Id", description="Correlation ID (UUID v4)"),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", description="Idempotency key (UUID v4)"),
+    x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode", description="Dry run mode ('true' or 'false')"),
 ):
     """
     Post-Action Verification Endpoint: Evaluates remediation effectiveness
@@ -34,8 +39,31 @@ async def verify_action(
     """
     start_time = time.time()
 
+    # Validate headers strictly per contract
+    try:
+        from uuid import UUID
+        # Validate UUID format for X-Tenant-Id
+        UUID(x_tenant_id)
+        # Validate UUID format and match for X-Correlation-Id
+        header_corr = UUID(x_correlation_id)
+        if header_corr != request.correlation_id:
+            raise HTTPException(status_code=400, detail="X-Correlation-Id header does not match body correlation_id.")
+        # Validate UUID format and match for Idempotency-Key
+        header_idem = UUID(idempotency_key)
+        if header_idem != request.idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key header does not match body idempotency_key.")
+        # Validate X-Dry-Run-Mode format and match
+        if x_dry_run_mode.lower() not in ("true", "false"):
+            raise HTTPException(status_code=400, detail="X-Dry-Run-Mode header must be 'true' or 'false'.")
+        header_dry = x_dry_run_mode.lower() == "true"
+        if header_dry != request.dry_run_mode:
+            raise HTTPException(status_code=400, detail="X-Dry-Run-Mode header does not match body dry_run_mode.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Header validation failed: {str(e)}")
+
     # 1. Tenant isolation validation (403 on mismatch)
     tenant_validator.validate_verify(x_tenant_id, request.post_telemetry_window)
+
 
     # 2. If the action itself failed at CDO side, escalate immediately
     if request.action_executed.status == "FAILED":

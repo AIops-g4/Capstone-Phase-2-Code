@@ -238,14 +238,14 @@ def validate_verify_success(status_code: int, body: Any, headers: Dict[str, str]
         if "metrics" in eb:
             assert isinstance(eb["metrics"], dict), f"'metrics' in escalation_bundle must be a dict, got {type(eb['metrics'])}"
 
-# Validator for Input Validation Errors (422)
-def validate_error_422(status_code: int, body: Any, headers: Dict[str, str]):
-    assert status_code == 422, f"Expected validation error status code 422, got {status_code}"
+# Validator for Input Validation Errors (400)
+def validate_error_400(status_code: int, body: Any, headers: Dict[str, str]):
+    assert status_code == 400, f"Expected validation error status code 400, got {status_code}"
     assert isinstance(body, dict), "Error response body is not a JSON object"
-    assert "detail" in body, "Missing 'detail' array in 422 error response"
-    assert isinstance(body["detail"], list), f"'detail' must be a list of validation errors, got {type(body['detail'])}"
-    assert len(body["detail"]) > 0, "Validation error details list is empty"
-    print(f"       {YELLOW}[INFO] Correctly caught input error. Validation Details: {json.dumps(body['detail'])}{RESET}")
+    assert "detail" in body, "Missing 'detail' string in 400 error response"
+    assert "errors" in body, "Missing 'errors' list in 400 error response"
+    assert isinstance(body["errors"], list), f"'errors' must be a list of validation errors, got {type(body['errors'])}"
+    print(f"       {YELLOW}[INFO] Correctly caught input schema error. Errors: {json.dumps(body['errors'])}{RESET}")
 
 def main():
     base_url = "http://localhost:8540"
@@ -255,10 +255,10 @@ def main():
     print(f"Starting Multi-Field Strict Schema & Robust Input Validation Tests: {YELLOW}{base_url}{RESET}\n")
     tester = APITester(base_url)
 
-    # Base valid payloads for testing
+    # Base valid payloads for testing (complying strictly with UUID v4 formats)
     valid_detect_payload = {
         "idempotency_key": "123e4567-e89b-12d3-a456-426614174001",
-        "correlation_id": "c1a2b3c4-d5e6-4f7g-8h9i-0j1k2l3m4n5o",
+        "correlation_id": "c1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c",
         "dry_run_mode": True,
         "telemetry_window": [
             {
@@ -277,8 +277,8 @@ def main():
     }
 
     valid_decide_payload = {
-        "idempotency_key": "test-idem-key-123",
-        "correlation_id": "c1a2b3c4-d5e6-4f7g-8h9i-0j1k2l3m4n5o",
+        "idempotency_key": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+        "correlation_id": "c1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c",
         "dry_run_mode": True,
         "anomaly_context": {
             "target_service": "order-service",
@@ -292,8 +292,8 @@ def main():
     }
 
     valid_verify_payload = {
-        "idempotency_key": "test-idem-key-456",
-        "correlation_id": "c1a2b3c4-d5e6-4f7g-8h9i-0j1k2l3m4n5o",
+        "idempotency_key": "f1e2d3c4-b5a6-4f7e-8d9c-0b1a2f3e4d5c",
+        "correlation_id": "c1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c",
         "dry_run_mode": True,
         "action_executed": {
             "action": "RESTART_DEPLOYMENT",
@@ -315,6 +315,28 @@ def main():
                 }
             }
         ]
+    }
+
+    # Base valid headers matching request payloads
+    detect_headers = {
+        "X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75",
+        "Idempotency-Key": "123e4567-e89b-12d3-a456-426614174001",
+        "X-Dry-Run-Mode": "true",
+        "X-Correlation-Id": "c1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c"
+    }
+
+    decide_headers = {
+        "X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75",
+        "Idempotency-Key": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+        "X-Dry-Run-Mode": "true",
+        "X-Correlation-Id": "c1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c"
+    }
+
+    verify_headers = {
+        "X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75",
+        "Idempotency-Key": "f1e2d3c4-b5a6-4f7e-8d9c-0b1a2f3e4d5c",
+        "X-Dry-Run-Mode": "true",
+        "X-Correlation-Id": "c1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c"
     }
 
     # =========================================================================
@@ -353,7 +375,7 @@ def main():
         name="POST /v1/detect - Verify All Required & Optional Schema Fields",
         method="POST",
         path="/v1/detect",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=detect_headers,
         body=valid_detect_payload,
         validator=validate_detect_success
     )
@@ -362,10 +384,7 @@ def main():
         name="POST /v1/decide - Verify All Required & Optional Schema Fields",
         method="POST",
         path="/v1/decide",
-        headers={
-            "X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75",
-            "Idempotency-Key": "test-idem-key-123"
-        },
+        headers=decide_headers,
         body=valid_decide_payload,
         validator=validate_decide_success
     )
@@ -374,10 +393,7 @@ def main():
         name="POST /v1/verify - Verify All Required & Optional Schema Fields",
         method="POST",
         path="/v1/verify",
-        headers={
-            "X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75",
-            "Idempotency-Key": "test-idem-key-456"
-        },
+        headers=verify_headers,
         body=valid_verify_payload,
         validator=validate_verify_success
     )
@@ -392,48 +408,53 @@ def main():
     bad_detect_no_idem = valid_detect_payload.copy()
     bad_detect_no_idem.pop("idempotency_key")
     tester.run_test(
-        name="POST /v1/detect - Missing 'idempotency_key' (Expects 422)",
+        name="POST /v1/detect - Missing 'idempotency_key' (Expects 400)",
         method="POST",
         path="/v1/detect",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=detect_headers,
         body=bad_detect_no_idem,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
-    # Missing correlation_id
+    # Missing correlation_id (Wait, correlation_id is optional at detect step in schema)
+    # So removing it from body is actually VALID and should return 200, not error!
+    # Let's test missing correlation_id in detect is successful.
     bad_detect_no_corr = valid_detect_payload.copy()
     bad_detect_no_corr.pop("correlation_id")
+    # Also remove X-Correlation-Id header so it's fully optional
+    detect_no_corr_hd = detect_headers.copy()
+    detect_no_corr_hd.pop("X-Correlation-Id")
     tester.run_test(
-        name="POST /v1/detect - Missing 'correlation_id' (Expects 422)",
+        name="POST /v1/detect - Missing optional 'correlation_id' (Expects 200)",
         method="POST",
         path="/v1/detect",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=detect_no_corr_hd,
         body=bad_detect_no_corr,
-        validator=validate_error_422
+        validator=validate_detect_success
     )
 
     # Missing dry_run_mode
     bad_detect_no_dry = valid_detect_payload.copy()
     bad_detect_no_dry.pop("dry_run_mode")
     tester.run_test(
-        name="POST /v1/detect - Missing 'dry_run_mode' (Expects 422)",
+        name="POST /v1/detect - Missing 'dry_run_mode' (Expects 400)",
         method="POST",
         path="/v1/detect",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=detect_headers,
         body=bad_detect_no_dry,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # Missing telemetry_window
     bad_detect_no_window = valid_detect_payload.copy()
     bad_detect_no_window.pop("telemetry_window")
     tester.run_test(
-        name="POST /v1/detect - Missing 'telemetry_window' (Expects 422)",
+        name="POST /v1/detect - Missing 'telemetry_window' (Expects 400)",
         method="POST",
         path="/v1/detect",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=detect_headers,
         body=bad_detect_no_window,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # --- ENDPOINT: /v1/decide ---
@@ -441,48 +462,48 @@ def main():
     bad_decide_no_idem = valid_decide_payload.copy()
     bad_decide_no_idem.pop("idempotency_key")
     tester.run_test(
-        name="POST /v1/decide - Missing 'idempotency_key' (Expects 422)",
+        name="POST /v1/decide - Missing 'idempotency_key' (Expects 400)",
         method="POST",
         path="/v1/decide",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=decide_headers,
         body=bad_decide_no_idem,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # Missing correlation_id
     bad_decide_no_corr = valid_decide_payload.copy()
     bad_decide_no_corr.pop("correlation_id")
     tester.run_test(
-        name="POST /v1/decide - Missing 'correlation_id' (Expects 422)",
+        name="POST /v1/decide - Missing 'correlation_id' (Expects 400)",
         method="POST",
         path="/v1/decide",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=decide_headers,
         body=bad_decide_no_corr,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # Missing anomaly_context
     bad_decide_no_context = valid_decide_payload.copy()
     bad_decide_no_context.pop("anomaly_context")
     tester.run_test(
-        name="POST /v1/decide - Missing 'anomaly_context' (Expects 422)",
+        name="POST /v1/decide - Missing 'anomaly_context' (Expects 400)",
         method="POST",
         path="/v1/decide",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=decide_headers,
         body=bad_decide_no_context,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # Missing dry_run_mode
     bad_decide_no_dry = valid_decide_payload.copy()
     bad_decide_no_dry.pop("dry_run_mode")
     tester.run_test(
-        name="POST /v1/decide - Missing 'dry_run_mode' (Expects 422)",
+        name="POST /v1/decide - Missing 'dry_run_mode' (Expects 400)",
         method="POST",
         path="/v1/decide",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=decide_headers,
         body=bad_decide_no_dry,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # --- ENDPOINT: /v1/verify ---
@@ -490,60 +511,60 @@ def main():
     bad_verify_no_idem = valid_verify_payload.copy()
     bad_verify_no_idem.pop("idempotency_key")
     tester.run_test(
-        name="POST /v1/verify - Missing 'idempotency_key' (Expects 422)",
+        name="POST /v1/verify - Missing 'idempotency_key' (Expects 400)",
         method="POST",
         path="/v1/verify",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=verify_headers,
         body=bad_verify_no_idem,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # Missing correlation_id
     bad_verify_no_corr = valid_verify_payload.copy()
     bad_verify_no_corr.pop("correlation_id")
     tester.run_test(
-        name="POST /v1/verify - Missing 'correlation_id' (Expects 422)",
+        name="POST /v1/verify - Missing 'correlation_id' (Expects 400)",
         method="POST",
         path="/v1/verify",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=verify_headers,
         body=bad_verify_no_corr,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # Missing dry_run_mode
     bad_verify_no_dry = valid_verify_payload.copy()
     bad_verify_no_dry.pop("dry_run_mode")
     tester.run_test(
-        name="POST /v1/verify - Missing 'dry_run_mode' (Expects 422)",
+        name="POST /v1/verify - Missing 'dry_run_mode' (Expects 400)",
         method="POST",
         path="/v1/verify",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=verify_headers,
         body=bad_verify_no_dry,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # Missing action_executed
     bad_verify_no_action = valid_verify_payload.copy()
     bad_verify_no_action.pop("action_executed")
     tester.run_test(
-        name="POST /v1/verify - Missing 'action_executed' (Expects 422)",
+        name="POST /v1/verify - Missing 'action_executed' (Expects 400)",
         method="POST",
         path="/v1/verify",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=verify_headers,
         body=bad_verify_no_action,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # Missing post_telemetry_window
     bad_verify_no_window = valid_verify_payload.copy()
     bad_verify_no_window.pop("post_telemetry_window")
     tester.run_test(
-        name="POST /v1/verify - Missing 'post_telemetry_window' (Expects 422)",
+        name="POST /v1/verify - Missing 'post_telemetry_window' (Expects 400)",
         method="POST",
         path="/v1/verify",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=verify_headers,
         body=bad_verify_no_window,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # =========================================================================
@@ -555,51 +576,52 @@ def main():
     bad_type_dry_run = valid_detect_payload.copy()
     bad_type_dry_run["dry_run_mode"] = [True]
     tester.run_test(
-        name="POST /v1/detect - 'dry_run_mode' as array (Expects 422)",
+        name="POST /v1/detect - 'dry_run_mode' as array (Expects 400)",
         method="POST",
         path="/v1/detect",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=detect_headers,
         body=bad_type_dry_run,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # telemetry_window sent as string
     bad_type_window = valid_detect_payload.copy()
     bad_type_window["telemetry_window"] = "not-a-list"
     tester.run_test(
-        name="POST /v1/detect - 'telemetry_window' as string (Expects 422)",
+        name="POST /v1/detect - 'telemetry_window' as string (Expects 400)",
         method="POST",
         path="/v1/detect",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=detect_headers,
         body=bad_type_window,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # anomaly_context sent as int
     bad_type_context = valid_decide_payload.copy()
     bad_type_context["anomaly_context"] = 12345
     tester.run_test(
-        name="POST /v1/decide - 'anomaly_context' as integer (Expects 422)",
+        name="POST /v1/decide - 'anomaly_context' as integer (Expects 400)",
         method="POST",
         path="/v1/decide",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=decide_headers,
         body=bad_type_context,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     # action_executed sent as boolean
     bad_type_action = valid_verify_payload.copy()
     bad_type_action["action_executed"] = False
     tester.run_test(
-        name="POST /v1/verify - 'action_executed' as boolean (Expects 422)",
+        name="POST /v1/verify - 'action_executed' as boolean (Expects 400)",
         method="POST",
         path="/v1/verify",
-        headers={"X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75"},
+        headers=verify_headers,
         body=bad_type_action,
-        validator=validate_error_422
+        validator=validate_error_400
     )
 
     tester.print_summary()
 
 if __name__ == "__main__":
     main()
+

@@ -17,6 +17,8 @@ import json
 logger = logging.getLogger(__name__)
 
 
+from app.safety.cost_tracker import CostTracker
+
 class DecisionRouter:
     """
     Routes decision requests between the LLM engine and the fallback engine.
@@ -26,6 +28,7 @@ class DecisionRouter:
     def __init__(self):
         self.llm_engine = BedrockDecisionEngine()
         self.fallback_engine = FallbackDecisionEngine()
+        self.cost_tracker = CostTracker()
 
     def decide(
         self,
@@ -54,7 +57,10 @@ class DecisionRouter:
 
         # Condition 2/3/4: Try LLM, fall back on failure
         try:
-            decision = self.llm_engine.decide(anomaly_context, runbooks)
+            decision, cost = self.llm_engine.decide(anomaly_context, runbooks, tenant_id)
+
+            # Increment cost
+            self.cost_tracker.increment_cost(tenant_id, cost)
 
             # Condition 4: Validate LLM output is proper JSON with required fields
             if not self._validate_llm_output(decision):
@@ -71,6 +77,7 @@ class DecisionRouter:
             logger.error(f"Tenant {tenant_id}: LLM invocation failed: {e}. Using fallback.")
             decision = self.fallback_engine.decide(anomaly_context)
             return decision, False, True
+
 
     def _validate_llm_output(self, decision: Dict[str, Any]) -> bool:
         """Validates that LLM output contains required fields per DecideResponse schema."""

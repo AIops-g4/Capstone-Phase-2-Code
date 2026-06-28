@@ -31,10 +31,15 @@ audit_writer = AuditWriter()
 logger = logging.getLogger(__name__)
 
 
+from app.core.config import settings
+
 @router.post("/decide", response_model=DecideResponse)
 async def decide_action(
     request: DecideRequest,
-    x_tenant_id: str = Header(..., description="Unique tenant identifier (UUID v4)"),
+    x_tenant_id: str = Header(..., alias="X-Tenant-Id", description="Unique tenant identifier (UUID v4)"),
+    x_correlation_id: str = Header(..., alias="X-Correlation-Id", description="Correlation ID (UUID v4)"),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", description="Idempotency key (UUID v4)"),
+    x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode", description="Dry run mode ('true' or 'false')"),
 ):
     """
     Decision Planning Endpoint: Matches anomaly context to runbooks,
@@ -43,6 +48,28 @@ async def decide_action(
     """
     start_time = time.time()
     safety_checks_passed = []
+
+    # Validate headers strictly per contract
+    try:
+        from uuid import UUID
+        # Validate UUID format for X-Tenant-Id
+        UUID(x_tenant_id)
+        # Validate UUID format and match for X-Correlation-Id
+        header_corr = UUID(x_correlation_id)
+        if header_corr != request.correlation_id:
+            raise HTTPException(status_code=400, detail="X-Correlation-Id header does not match body correlation_id.")
+        # Validate UUID format and match for Idempotency-Key
+        header_idem = UUID(idempotency_key)
+        if header_idem != request.idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key header does not match body idempotency_key.")
+        # Validate X-Dry-Run-Mode format and match
+        if x_dry_run_mode.lower() not in ("true", "false"):
+            raise HTTPException(status_code=400, detail="X-Dry-Run-Mode header must be 'true' or 'false'.")
+        header_dry = x_dry_run_mode.lower() == "true"
+        if header_dry != request.dry_run_mode:
+            raise HTTPException(status_code=400, detail="X-Dry-Run-Mode header does not match body dry_run_mode.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Header validation failed: {str(e)}")
 
     # 1. Idempotency lock (409 on duplicate)
     idempotency_lock.acquire_lock(x_tenant_id, str(request.idempotency_key))
@@ -63,13 +90,17 @@ async def decide_action(
         request.anomaly_context.suspected_fault_type
     )
 
-    # 4. Route decision (LLM or fallback)
+    # 4. Route decision (LLM or fallback) using real CostTracker budget checks
+    todays_cost = decision_router.cost_tracker.get_todays_cost(x_tenant_id)
+    cost_cap_exceeded = todays_cost >= settings.COST_CAP_PER_TENANT_USD
+
     decision_json, cost_cap_exceeded, used_fallback = decision_router.decide(
         anomaly_context=request.anomaly_context.model_dump(),
         runbooks=relevant_runbooks,
         tenant_id=x_tenant_id,
-        cost_cap_exceeded=False,  # TODO: Check actual cost from DynamoDB counter
+        cost_cap_exceeded=cost_cap_exceeded,
     )
+
 
     # 5. Generate blast radius config
     action_plan_raw = decision_json.get("action_plan", [])

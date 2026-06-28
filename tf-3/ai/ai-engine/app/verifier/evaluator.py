@@ -89,6 +89,21 @@ PATTERN_SUCCESS_CONDITIONS = {
             "service_error_rate": lambda v: float(v) < 0.05,
         },
     },
+    "crash_loop": {
+        "conditions": ["pod_ready == true", "restart_count_no_increase == true"],
+        "checks": {
+            "service_unhealthy": lambda v: False,
+            "container_restart_count": lambda v: float(v) <= 1,
+        },
+    },
+    "crash_loop_backoff": {
+        "conditions": ["pod_ready == true", "restart_count_no_increase == true"],
+        "checks": {
+            "service_unhealthy": lambda v: False,
+            "container_restart_count": lambda v: float(v) <= 1,
+        },
+    },
+
 }
 
 # Generic fallback checks for unknown fault types

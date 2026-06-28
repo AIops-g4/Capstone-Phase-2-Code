@@ -29,8 +29,15 @@ class TenantValidator:
 
     def _validate(self, header_tenant_id: str, payload_ids: List[str], endpoint: str) -> None:
         """Core validation: checks all payload tenant_ids against header."""
+        try:
+            from uuid import UUID
+            header_uuid_str = str(UUID(header_tenant_id)).lower()
+        except Exception:
+            header_uuid_str = header_tenant_id.lower()
+
         for tid in payload_ids:
-            if tid != header_tenant_id:
+            tid_str = str(tid).lower()
+            if tid_str != header_uuid_str:
                 logger.warning(
                     f"Tenant isolation violation on {endpoint}: "
                     f"header={header_tenant_id}, payload={tid}"

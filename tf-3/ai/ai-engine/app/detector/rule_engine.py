@@ -38,7 +38,20 @@ BINARY_EVENT_RULES = {
         "value_threshold": 5,  # Anomaly only if value >= 5
         "threshold_direction": "gte",  # greater than or equal
     },
+    "application_log_event": {
+        "fault_type": "service_error_spike",
+        "severity": 0.75,
+        "confidence": 0.85,
+        "reasoning_template": "Application log error detected on {service}: {value}",
+    },
+    "distributed_trace_error_event": {
+        "fault_type": "service_error_spike",
+        "severity": 0.80,
+        "confidence": 0.90,
+        "reasoning_template": "Distributed trace error event on {service} with status {value}.",
+    },
 }
+
 
 
 class RuleEngine:

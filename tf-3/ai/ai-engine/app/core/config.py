@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     BEDROCK_TIMEOUT_MS: int = 2500
 
     # DynamoDB table for idempotency locks
-    DYNAMODB_LOCK_TABLE: str = "tf-3-idempotency-locks"
+    DYNAMODB_LOCK_TABLE: str = "tf-3-aiops-idempotency-lock"
 
     model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
 
