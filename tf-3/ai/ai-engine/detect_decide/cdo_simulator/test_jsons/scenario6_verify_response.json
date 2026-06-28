@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "regression_detected": true,
+  "next_action": "ROLLBACK",
+  "escalation_bundle": {
+    "reason": "Healing action caused regression: Regression detected in other service 'frontend': frontend_error = 0.15; Regression detected in other service 'frontend': frontend_error = 0.15; Regression detected in other service 'frontend': frontend_error = 0.15; Regression detected in other service 'frontend': frontend_error = 0.15; Regression detected in other service 'frontend': frontend_error = 0.15; Regression detected in other service 'frontend': frontend_error = 0.15; Regression detected in other service 'frontend': frontend_error = 0.15; Regression detected in other service 'frontend': frontend_error = 0.15; Regression detected in other service 'frontend': frontend_error = 0.15; Regression detected in other service 'frontend': frontend_error = 0.15"
+  }
+}

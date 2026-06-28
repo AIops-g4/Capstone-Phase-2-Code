@@ -6,3 +6,22 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Large dataset (RE2 CSVs — download locally)
+tf-3/ai/ai-engine/dataset/RE3-OB/
+tf-3/ai/ai-engine/dataset/RE2*/
+tf-3/ai/ai-engine/dataset/**/*.zip
+tf-3/ai/ai-engine/dataset/*/
+
+# Legacy paths
+tf-3/ai/ai-engine/decide/dataset/
+tf-3/ai/ai-engine/decide/runbooks/

@@ -1,0 +1,22 @@
+{
+  "anomaly_detected": true,
+  "severity": 0.95,
+  "anomaly_context": {
+    "target_service": [
+      "checkoutservice",
+      "currencyservice",
+      "emailservice",
+      "productcatalogservice",
+      "recommendationservice"
+    ],
+    "suspected_fault_type": "cpu",
+    "system": "E-COMMERCE",
+    "namespace": "production",
+    "deployment": "checkoutservice",
+    "trigger_metric": "checkoutservice_cpu",
+    "trigger_value": 0.99
+  },
+  "confidence": 0.714949916387726,
+  "reasoning": "[CORRELATED ALERT] Anomaly in checkoutservice (cpu). Metric 'checkoutservice_cpu' deviated significantly by 3.0 standard deviations from the baseline.",
+  "correlation_id": "374b2ba6-11b7-4be5-846b-042e0ad90095"
+}
