@@ -83,11 +83,33 @@ class RootCauseAnalyzer:
                         
                 if self.last_top_k:
                     best_service = self.last_top_k[0]
-                    suspected_fault_type = "cpu"
-                    
+                    # 1B: prefer highest Z-score metric on best_service for fault type
+                    z_fault, z_metric, z_val = self._infer_fault_for_service(
+                        df_metrics, anomaly_idx, best_service
+                    )
+                    if z_metric and z_val > RCA_ZSCORE_THRESHOLD:
+                        suspected_fault_type = z_fault
+                        top_metric = z_metric
+                    else:
+                        # Fallback: BARO rank metric for this service
+                        suspected_fault_type = "cpu"
+                        top_metric = ranks[0] if ranks else ""
+                        for ranked_metric in ranks:
+                            svc, fault = self._map_metric_to_service_fault(ranked_metric)
+                            if svc == best_service:
+                                suspected_fault_type = fault
+                                top_metric = ranked_metric
+                                break
+                        else:
+                            if ranks:
+                                _, suspected_fault_type = self._map_metric_to_service_fault(ranks[0])
+
                     confidence = BARO_RCA_CONFIDENCE
-                    reasoning = (f"[BARO RCA] Diagnosed {best_service} ({suspected_fault_type}) as root cause. "
-                                 f"Top candidates: {', '.join(ranks[:self.baro_top_k])}.")
+                    reasoning = (
+                        f"[BARO RCA] Diagnosed {best_service} ({suspected_fault_type}) as root cause "
+                        f"from metric '{top_metric}' (z={z_val:.1f}). "
+                        f"Top candidates: {', '.join(ranks[:self.baro_top_k])}."
+                    )
                     if len(reasoning) > 300:
                         reasoning = reasoning[:297] + "..."
                     return best_service, suspected_fault_type, reasoning, confidence
@@ -218,7 +240,15 @@ class RootCauseAnalyzer:
             if z_val > max_z_val:
                 max_z_val = z_val
                 max_z_col = m
-                
+
+        # 1B: infer fault from strongest deviating metric on best_service
+        if max_z_col:
+            _, suspected_fault_type = self._map_metric_to_service_fault(max_z_col)
+        else:
+            fault_scores = service_fault_scores.get(best_service, {})
+            if fault_scores:
+                suspected_fault_type = max(fault_scores.items(), key=lambda x: x[1])[0]
+
         if service_evidence and max_z_col:
             top_ev = service_evidence[0]
             reasoning = (f"Anomaly in {best_service} ({suspected_fault_type}). "
@@ -237,26 +267,75 @@ class RootCauseAnalyzer:
             
         return best_service, suspected_fault_type, reasoning, confidence
 
+    def _z_scores_at_anomaly(
+        self, df_metrics: pd.DataFrame, anomaly_idx: int
+    ) -> pd.Series:
+        """Max absolute Z-score per metric column around the anomaly index."""
+        baseline_df = df_metrics.iloc[: self.baseline_len].drop(columns=["time"], errors="ignore")
+        baseline_means = baseline_df.mean()
+        baseline_stds = baseline_df.std()
+        regularized_stds = np.maximum(
+            baseline_stds,
+            RCA_STD_REG_MULTIPLIER * baseline_means.abs() + RCA_STD_REG_ADDITIVE,
+        )
+        end_dev_idx = min(len(df_metrics) - 1, anomaly_idx + RCA_DEVIATION_WINDOW)
+        window_metrics_dev = df_metrics.iloc[anomaly_idx : end_dev_idx + 1].drop(
+            columns=["time"], errors="ignore"
+        )
+        return ((window_metrics_dev - baseline_means).abs() / regularized_stds).max()
+
+    def _infer_fault_for_service(
+        self, df_metrics: pd.DataFrame, anomaly_idx: int, best_service: str
+    ) -> Tuple[str, str, float]:
+        """
+        1B: Pick fault type from the metric column with highest Z-score on best_service.
+        Returns (fault_type, metric_column, z_score).
+        """
+        z_scores = self._z_scores_at_anomaly(df_metrics, anomaly_idx)
+        best_metric = ""
+        best_z = 0.0
+        for col in z_scores.index:
+            if col == "time" or not str(col).startswith(best_service):
+                continue
+            z_val = float(z_scores.get(col, 0.0))
+            if z_val > best_z:
+                best_z = z_val
+                best_metric = col
+        if not best_metric:
+            return "cpu", "", 0.0
+        _, fault = self._map_metric_to_service_fault(best_metric)
+        return fault, best_metric, best_z
+
     def _map_metric_to_service_fault(self, metric_name: str) -> Tuple[str, str]:
-        parts = metric_name.split("_", 1)
-        if len(parts) < 2:
-            return metric_name, "cpu"
-        service = parts[0]
-        metric_suffix = parts[1].lower()
-        
-        fault_type = "cpu"
-        if "cpu" in metric_suffix:
-            fault_type = "cpu"
+        """1A: Map RE2 metric column names to (service, fault_type)."""
+        metric_lower = metric_name.lower()
+
+        service = metric_name.split("_", 1)[0]
+        for svc in sorted(SERVICES_LIST, key=len, reverse=True):
+            if metric_lower.startswith(svc.lower() + "_") or metric_lower == svc.lower():
+                service = svc
+                break
+
+        metric_suffix = (
+            metric_lower[len(service) + 1 :]
+            if metric_lower.startswith(service.lower())
+            else metric_lower
+        )
+
+        if "socket" in metric_suffix:
+            fault_type = "socket"
+        elif "diskio" in metric_suffix or "disk_io" in metric_suffix or metric_suffix.startswith("disk"):
+            fault_type = "disk"
         elif "mem" in metric_suffix:
             fault_type = "mem"
-        elif "latency" in metric_suffix:
+        elif "latency" in metric_suffix or "delay" in metric_suffix:
             fault_type = "delay"
-        elif "error" in metric_suffix:
+        elif "error" in metric_suffix or "loss" in metric_suffix or "packet" in metric_suffix:
             fault_type = "loss"
-        elif "disk" in metric_suffix:
-            fault_type = "disk"
-        elif "socket" in metric_suffix:
-            fault_type = "socket"
+        elif "cpu" in metric_suffix:
+            fault_type = "cpu"
+        else:
+            fault_type = "cpu"
         return service, fault_type
 
 

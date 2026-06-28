@@ -315,8 +315,14 @@ def run_e2e_benchmark(
 
     from sklearn.metrics import precision_recall_fscore_support
 
+    # Align with evaluate.py: macro metrics over ground-truth service labels only
+    unique_true_classes = sorted(list(set(y_true)))
     precision, recall, f1, _ = precision_recall_fscore_support(
-        y_true, y_pred, average="macro", zero_division=0
+        y_true,
+        y_pred,
+        labels=unique_true_classes,
+        average="macro",
+        zero_division=0,
     )
 
     p99 = sorted(latencies_ms)[int(0.99 * len(latencies_ms)) - 1] if latencies_ms else 0.0
@@ -374,7 +380,12 @@ def _print_summary(report: dict) -> None:
     print(f"Service Top-1 accuracy:      {d['service_top1_accuracy'] * 100:.1f}%")
     print(f"Service Top-{top_k} accuracy:     {d[f'service_top{top_k}_accuracy'] * 100:.1f}%")
     print(f"Macro-Precision:             {d['macro_precision']:.3f}")
-    print(f"Macro-F1:                    {d['macro_f1']:.3f}")
+    print(f"Macro-Recall:                {d['macro_recall']:.3f}")
+    print(f"Macro-F1:                      {d['macro_f1']:.3f} (threshold: 0.85)")
+    if d["macro_f1"] >= 0.85:
+        print("[SUCCESS] Macro-F1 passes the 0.85 specification threshold.")
+    else:
+        print("[WARNING] Macro-F1 is below the 0.85 specification threshold.")
     print("--- Decide (chained from detect output) ---")
     print(f"Fault type accuracy:         {d['fault_type_accuracy_on_detected'] * 100:.1f}% (on detected)")
     print(f"Runbook accuracy (E2E):      {c['runbook_accuracy_e2e'] * 100:.1f}% ({c['correct_runbook_e2e']}/{d['detected_runs']} detected)")

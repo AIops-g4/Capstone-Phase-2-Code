@@ -301,7 +301,7 @@ Output: `detect_decide/benchmark_report_e2e.json`
 | Metric | Ý nghĩa |
 |--------|---------|
 | `detect.service_top1_accuracy` | RCA đúng service |
-| `detect.macro_precision` / `macro_f1` | Precision / F1 (Jira) |
+| `detect.macro_precision` / `macro_recall` / `macro_f1` | Cùng cách tính với `evaluate.py` (`labels=ground-truth services`) |
 | `decide.runbook_accuracy_e2e` | Runbook đúng **sau detect** (dùng fault từ RCA) |
 | `decide.runbook_accuracy_oracle_fault` | Runbook nếu fault đúng (upper bound) |
 | `decide.pipeline_success_rate` | Detect + đúng service + đúng runbook |
