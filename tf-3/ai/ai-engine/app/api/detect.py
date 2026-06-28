@@ -1,84 +1,77 @@
-from fastapi import APIRouter, Header
+"""
+POST /v1/detect — Anomaly Detection Endpoint.
+Per AI API Contract §3.1: Receives telemetry, runs hybrid Rule+RRCF detection.
+Includes tenant validation, audit logging, and contract-compliant response.
+"""
+from fastapi import APIRouter, Header, HTTPException
 from app.schemas.detect import DetectRequest, DetectResponse
-from app.schemas.common import AnomalyContext
-from app.detector.analyzer import TelemetryAnalyzer
+from app.detector.aggregator import DetectionAggregator
+from app.safety.tenant_validator import TenantValidator
+from app.audit.writer import AuditWriter
+from app.audit.schema import AuditRecord
+from datetime import datetime, timezone
 import uuid
+import time
+import logging
 
 router = APIRouter()
-analyzer = TelemetryAnalyzer(z_threshold=2.5)
+aggregator = DetectionAggregator()
+tenant_validator = TenantValidator()
+audit_writer = AuditWriter()
+logger = logging.getLogger(__name__)
 
-# Signal-to-fault-type mapping per Telemetry Contract §4
-SIGNAL_FAULT_MAP = {
-    "service_error_rate": "service_error_spike",
-    "service_latency_p95": "latency_degradation",
-    "container_resource_usage": "memory_pressure",
-    "application_log_event": "application_exception",
-    "distributed_trace_error_event": "distributed_trace_failure",
-    "pod_oom_event": "pod_oom_killed",
-    "service_unhealthy": "service_health_check_failure",
-    "queue_backlog": "queue_congestion",
-    "service_throughput_rps": "throughput_anomaly",
-    "container_restart_count": "crash_loop_backoff",
-    "secret_expiry_warning": "certificate_expiring",
-    "db_connection_pool_saturation": "database_connection_failure",
-}
 
 @router.post("/detect", response_model=DetectResponse)
 async def detect_anomaly(
     request: DetectRequest,
-    x_tenant_id: str = Header(..., description="Định danh duy nhất của Tenant"),
+    x_tenant_id: str = Header(..., description="Unique tenant identifier (UUID v4)"),
 ):
     """
-    Endpoint Phát hiện Bất thường: Nhận dữ liệu telemetry thời gian thực, 
-    thực thi mô hình phát hiện bất thường và đánh giá mức độ nghiêm trọng.
+    Anomaly Detection Endpoint: Receives real-time telemetry data,
+    runs hybrid Rule-Based + RRCF anomaly detection, and returns severity assessment.
+    Per AI API Contract §3.1.
     """
-    is_anomaly, severity, confidence, reasoning = analyzer.analyze(request.telemetry_window)
-    
-    context = None
-    if is_anomaly and request.telemetry_window:
-        # Extract context from telemetry - find the most relevant trigger point
-        trigger_point = request.telemetry_window[-1]
-        
-        # Extract system, namespace, deployment from telemetry labels (matching demo output)
-        system = "UNKNOWN"
-        namespace = None
-        deployment = None
-        container = None
-        
-        if trigger_point.labels:
-            system = trigger_point.labels.system or "UNKNOWN"
-            namespace = trigger_point.labels.namespace
-            deployment = trigger_point.labels.deployment
-            container = trigger_point.labels.container
-        
-        # Map signal_name to suspected_fault_type using telemetry contract signals
-        suspected_fault_type = SIGNAL_FAULT_MAP.get(
-            trigger_point.signal_name, 
-            "statistical_anomaly"
-        )
-        
-        # Get trigger value (numeric only)
-        trigger_value = None
-        try:
-            trigger_value = float(trigger_point.value) if isinstance(trigger_point.value, (int, float)) else None
-        except (ValueError, TypeError):
-            pass
-        
-        context = AnomalyContext(
-            target_service=trigger_point.service,
-            suspected_fault_type=suspected_fault_type,
-            system=system,
-            namespace=namespace,
-            deployment=deployment,
-            trigger_metric=trigger_point.signal_name,
-            trigger_value=trigger_value
-        )
-        
-    return DetectResponse(
+    start_time = time.time()
+
+    # 1. Tenant isolation validation (403 on mismatch)
+    tenant_validator.validate_detect(x_tenant_id, request.telemetry_window)
+
+    # 2. Run hybrid detection pipeline (Rule Engine + RRCF)
+    is_anomaly, severity, confidence, reasoning, anomaly_context = aggregator.analyze(
+        request.telemetry_window
+    )
+
+    # 3. Build response
+    correlation_id = request.correlation_id or uuid.uuid4()
+    response = DetectResponse(
         anomaly_detected=is_anomaly,
         severity=severity,
-        anomaly_context=context,
+        anomaly_context=anomaly_context,
         confidence=confidence,
         reasoning=reasoning,
-        correlation_id=request.correlation_id or uuid.uuid4()
+        correlation_id=correlation_id,
     )
+
+    # 4. Write audit record (synchronous, fail-closed)
+    latency_ms = int((time.time() - start_time) * 1000)
+    try:
+        audit_writer.write(AuditRecord(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            correlation_id=str(correlation_id),
+            idempotency_key=str(request.idempotency_key),
+            tenant_id=x_tenant_id,
+            endpoint="/v1/detect",
+            dry_run_mode=request.dry_run_mode,
+            request_body=request.model_dump(mode="json"),
+            response_body=response.model_dump(mode="json"),
+            response_status_code=200,
+            latency_ms=latency_ms,
+            decision_path="hybrid_rule_rrcf",
+            model_version="detect-v1.0.0",
+            safety_checks_passed=["tenant_isolation", "schema_validation"],
+        ))
+    except Exception as e:
+        logger.error(f"Audit write failed for /v1/detect: {e}")
+        raise HTTPException(status_code=500, detail="Audit trail write failed.")
+
+    return response
