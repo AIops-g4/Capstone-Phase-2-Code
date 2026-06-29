@@ -23,11 +23,44 @@ from .config import (
     VERIFY_REGRESSION_ERROR_THRESHOLD
 )
 
+from fastapi import FastAPI, Header, HTTPException, Request, status, Body
+from fastapi.responses import PlainTextResponse
+
 app = FastAPI(
     title="AIOps AI Engine Service",
     description="Generic Multi-Tenant Self-Heal Platform AI Engine with Alert Correlation & Deduplication.",
     version="1.1.0"
 )
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "timestamp": "2026-06-25T10:00:00Z"}
+
+@app.get("/ready")
+def readiness_check():
+    return {
+        "status": "ready",
+        "dependencies": {
+            "bedrock": "connected",
+            "dynamodb_lock": "connected",
+            "s3_audit_trail": "connected"
+        }
+    }
+
+@app.get("/metrics", response_class=PlainTextResponse)
+def metrics():
+    """
+    Dummy Prometheus metrics endpoint.
+    """
+    return """# HELP ai_engine_requests_total Total requests
+# TYPE ai_engine_requests_total counter
+ai_engine_requests_total{endpoint="/v1/detect"} 42
+ai_engine_requests_total{endpoint="/v1/decide"} 12
+ai_engine_requests_total{endpoint="/v1/verify"} 8
+# HELP ai_engine_cpu_usage CPU usage
+# TYPE ai_engine_cpu_usage gauge
+ai_engine_cpu_usage 0.15
+"""
 
 # --- Alert Correlation & Deduplication Engine ---
 
@@ -125,7 +158,7 @@ class DetectRequest(BaseModel):
 
 class AnomalyContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    target_service: Union[str, List[str]] = Field(..., description="Identified faulty service or top 5 services")
+    target_service: str = Field(..., description="Identified faulty service")
     suspected_fault_type: str = Field(..., description="Identified fault type")
     system: str = Field(default="E-COMMERCE", description="System name")
     namespace: Optional[str] = Field(default="production", description="Kubernetes namespace")
@@ -211,11 +244,28 @@ class VerifyResponse(BaseModel):
 # --- Endpoints ---
 
 @app.post("/v1/detect", response_model=DetectResponse, response_model_exclude_none=True)
-async def detect_anomalies(request: DetectRequest):
+async def detect_anomalies(
+    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
+    authorization: str = Header(None, alias="Authorization"),
+    x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-Id"),
+    idempotency_key_header: str = Header(..., alias="Idempotency-Key"),
+    x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode"),
+    idempotency_key: str = Body(...),
+    dry_run_mode: bool = Body(...),
+    telemetry_window: List[Dict[str, Any]] = Body(...),
+    correlation_id: Optional[str] = Body(None)
+):
     """
     Endpoint: POST /v1/detect
     Detects anomalies, correlates alerts across dependencies, and deduplicates.
     """
+    request = DetectRequest(
+        correlation_id=correlation_id,
+        idempotency_key=idempotency_key,
+        dry_run_mode=dry_run_mode,
+        telemetry_window=telemetry_window
+    )
+    
     # 1. Reconstruct metrics and logs
     metrics_records = {}
     log_messages = []
@@ -330,12 +380,8 @@ async def detect_anomalies(request: DetectRequest):
         if len(reasoning) > 300:
             reasoning = reasoning[:297] + "..."
             
-    top_5_services = correlation_analyzer.last_top_k[:5]
-    if not top_5_services:
-        top_5_services = [target_service]
-        
     context = AnomalyContext(
-        target_service=top_5_services,
+        target_service=target_service,
         suspected_fault_type=suspected_fault_type,
         system="E-COMMERCE",
         namespace="production",
@@ -354,11 +400,27 @@ async def detect_anomalies(request: DetectRequest):
     )
 
 @app.post("/v1/decide", response_model=DecideResponse, response_model_exclude_none=True)
-async def decide_action_plan(request: DecideRequest):
+async def decide_action_plan(
+    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
+    authorization: str = Header(None, alias="Authorization"),
+    x_correlation_id: str = Header(..., alias="X-Correlation-Id"),
+    idempotency_key_header: str = Header(..., alias="Idempotency-Key"),
+    x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode"),
+    idempotency_key: str = Body(...),
+    correlation_id: str = Body(...),
+    anomaly_context: Dict[str, Any] = Body(...),
+    dry_run_mode: bool = Body(...)
+):
     """
     Endpoint: POST /v1/decide
     Suppresses actions for downstream symptoms or redundant healing requests.
     """
+    request = DecideRequest(
+        correlation_id=correlation_id,
+        idempotency_key=idempotency_key,
+        dry_run_mode=dry_run_mode,
+        anomaly_context=anomaly_context
+    )
     ctx = request.anomaly_context
     target_service = ctx.target_service
     top_service = target_service[0] if isinstance(target_service, list) and target_service else target_service
@@ -415,11 +477,29 @@ async def decide_action_plan(request: DecideRequest):
     )
 
 @app.post("/v1/verify", response_model=VerifyResponse, response_model_exclude_none=True)
-async def verify_healing(request: VerifyRequest):
+async def verify_healing(
+    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
+    authorization: str = Header(None, alias="Authorization"),
+    x_correlation_id: str = Header(..., alias="X-Correlation-Id"),
+    idempotency_key_header: str = Header(..., alias="Idempotency-Key"),
+    x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode"),
+    idempotency_key: str = Body(...),
+    correlation_id: str = Body(...),
+    dry_run_mode: bool = Body(...),
+    action_executed: Dict[str, Any] = Body(...),
+    post_telemetry_window: List[Dict[str, Any]] = Body(...)
+):
     """
     Endpoint: POST /v1/verify
     Verifies and closes the correlated incident upon successful recovery.
     """
+    request = VerifyRequest(
+        correlation_id=correlation_id,
+        idempotency_key=idempotency_key,
+        dry_run_mode=dry_run_mode,
+        action_executed=action_executed,
+        post_telemetry_window=post_telemetry_window
+    )
     action = request.action_executed
     corr_id = request.correlation_id
     

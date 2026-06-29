@@ -131,7 +131,7 @@ class AIOpsEngine:
             "anomaly_detected": True,
             "severity": severity,
             "anomaly_context": {
-                "target_service": top_5_services,
+                "target_service": target_service,
                 "suspected_fault_type": suspected_fault_type,
                 "system": "E-COMMERCE",
                 "namespace": "production",

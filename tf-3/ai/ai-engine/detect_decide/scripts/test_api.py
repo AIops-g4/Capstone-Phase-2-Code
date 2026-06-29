@@ -52,7 +52,14 @@ def test_detect():
         "telemetry_window": telemetry_window
     }
     
-    response = requests.post(url, json=payload)
+    headers = {
+        "X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75",
+        "Idempotency-Key": payload["idempotency_key"],
+        "X-Dry-Run-Mode": "false",
+        "X-Correlation-Id": payload["correlation_id"]
+    }
+    
+    response = requests.post(url, json=payload, headers=headers)
     print(f"Status Code: {response.status_code}")
     print(f"Response: {json.dumps(response.json(), indent=2)}")
     return response.json()
@@ -68,7 +75,14 @@ def test_decide(anomaly_context):
         "anomaly_context": anomaly_context
     }
     
-    response = requests.post(url, json=payload)
+    headers = {
+        "X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75",
+        "Idempotency-Key": payload["idempotency_key"],
+        "X-Dry-Run-Mode": "false",
+        "X-Correlation-Id": payload["correlation_id"]
+    }
+    
+    response = requests.post(url, json=payload, headers=headers)
     print(f"Status Code: {response.status_code}")
     print(f"Response: {json.dumps(response.json(), indent=2)}")
     return response.json()
@@ -111,7 +125,14 @@ def test_verify():
         "post_telemetry_window": post_telemetry
     }
     
-    response = requests.post(url, json=payload)
+    headers = {
+        "X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75",
+        "Idempotency-Key": payload["idempotency_key"],
+        "X-Dry-Run-Mode": "false",
+        "X-Correlation-Id": payload["correlation_id"]
+    }
+    
+    response = requests.post(url, json=payload, headers=headers)
     print(f"Status Code: {response.status_code}")
     print(f"Response: {json.dumps(response.json(), indent=2)}")
     return response.json()
