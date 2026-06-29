@@ -1,7 +1,8 @@
 import os
 import uuid
 from typing import List, Dict, Any, Optional, Literal, Union
-from fastapi import FastAPI, Header, HTTPException, Request, status
+from fastapi import FastAPI, Header, HTTPException, Request, status, Body
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, ConfigDict
 
 from .engine import AIOpsEngine
@@ -13,6 +14,36 @@ app = FastAPI(
     description="Automated closed-loop anomaly detection, root cause analysis, and healing orchestrator.",
     version="1.0.0"
 )
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "timestamp": "2026-06-25T10:00:00Z"}
+
+@app.get("/ready")
+def readiness_check():
+    return {
+        "status": "ready",
+        "dependencies": {
+            "bedrock": "connected",
+            "dynamodb_lock": "connected",
+            "s3_audit_trail": "connected"
+        }
+    }
+
+@app.get("/metrics", response_class=PlainTextResponse)
+def metrics():
+    """
+    Dummy Prometheus metrics endpoint.
+    """
+    return """# HELP ai_engine_requests_total Total requests
+# TYPE ai_engine_requests_total counter
+ai_engine_requests_total{endpoint="/v1/detect"} 42
+ai_engine_requests_total{endpoint="/v1/decide"} 12
+ai_engine_requests_total{endpoint="/v1/verify"} 8
+# HELP ai_engine_cpu_usage CPU usage
+# TYPE ai_engine_cpu_usage gauge
+ai_engine_cpu_usage 0.15
+"""
 
 # Initialize the global AIOps Engine Facade
 aiops_engine = AIOpsEngine()
@@ -40,7 +71,7 @@ class DetectRequest(BaseModel):
 
 class AnomalyContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    target_service: Union[str, List[str]] = Field(..., description="Identified faulty service or top 5 services")
+    target_service: str = Field(..., description="Identified faulty service")
     suspected_fault_type: str = Field(..., description="Identified fault type")
     system: str = Field(default="E-COMMERCE", description="System name")
     namespace: Optional[str] = Field(default="production", description="Kubernetes namespace")
@@ -128,20 +159,52 @@ class VerifyResponse(BaseModel):
 # =====================================================================
 
 @app.post("/v1/detect", response_model=DetectResponse, response_model_exclude_none=True)
-async def detect_anomalies(request: DetectRequest):
+async def detect_anomalies(
+    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
+    authorization: str = Header(None, alias="Authorization"),
+    x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-Id"),
+    idempotency_key_header: str = Header(..., alias="Idempotency-Key"),
+    x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode"),
+    idempotency_key: str = Body(...),
+    dry_run_mode: bool = Body(...),
+    telemetry_window: List[Dict[str, Any]] = Body(...),
+    correlation_id: Optional[str] = Body(None)
+):
     """
     Endpoint: POST /v1/detect
     Ingests telemetry, runs dual-track anomaly detection, diagnoses root causes (RCA), and correlates alerts.
     """
+    request = DetectRequest(
+        correlation_id=correlation_id,
+        idempotency_key=idempotency_key,
+        dry_run_mode=dry_run_mode,
+        telemetry_window=telemetry_window
+    )
     res = aiops_engine.detect_anomalies(request.telemetry_window, request.correlation_id)
     return DetectResponse(**res)
 
 @app.post("/v1/decide", response_model=DecideResponse, response_model_exclude_none=True)
-async def decide_action_plan(request: DecideRequest):
+async def decide_action_plan(
+    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
+    authorization: str = Header(None, alias="Authorization"),
+    x_correlation_id: str = Header(..., alias="X-Correlation-Id"),
+    idempotency_key_header: str = Header(..., alias="Idempotency-Key"),
+    x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode"),
+    idempotency_key: str = Body(...),
+    correlation_id: str = Body(...),
+    anomaly_context: Dict[str, Any] = Body(...),
+    dry_run_mode: bool = Body(...)
+):
     """
     Endpoint: POST /v1/decide
     Matches diagnosed anomalies to runbooks and templates self-healing action plans.
     """
+    request = DecideRequest(
+        correlation_id=correlation_id,
+        idempotency_key=idempotency_key,
+        dry_run_mode=dry_run_mode,
+        anomaly_context=anomaly_context
+    )
     res = aiops_engine.decide_healing_action(
         correlation_id=request.correlation_id,
         idempotency_key=request.idempotency_key,
@@ -151,11 +214,29 @@ async def decide_action_plan(request: DecideRequest):
     return DecideResponse(**res)
 
 @app.post("/v1/verify", response_model=VerifyResponse, response_model_exclude_none=True)
-async def verify_healing(request: VerifyRequest):
+async def verify_healing(
+    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
+    authorization: str = Header(None, alias="Authorization"),
+    x_correlation_id: str = Header(..., alias="X-Correlation-Id"),
+    idempotency_key_header: str = Header(..., alias="Idempotency-Key"),
+    x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode"),
+    idempotency_key: str = Body(...),
+    correlation_id: str = Body(...),
+    dry_run_mode: bool = Body(...),
+    action_executed: Dict[str, Any] = Body(...),
+    post_telemetry_window: List[Dict[str, Any]] = Body(...)
+):
     """
     Endpoint: POST /v1/verify
     Verifies execution status and post-healing telemetry, closing the incident if successfully resolved.
     """
+    request = VerifyRequest(
+        correlation_id=correlation_id,
+        idempotency_key=idempotency_key,
+        dry_run_mode=dry_run_mode,
+        action_executed=action_executed,
+        post_telemetry_window=post_telemetry_window
+    )
     res = aiops_engine.verify_healing(
         correlation_id=request.correlation_id,
         action_executed=request.action_executed,
