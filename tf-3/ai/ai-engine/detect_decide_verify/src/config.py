@@ -109,7 +109,7 @@ PLATFORM_PROFILE_SCHEMA_PATH = _resolve_path(
 
 # Server Configuration
 API_HOST = os.getenv("API_HOST", "127.0.0.1")
-API_PORT = int(os.getenv("API_PORT", "8050"))
+API_PORT = int(os.getenv("API_PORT", "8080"))
 
 # Anomaly Detection Hyperparameters
 IFOREST_MULTIVARIATE_THRESHOLD_MULTIPLIER = float(os.getenv("IFOREST_MULTIVARIATE_THRESHOLD_MULTIPLIER", "6.0"))
