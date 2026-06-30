@@ -456,6 +456,9 @@ Instructions:
 3. Choose matched_runbook from fault_runbook_mapping using the corrected fault type.
 4. Render action_plan targets using the corrected target service and deployment template.
 5. Do not invent services, fault types, runbooks, namespaces, or actions outside the platform profile.
+6. If Additional detect evidence contains failed_self_heal_attempts, treat them as negative feedback from /v1/verify.
+7. If the target service appears stable but its selected fault runbook failed, keep the service and reassess the fault type using metric/log evidence.
+8. If the same generated fault type has already been tried across candidate services and failed, reassess target_service among service_top_k instead of repeating the same service.
 
 Structured output instructions:
 {parser.format_instructions()}
