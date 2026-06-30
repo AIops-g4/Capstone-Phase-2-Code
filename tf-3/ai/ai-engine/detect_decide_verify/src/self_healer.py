@@ -244,6 +244,78 @@ class LLMDecisionOutputParser:
             raise ValueError("verify_policy.window_seconds must be an integer")
 
 
+class LLMFaultTypeOutputParser:
+    """
+    Structured parser for a dedicated LLM fault-type classifier.
+
+    This parser intentionally does not accept target_service in the output. The
+    selected service is fixed by the caller; LLM is only allowed to refine
+    suspected_fault_type and explain the evidence.
+    """
+
+    REQUIRED_KEYS = {"suspected_fault_type", "confidence", "reason"}
+
+    def format_instructions(self) -> str:
+        return (
+            "Return exactly one raw JSON object with no markdown, no comments, and no extra text. "
+            f"The object must contain only these keys: {sorted(self.REQUIRED_KEYS)}. "
+            f"suspected_fault_type must be one of: {sorted(FAULT_RUNBOOK_MAPPING.keys())}. "
+            "confidence must be a number between 0.0 and 1.0. "
+            "reason must be a non-empty string explaining metric/log evidence. "
+            "Do not include target_service and do not try to change the selected service."
+        )
+
+    def parse(self, response_text: str) -> Dict[str, Any]:
+        raw_json = self._extract_json_object(response_text)
+        result = json.loads(raw_json)
+        if not isinstance(result, dict):
+            raise ValueError("LLM fault-type response must be a JSON object")
+
+        keys = set(result.keys())
+        missing = self.REQUIRED_KEYS - keys
+        extra = keys - self.REQUIRED_KEYS
+        if missing:
+            raise ValueError(f"LLM fault-type response missing keys: {sorted(missing)}")
+        if extra:
+            raise ValueError(f"LLM fault-type response contains unsupported keys: {sorted(extra)}")
+
+        fault_type = result.get("suspected_fault_type")
+        if fault_type not in FAULT_RUNBOOK_MAPPING:
+            raise ValueError(f"LLM fault-type response has unsupported fault: {fault_type}")
+
+        try:
+            confidence = float(result.get("confidence"))
+        except (TypeError, ValueError):
+            raise ValueError("LLM fault-type confidence must be numeric")
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError("LLM fault-type confidence must be between 0.0 and 1.0")
+
+        reason = result.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("LLM fault-type reason must be a non-empty string")
+
+        return {
+            "suspected_fault_type": fault_type,
+            "confidence": confidence,
+            "reason": reason.strip(),
+        }
+
+    def _extract_json_object(self, response_text: str) -> str:
+        clean = response_text.strip()
+        if clean.startswith("```json"):
+            clean = clean.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif clean.startswith("```"):
+            clean = clean.split("```", 1)[1].split("```", 1)[0].strip()
+
+        if clean.startswith("{") and clean.endswith("}"):
+            return clean
+
+        match = re.search(r"\{.*\}", clean, flags=re.DOTALL)
+        if not match:
+            raise ValueError("LLM response does not contain a JSON object")
+        return match.group(0)
+
+
 class SelfHealer:
     """
     Matches diagnosed anomalies to self-healing runbooks and generates compliant action plans.
@@ -359,6 +431,55 @@ class SelfHealer:
                 print(f"  [LLM DECISION Warning] LLM decide validation failed: {e}. Falling back to rule-based.")
 
         return self._decide_rule_based(ctx, target_service, fault_type, namespace, deployment)
+
+    def detect_fault_type_with_llm(
+        self,
+        anomaly_context: Dict[str, Any],
+        detect_evidence: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        """
+        Use LLM only as a fixed-service fault-type classifier.
+
+        The LLM is not allowed to change target_service. On validation/API errors,
+        this returns the original suspected_fault_type with used=False so callers
+        can safely continue with deterministic rule-based healing.
+        """
+        selected_service = anomaly_context.get("target_service", DEFAULT_SERVICE)
+        current_fault = anomaly_context.get("suspected_fault_type", "unknown")
+        parser = LLMFaultTypeOutputParser()
+
+        try:
+            client = LLMFactory.get_client()
+            prompt = self._format_fault_type_prompt(anomaly_context, detect_evidence or {}, parser)
+            response_text = client.generate_decision(prompt)
+            result = parser.parse(response_text)
+            result.update(
+                {
+                    "selected_service": selected_service,
+                    "previous_fault_type": current_fault,
+                    "used": True,
+                }
+            )
+            print(
+                "  [LLM FAULT] Successfully classified fault type for fixed service "
+                f"{selected_service}: {result['suspected_fault_type']} "
+                f"(confidence={result['confidence']:.2f})"
+            )
+            return result
+        except Exception as e:
+            print(
+                "  [LLM FAULT Warning] Fault-type classification failed: "
+                f"{e}. Keeping existing fault type: {current_fault}."
+            )
+            return {
+                "selected_service": selected_service,
+                "suspected_fault_type": current_fault,
+                "previous_fault_type": current_fault,
+                "confidence": 0.0,
+                "reason": str(e),
+                "used": False,
+                "error": str(e),
+            }
 
     def _decide_rule_based(
         self,
@@ -498,6 +619,56 @@ You MUST respond with a single, valid JSON object containing exactly the followi
     "window_seconds": 120,
     "success_conditions": ["pod_ready == true"]
   }}
+}}
+
+Ensure there is no conversational text, no comments, and no markdown formatting in your response. Just return the raw JSON object.
+"""
+
+    def _format_fault_type_prompt(
+        self,
+        anomaly_context: Dict[str, Any],
+        detect_evidence: Dict[str, Any],
+        parser: LLMFaultTypeOutputParser,
+    ) -> str:
+        selected_service = anomaly_context.get("target_service", DEFAULT_SERVICE)
+        suspected_fault_type = anomaly_context.get("suspected_fault_type", "unknown")
+        return f"""You are a senior Site Reliability Engineer (SRE) classifying the fault type for a microservice incident.
+
+The target service has already been selected and is FIXED:
+{selected_service}
+
+Your only task is to refine suspected_fault_type for this fixed service. Do NOT change target_service.
+
+Current anomaly_context:
+{json.dumps(anomaly_context, indent=2)}
+
+Current BARO/rule-based suspected_fault_type:
+{suspected_fault_type}
+
+Additional evidence focused on the fixed service:
+{json.dumps(detect_evidence, indent=2)}
+
+Allowed fault types and their runbook mapping:
+{json.dumps(FAULT_RUNBOOK_MAPPING, indent=2)}
+
+Useful interpretation hints:
+- cpu: CPU/core/processor saturation or throttling evidence.
+- mem: memory/OOM/heap/RSS/leak evidence.
+- delay: latency/p95/p99/timeout/duration/slow-response evidence.
+- loss: packet loss, high error rate, reset/refused/deadline/unavailable evidence.
+- disk: disk I/O, filesystem, IOPS, disk latency evidence.
+- socket: connection/socket/fd/TCP exhaustion evidence.
+- If failed_self_heal_attempts exists, treat failed attempts as negative verification feedback.
+- If the fixed service is stable under one fault hypothesis but verification failed, choose a different fault type supported by metric/log evidence.
+
+Structured output instructions:
+{parser.format_instructions()}
+
+You MUST respond with a single valid JSON object exactly like:
+{{
+  "suspected_fault_type": "fault type from allowed mapping",
+  "confidence": 0.82,
+  "reason": "Short evidence-based explanation for the fixed service only"
 }}
 
 Ensure there is no conversational text, no comments, and no markdown formatting in your response. Just return the raw JSON object.

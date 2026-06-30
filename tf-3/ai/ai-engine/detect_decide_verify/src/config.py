@@ -228,6 +228,7 @@ DEPENDENCY_GRAPH = PLATFORM_PROFILE.get("dependency_graph", {})
 
 # LLM Configurable Parameters
 USE_LLM_DECISION = os.getenv("USE_LLM_DECISION", "False").lower() == "true"
+USE_LLM_FAULT_TYPE = os.getenv("USE_LLM_FAULT_TYPE", "False").lower() == "true"
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
 

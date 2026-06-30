@@ -35,8 +35,10 @@ from src.config import (
     EVAL_BOCPD_BASELINE_LENGTH,
     EVAL_BOCPD_WINDOW_AFTER,
     EVAL_BOCPD_WINDOW_BEFORE,
+    FAULT_RUNBOOK_MAPPING,
     GROUND_TRUTH_PATH,
     RUNBOOKS_PATH,
+    USE_LLM_FAULT_TYPE,
 )
 from src.correlation_analyzer import CorrelationAnalyzer
 from src.log_parser import Drain3LogParser
@@ -266,6 +268,116 @@ def _decide_with_timer(
     return result, (time.perf_counter() - t_decide) * 1000
 
 
+def _refine_fault_type_with_llm_for_fixed_service(
+    healer: SelfHealer,
+    verifier: VerificationEngine,
+    current_context: dict,
+    detect_evidence: dict,
+    true_service: str,
+    true_fault: str,
+) -> dict:
+    """
+    Benchmark-only hook for the requested policy:
+    once service is known/selected correctly, keep service fixed and use LLM only
+    to classify suspected_fault_type, then recompute runbook deterministically.
+    """
+    selected_service = current_context.get("target_service")
+    default_result = {
+        "used": False,
+        "reason": "disabled_or_service_not_confirmed",
+        "llm_result": None,
+        "context": current_context,
+        "decision": None,
+        "verify_ok": False,
+        "verify_regression": False,
+        "verify_next_action": "SKIPPED",
+        "verify_reason": None,
+        "decide_latency_ms": 0.0,
+        "verify_latency_ms": 0.0,
+        "attempt": None,
+    }
+
+    use_llm_fault = os.getenv("USE_LLM_FAULT_TYPE", str(USE_LLM_FAULT_TYPE)).lower() == "true"
+    if not use_llm_fault:
+        default_result["reason"] = "USE_LLM_FAULT_TYPE_disabled"
+        return default_result
+    if selected_service != true_service:
+        default_result["reason"] = "service_not_confirmed_correct"
+        return default_result
+
+    fault_evidence = dict(detect_evidence)
+    fault_evidence.update(
+        {
+            "llm_fault_type_mode": "fixed_service_fault_classifier",
+            "fixed_target_service": selected_service,
+            "instruction": (
+                "The service has already been selected correctly in this offline benchmark. "
+                "Do not change target_service; classify only suspected_fault_type."
+            ),
+        }
+    )
+
+    t_fault = time.perf_counter()
+    llm_fault = healer.detect_fault_type_with_llm(current_context, fault_evidence)
+    fault_latency_ms = (time.perf_counter() - t_fault) * 1000
+    if not llm_fault.get("used"):
+        default_result.update(
+            {
+                "reason": "llm_fault_type_failed",
+                "llm_result": llm_fault,
+                "decide_latency_ms": fault_latency_ms,
+            }
+        )
+        return default_result
+
+    refined_context = dict(current_context)
+    refined_context["target_service"] = selected_service
+    refined_context["deployment"] = f"deployment/{selected_service}"
+    refined_context["suspected_fault_type"] = llm_fault.get(
+        "suspected_fault_type",
+        current_context.get("suspected_fault_type", "unknown"),
+    )
+
+    refined_decision, rule_latency_ms = _decide_with_timer(
+        healer,
+        refined_context,
+        fault_evidence,
+        force_rule_based=True,
+    )
+    refined_executed_context = _decision_context(refined_decision, refined_context)
+    ok, regression, next_action, verify_reason, verify_latency_ms = _execute_offline_heal_attempt(
+        verifier,
+        refined_decision,
+        refined_executed_context,
+        true_service,
+        true_fault,
+    )
+    attempt = {
+        "phase": "llm_fixed_service_fault_type",
+        "target_service": refined_executed_context.get("target_service"),
+        "suspected_fault_type": refined_executed_context.get("suspected_fault_type"),
+        "matched_runbook": refined_decision.get("matched_runbook"),
+        "success": ok and next_action == "DONE",
+        "next_action": next_action,
+        "reason": verify_reason,
+    }
+
+    return {
+        "used": bool(llm_fault.get("used")),
+        "reason": "fixed_service_fault_type_refined",
+        "llm_result": llm_fault,
+        "context": refined_executed_context,
+        "decision": refined_decision,
+        "verify_ok": ok,
+        "verify_regression": regression,
+        "verify_next_action": next_action,
+        "verify_reason": verify_reason,
+        "decide_latency_ms": fault_latency_ms + rule_latency_ms,
+        "verify_latency_ms": verify_latency_ms,
+        "attempt": attempt,
+    }
+
+
 def _run_fallback_healing_strategy(
     healer: SelfHealer,
     verifier: VerificationEngine,
@@ -316,6 +428,66 @@ def _run_fallback_healing_strategy(
         )
         return ok, regression, next_action, reason
 
+    def try_remaining_fault_types_for_service(
+        base_ctx: dict,
+        base_evidence: dict,
+        already_tried_faults: set[str],
+        phase: str,
+    ) -> tuple[bool, bool, str, str | None, dict, dict]:
+        """
+        Keep the same service fixed and try every remaining fault/runbook before
+        moving to another service candidate.
+        """
+        nonlocal decide_latency_ms, final_decision, final_context
+        last_ok = False
+        last_regression = False
+        last_next_action = "ROLLBACK"
+        last_reason = None
+        last_decision = final_decision
+        last_context = final_context
+
+        for candidate_fault in FAULT_RUNBOOK_MAPPING:
+            if candidate_fault in already_tried_faults:
+                continue
+            fault_ctx = dict(base_ctx)
+            fault_ctx["suspected_fault_type"] = candidate_fault
+            fault_ctx["deployment"] = f"deployment/{fault_ctx['target_service']}"
+            fault_evidence = dict(base_evidence)
+            fault_evidence.update(
+                {
+                    "fallback_mode": "try_remaining_fault_types_before_service_change",
+                    "failed_self_heal_attempts": attempts,
+                    "candidate_service": fault_ctx["target_service"],
+                    "candidate_fault_type": candidate_fault,
+                    "instruction": (
+                        "Keep the current service fixed and try another fault/runbook. "
+                        "Only move to another service after exhausting fault types."
+                    ),
+                }
+            )
+            fault_decision, latency = _decide_with_timer(
+                healer,
+                fault_ctx,
+                fault_evidence,
+                force_rule_based=True,
+            )
+            decide_latency_ms += latency
+            fault_context = _decision_context(fault_decision, fault_ctx)
+            last_ok, last_regression, last_next_action, last_reason = record_attempt(
+                fault_context,
+                fault_decision,
+                phase,
+            )
+            last_decision = fault_decision
+            last_context = fault_context
+            final_decision = fault_decision
+            final_context = fault_context
+            already_tried_faults.add(candidate_fault)
+            if last_ok and last_next_action == "DONE":
+                return last_ok, last_regression, last_next_action, last_reason, last_decision, last_context
+
+        return last_ok, last_regression, last_next_action, last_reason, last_decision, last_context
+
     verify_ok, verify_regression, verify_next_action, verify_reason = record_attempt(
         current_context,
         current_decision,
@@ -330,41 +502,51 @@ def _run_fallback_healing_strategy(
     if not (verify_ok and verify_next_action == "DONE"):
         attempted_service = current_context.get("target_service")
         attempted_fault = current_context.get("suspected_fault_type")
+        attempted_faults_by_service: dict[str, set[str]] = {
+            attempted_service: {attempted_fault},
+        }
 
         if attempted_service == true_service and attempted_fault != true_fault:
             fallback_used = True
-            reassess_evidence = dict(detect_evidence)
-            reassess_evidence.update(
-                {
-                    "fallback_mode": "fault_reassessment_after_failed_self_heal",
-                    "failed_self_heal_attempts": attempts,
-                    "instruction": (
-                        "The target service appears correct, but the selected fault runbook did not recover it. "
-                        "Keep the service if evidence still supports it and choose a better fault type."
-                    ),
-                }
+            verify_ok, verify_regression, verify_next_action, verify_reason, final_decision, final_context = (
+                try_remaining_fault_types_for_service(
+                    current_context,
+                    detect_evidence,
+                    attempted_faults_by_service[attempted_service],
+                    "same_service_alternate_fault_self_heal",
+                )
             )
-            reassess_context = dict(current_context)
-            final_decision, latency = _decide_with_timer(healer, reassess_context, reassess_evidence)
-            decide_latency_ms += latency
-            final_context = _decision_context(final_decision, reassess_context)
-            verify_ok, verify_regression, verify_next_action, verify_reason = record_attempt(
-                final_context,
-                final_decision,
-                "llm_fault_reassessment",
+            fallback_reason = (
+                "same_service_alternate_fault_recovered"
+                if verify_ok and verify_next_action == "DONE"
+                else "same_service_fault_types_exhausted"
             )
-            fallback_reason = "fault_reassessment_after_failed_self_heal"
 
         elif attempted_service != true_service:
             fallback_used = True
             generated_fault = attempted_fault
+            verify_ok, verify_regression, verify_next_action, verify_reason, final_decision, final_context = (
+                try_remaining_fault_types_for_service(
+                    current_context,
+                    detect_evidence,
+                    attempted_faults_by_service[attempted_service],
+                    "same_service_alternate_fault_self_heal",
+                )
+            )
+            fallback_reason = "same_service_fault_types_exhausted"
+
             for candidate_service in top_k_candidates:
+                if verify_ok and verify_next_action == "DONE":
+                    fallback_reason = "same_service_alternate_fault_recovered"
+                    break
                 if candidate_service == attempted_service:
                     continue
+                attempted_faults_by_service.setdefault(candidate_service, set())
                 candidate_ctx = dict(current_context)
                 candidate_ctx["target_service"] = candidate_service
                 candidate_ctx["deployment"] = f"deployment/{candidate_service}"
                 candidate_ctx["suspected_fault_type"] = generated_fault
+                attempted_faults_by_service[candidate_service].add(generated_fault)
                 candidate_evidence = dict(detect_evidence)
                 candidate_evidence.update(
                     {
@@ -392,15 +574,27 @@ def _run_fallback_healing_strategy(
                 if verify_ok and verify_next_action == "DONE":
                     fallback_reason = "same_fault_recovered_on_topk_candidate"
                     break
+                verify_ok, verify_regression, verify_next_action, verify_reason, final_decision, final_context = (
+                    try_remaining_fault_types_for_service(
+                        candidate_context,
+                        candidate_evidence,
+                        attempted_faults_by_service[candidate_service],
+                        "topk_alternate_fault_self_heal",
+                    )
+                )
+                if verify_ok and verify_next_action == "DONE":
+                    fallback_reason = "alternate_fault_recovered_on_topk_candidate"
+                    break
+                fallback_reason = "topk_service_fault_types_exhausted"
 
             if not (verify_ok and verify_next_action == "DONE"):
                 reassess_evidence = dict(detect_evidence)
                 reassess_evidence.update(
                     {
-                        "fallback_mode": "service_reassessment_after_exhausting_generated_fault",
+                        "fallback_mode": "service_reassessment_after_exhausting_services_and_faults",
                         "failed_self_heal_attempts": attempts,
                         "instruction": (
-                            "The generated fault type has been tried on available candidate services and did not recover the system. "
+                            "All fault types have been tried on available candidate services and did not recover the system. "
                             "Reassess target_service among service_top_k and choose a different service/fault if evidence supports it."
                         ),
                     }
@@ -414,7 +608,7 @@ def _run_fallback_healing_strategy(
                     final_decision,
                     "llm_service_reassessment",
                 )
-                fallback_reason = "service_reassessment_after_exhausting_generated_fault"
+                fallback_reason = "service_reassessment_after_exhausting_services_and_faults"
 
     return {
         "decision": final_decision,
@@ -592,6 +786,7 @@ def run_e2e_benchmark(
         verify_ok = False
         verify_next_action = "ESCALATE"
         verify_regression = False
+        llm_fault_refinement: dict = {"used": False, "reason": "not_attempted"}
 
         for retry_idx, candidate_detection_idx in enumerate(detection_candidates):
             if retry_idx > 0:
@@ -654,6 +849,32 @@ def run_e2e_benchmark(
                 latencies_ms[-1] += candidate_fallback["extra_decide_latency_ms"]
             verify_latencies_ms.append(candidate_fallback["verify_latency_ms"])
 
+            candidate_llm_fault_refinement = _refine_fault_type_with_llm_for_fixed_service(
+                healer=healer,
+                verifier=verifier,
+                current_context=candidate_executed_context,
+                detect_evidence={
+                    **candidate_evidence,
+                    "failed_self_heal_attempts": candidate_fallback["attempts"],
+                    "fallback_reason": candidate_fallback["fallback_reason"],
+                },
+                true_service=true_service,
+                true_fault=true_fault,
+            )
+            if candidate_llm_fault_refinement["used"]:
+                candidate_decision = candidate_llm_fault_refinement["decision"]
+                candidate_executed_context = candidate_llm_fault_refinement["context"]
+                latencies_ms[-1] += candidate_llm_fault_refinement["decide_latency_ms"]
+                verify_latencies_ms[-1] += candidate_llm_fault_refinement["verify_latency_ms"]
+                candidate_fallback["attempts"].append(candidate_llm_fault_refinement["attempt"])
+                candidate_fallback["verify_ok"] = candidate_llm_fault_refinement["verify_ok"]
+                candidate_fallback["verify_regression"] = candidate_llm_fault_refinement["verify_regression"]
+                candidate_fallback["verify_next_action"] = candidate_llm_fault_refinement["verify_next_action"]
+                candidate_fallback["verify_reason"] = candidate_llm_fault_refinement["verify_reason"]
+                candidate_fallback["verify_latency_ms"] += candidate_llm_fault_refinement["verify_latency_ms"]
+                candidate_fallback["fallback_used"] = True
+                candidate_fallback["fallback_reason"] = "llm_fixed_service_fault_type_refinement"
+
             candidate_final_service = candidate_executed_context.get("target_service", candidate_service)
             candidate_final_fault = candidate_executed_context.get("suspected_fault_type", candidate_fault)
             candidate_verify_ok = candidate_fallback["verify_ok"]
@@ -666,9 +887,12 @@ def run_e2e_benchmark(
                 "top_k_candidates": candidate_top_k,
                 "final_service": candidate_final_service,
                 "final_fault": candidate_final_fault,
+                "final_runbook": candidate_decision.get("matched_runbook"),
                 "verify_next_action": candidate_verify_next_action,
                 "verify_success": candidate_verify_ok and candidate_verify_next_action == "DONE",
                 "service_correct": candidate_final_service == true_service,
+                "llm_fault_type_used": candidate_llm_fault_refinement.get("used", False),
+                "llm_fault_type": (candidate_llm_fault_refinement.get("llm_result") or {}).get("suspected_fault_type"),
             }
             detect_retry_history.append(candidate_record)
 
@@ -687,6 +911,7 @@ def run_e2e_benchmark(
             verify_ok = candidate_verify_ok
             verify_next_action = candidate_verify_next_action
             verify_regression = candidate_fallback["verify_regression"]
+            llm_fault_refinement = candidate_llm_fault_refinement
             selected_retry_idx = retry_idx
 
             if pred_final_service == true_service or (verify_ok and verify_next_action == "DONE"):
@@ -694,7 +919,8 @@ def run_e2e_benchmark(
 
         service_ok = pred_service == true_service
         in_top_k = true_service in top_k_candidates
-        fault_ok = pred_fault == true_fault
+        fault_type_match = pred_fault == true_fault
+        fault_ok = service_ok and fault_type_match
         fault_confusion[true_fault][pred_fault] += 1
         fault_totals[true_fault] += 1
 
@@ -710,15 +936,28 @@ def run_e2e_benchmark(
         y_pred.append(pred_service)
 
         pred_runbook = decide_result["matched_runbook"]
-        runbook_ok = pred_runbook == expected_runbook
+        selected_predicted_service = pred_final_service
+        selected_predicted_fault = pred_final_fault
+        selected_predicted_runbook = pred_runbook
+        runbook_name_match = pred_runbook == expected_runbook
 
+        final_service_ok = pred_final_service == true_service
+        final_fault_type_match = pred_final_fault == true_fault
+        final_fault_ok = final_service_ok and final_fault_type_match
+        runbook_ok = final_service_ok and runbook_name_match
+        selected_failure_reasons = []
+        if not final_service_ok:
+            selected_failure_reasons.append("service_wrong")
+        if final_service_ok and not final_fault_type_match:
+            selected_failure_reasons.append("fault_type_wrong")
+        if final_service_ok and final_fault_type_match and not runbook_name_match:
+            selected_failure_reasons.append("runbook_wrong")
+        selected_failure_reason = "+".join(selected_failure_reasons) if selected_failure_reasons else "none"
         if runbook_ok:
             runbook_e2e += 1
 
         if verify_ok and verify_next_action == "DONE":
             verify_success += 1
-        final_service_ok = pred_final_service == true_service
-        final_fault_ok = pred_final_fault == true_fault
         if final_service_ok and runbook_ok and verify_ok:
             pipeline_success += 1
 
@@ -744,6 +983,15 @@ def run_e2e_benchmark(
                 "final_service": pred_final_service,
                 "final_fault": pred_final_fault,
                 "pred_runbook": pred_runbook,
+                "selected_predicted_service": selected_predicted_service,
+                "selected_predicted_fault": selected_predicted_fault,
+                "selected_predicted_runbook": selected_predicted_runbook,
+                "selected_prediction_correct": final_service_ok and final_fault_ok and runbook_ok,
+                "selected_service_correct": final_service_ok,
+                "selected_fault_type_match": final_fault_type_match,
+                "selected_fault_correct": final_fault_ok,
+                "selected_runbook_name_match": runbook_name_match,
+                "selected_failure_reason": selected_failure_reason,
                 "oracle_runbook": oracle_runbook,
                 "detect_assessment": decide_result.get("detect_assessment"),
                 "corrected_anomaly_context": decide_result.get("corrected_anomaly_context"),
@@ -756,9 +1004,19 @@ def run_e2e_benchmark(
                 "service_correct": service_ok,
                 "final_service_correct": final_service_ok,
                 "service_in_top_k": in_top_k,
+                "fault_type_match": fault_type_match,
                 "top_k_candidates": top_k_candidates,
+                "final_fault_type_match": final_fault_type_match,
                 "fault_correct": fault_ok,
                 "final_fault_correct": final_fault_ok,
+                "llm_fault_type_used": llm_fault_refinement.get("used", False),
+                "llm_fault_type": (llm_fault_refinement.get("llm_result") or {}).get("suspected_fault_type"),
+                "llm_fault_type_previous": (llm_fault_refinement.get("llm_result") or {}).get("previous_fault_type"),
+                "llm_fault_type_confidence": (llm_fault_refinement.get("llm_result") or {}).get("confidence"),
+                "llm_fault_type_reason": (llm_fault_refinement.get("llm_result") or {}).get("reason"),
+                "llm_fault_type_correct": (
+                    (llm_fault_refinement.get("llm_result") or {}).get("suspected_fault_type") == true_fault
+                ) if llm_fault_refinement.get("used", False) else False,
                 "runbook_correct_e2e": runbook_ok,
                 "runbook_correct_oracle": oracle_ok,
                 "verify_success": verify_ok,
@@ -785,6 +1043,15 @@ def run_e2e_benchmark(
                 f"Corrected: {corrected.get('target_service')} ({corrected.get('suspected_fault_type')})"
             )
             print(f"  [LLM REVIEW] Reason:           {assessment.get('assessment_reason')}")
+        if llm_fault_refinement.get("used"):
+            llm_fault = llm_fault_refinement.get("llm_result") or {}
+            print(
+                "  [LLM FAULT]  Fixed-service fault: "
+                f"{llm_fault.get('previous_fault_type')} -> {llm_fault.get('suspected_fault_type')} "
+                f"[{'OK' if llm_fault.get('suspected_fault_type') == true_fault else 'WRONG'}, "
+                f"conf={float(llm_fault.get('confidence', 0.0)):.2f}]"
+            )
+            print(f"  [LLM FAULT]  Reason:           {llm_fault.get('reason')}")
         print(
             f"  [FINAL]     Healing Target:    {pred_final_service} ({pred_final_fault}) "
             f"[svc={'OK' if final_service_ok else 'WRONG'}, fault={'OK' if final_fault_ok else 'WRONG'}]"
@@ -799,7 +1066,8 @@ def run_e2e_benchmark(
                     "              - "
                     f"detect#{retry_record['retry']}: pred={retry_record['pred_service']} "
                     f"top={','.join(retry_record['top_k_candidates'])} "
-                    f"final={retry_record['final_service']} => {retry_record['verify_next_action']}"
+                    f"final={retry_record['final_service']}({retry_record['final_fault']}) "
+                    f"runbook={retry_record.get('final_runbook')} => {retry_record['verify_next_action']}"
                 )
         if fallback_result["fallback_used"]:
             print(f"  [FALLBACK]  Reason:            {fallback_result['fallback_reason']}")
@@ -809,6 +1077,17 @@ def run_e2e_benchmark(
                     f"{attempt['phase']}: {attempt['target_service']} ({attempt['suspected_fault_type']}) "
                     f"=> {attempt['next_action']}"
                 )
+        print(
+            "  [SELECTED]  Final Prediction:  "
+            f"service={selected_predicted_service}, "
+            f"fault={selected_predicted_fault}, "
+            f"runbook={selected_predicted_runbook} "
+            f"[svc={'OK' if final_service_ok else 'WRONG'}, "
+            f"fault={'OK' if final_fault_ok else 'WRONG'}, "
+            f"runbook={'OK' if runbook_ok else 'WRONG'}, "
+            f"reason={selected_failure_reason}, "
+            f"joint={'OK' if final_service_ok and final_fault_ok and runbook_ok else 'WRONG'}]"
+        )
         print(f"  [DECIDE]    Predicted Runbook: {pred_runbook} [{'OK' if runbook_ok else 'WRONG'}]")
         print(f"  [DECIDE]    Oracle Runbook:    {oracle_runbook} [{'OK' if oracle_ok else 'WRONG'}]")
         print(f"  [VERIFY]    Result:            {'OK' if verify_ok and verify_next_action == 'DONE' else verify_next_action}")
@@ -879,6 +1158,7 @@ def run_e2e_benchmark(
             "top_k": eval_top_k,
             "use_bocpd": use_bocpd,
             "use_rrcf": use_rrcf,
+            "use_llm_fault_type": os.getenv("USE_LLM_FAULT_TYPE", str(USE_LLM_FAULT_TYPE)).lower() == "true",
         },
         "duration_seconds": round(duration_s, 2),
         "per_run": per_run,
