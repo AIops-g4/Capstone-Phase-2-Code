@@ -282,10 +282,24 @@ def run_e2e_benchmark(
             "system": "E-COMMERCE",
             "namespace": "production",
             "deployment": f"deployment/{pred_service}",
+            "trigger_metric": "",
+            "trigger_value": None,
+        }
+
+        detect_evidence = {
+            "detect_reasoning": reasoning,
+            "detect_confidence": round(confidence, 4),
+            "service_top_k": top_k_candidates,
+            "trigger_metric": anomaly_context.get("trigger_metric"),
+            "trigger_value": anomaly_context.get("trigger_value"),
+            "rca_engine": engine,
+            "detected_at_index": detection_idx,
+            "detected_at_time": float(df_metrics.iloc[detection_idx]["time"]),
+            "rto_seconds": int(df_metrics.iloc[detection_idx]["time"] - inject_time),
         }
 
         t_decide = time.perf_counter()
-        decide_result = healer.decide(anomaly_context)
+        decide_result = healer.decide(anomaly_context, detect_evidence=detect_evidence)
         latencies_ms.append((time.perf_counter() - t_decide) * 1000)
 
         pred_runbook = decide_result["matched_runbook"]
@@ -333,7 +347,7 @@ def run_e2e_benchmark(
 
         oracle_ctx = dict(anomaly_context)
         oracle_ctx["suspected_fault_type"] = true_fault
-        oracle_runbook = healer.decide(oracle_ctx)["matched_runbook"]
+        oracle_runbook = healer.decide(oracle_ctx, detect_evidence=detect_evidence)["matched_runbook"]
         oracle_ok = oracle_runbook == expected_runbook
         if oracle_ok:
             runbook_oracle += 1
@@ -344,6 +358,8 @@ def run_e2e_benchmark(
                 "pred_fault": pred_fault,
                 "pred_runbook": pred_runbook,
                 "oracle_runbook": oracle_runbook,
+                "detect_assessment": decide_result.get("detect_assessment"),
+                "corrected_anomaly_context": decide_result.get("corrected_anomaly_context"),
                 "service_correct": service_ok,
                 "service_in_top_k": in_top_k,
                 "top_k_candidates": top_k_candidates,
@@ -365,6 +381,15 @@ def run_e2e_benchmark(
         print(f"  [DIAGNOSIS] Predicted Fault:   {pred_fault} [{'OK' if fault_ok else 'WRONG'}]")
         print(f"  [DIAGNOSIS] Top-{eval_top_k} Candidates: {', '.join(top_k_candidates)} [{'OK' if in_top_k else 'WRONG'}]")
         print(f"  [DIAGNOSIS] Confidence Score:  {confidence:.2f}")
+        if decide_result.get("detect_assessment"):
+            assessment = decide_result["detect_assessment"]
+            corrected = decide_result.get("corrected_anomaly_context", {})
+            print(
+                "  [LLM REVIEW] Detect plausible: "
+                f"{assessment.get('is_detect_output_plausible')} | "
+                f"Corrected: {corrected.get('target_service')} ({corrected.get('suspected_fault_type')})"
+            )
+            print(f"  [LLM REVIEW] Reason:           {assessment.get('assessment_reason')}")
         print(f"  [DECIDE]    Predicted Runbook: {pred_runbook} [{'OK' if runbook_ok else 'WRONG'}]")
         print(f"  [DECIDE]    Oracle Runbook:    {oracle_runbook} [{'OK' if oracle_ok else 'WRONG'}]")
         print(f"  [VERIFY]    Result:            {'OK' if verify_ok and verify_next_action == 'DONE' else verify_next_action}")

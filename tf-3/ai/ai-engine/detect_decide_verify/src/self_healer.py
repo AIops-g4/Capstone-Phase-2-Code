@@ -6,11 +6,14 @@ from typing import Any, Dict, List, Union
 
 from .config import (
     ALLOWED_NAMESPACES,
+    DEPENDENCY_GRAPH,
     DEFAULT_DEPLOYMENT_TEMPLATE,
     DEFAULT_NAMESPACE,
     DEFAULT_SERVICE,
     FAULT_RUNBOOK_MAPPING,
     PLATFORM_PROFILE,
+    SERVICES_LIST,
+    SYSTEM_NAME,
 )
 from .llm import LLMFactory
 
@@ -26,6 +29,8 @@ class LLMDecisionOutputParser:
     """
 
     REQUIRED_TOP_LEVEL_KEYS = {
+        "detect_assessment",
+        "corrected_anomaly_context",
         "matched_runbook",
         "pattern_type",
         "action_plan",
@@ -51,7 +56,12 @@ class LLMDecisionOutputParser:
             "Return exactly one raw JSON object with no markdown, no comments, and no extra text. "
             "The object must contain only these top-level keys: "
             f"{sorted(self.REQUIRED_TOP_LEVEL_KEYS)}. "
+            "detect_assessment must include is_detect_output_plausible(boolean) and assessment_reason(string). "
+            "corrected_anomaly_context must include target_service and suspected_fault_type after reviewing the detect output. "
+            f"corrected_anomaly_context.target_service must be one of: {SERVICES_LIST}. "
+            f"corrected_anomaly_context.suspected_fault_type must be one of: {sorted(FAULT_RUNBOOK_MAPPING.keys())}. "
             f"matched_runbook must be one of: {allowed_runbooks}. "
+            "matched_runbook must align with fault_runbook_mapping for the corrected fault type. "
             "pattern_type must be either 'urgent' or 'deferred'. "
             f"Every action_plan[].action must be one of: {allowed_actions}. "
             f"Every action_plan[].target must follow this template: {DEFAULT_DEPLOYMENT_TEMPLATE}. "
@@ -61,16 +71,28 @@ class LLMDecisionOutputParser:
     def parse(
         self,
         response_text: str,
-        target_service: str,
-        namespace: str,
-        deployment: str,
+        fallback_target_service: str,
+        fallback_namespace: str,
+        fallback_deployment: str,
     ) -> Dict[str, Any]:
         raw_json = self._extract_json_object(response_text)
         decision = json.loads(raw_json)
         self._validate_top_level(decision)
-        self._validate_runbook(decision)
-        self._validate_action_plan(decision, target_service, namespace, deployment)
-        self._validate_blast_radius(decision, namespace)
+        corrected = self._validate_corrected_context(
+            decision,
+            fallback_target_service,
+            fallback_namespace,
+            fallback_deployment,
+        )
+        self._validate_detect_assessment(decision)
+        self._validate_runbook(decision, corrected["suspected_fault_type"])
+        self._validate_action_plan(
+            decision,
+            corrected["target_service"],
+            corrected["namespace"],
+            corrected["deployment"],
+        )
+        self._validate_blast_radius(decision, corrected["namespace"])
         self._validate_verify_policy(decision)
         return decision
 
@@ -102,7 +124,56 @@ class LLMDecisionOutputParser:
         if decision["pattern_type"] not in self.ALLOWED_PATTERN_TYPES:
             raise ValueError("LLM decision pattern_type is invalid")
 
-    def _validate_runbook(self, decision: Dict[str, Any]) -> None:
+    def _validate_detect_assessment(self, decision: Dict[str, Any]) -> None:
+        assessment = decision.get("detect_assessment")
+        if not isinstance(assessment, dict):
+            raise ValueError("detect_assessment must be an object")
+        if not isinstance(assessment.get("is_detect_output_plausible"), bool):
+            raise ValueError("detect_assessment.is_detect_output_plausible must be boolean")
+        if not isinstance(assessment.get("assessment_reason"), str) or not assessment["assessment_reason"].strip():
+            raise ValueError("detect_assessment.assessment_reason must be a non-empty string")
+
+    def _validate_corrected_context(
+        self,
+        decision: Dict[str, Any],
+        fallback_target_service: str,
+        fallback_namespace: str,
+        fallback_deployment: str,
+    ) -> Dict[str, Any]:
+        corrected = decision.get("corrected_anomaly_context")
+        if not isinstance(corrected, dict):
+            raise ValueError("corrected_anomaly_context must be an object")
+
+        target_service = corrected.get("target_service") or fallback_target_service
+        fault_type = corrected.get("suspected_fault_type")
+        namespace = corrected.get("namespace") or fallback_namespace
+        deployment = corrected.get("deployment") or DEFAULT_DEPLOYMENT_TEMPLATE.replace(
+            "{{target_service}}", target_service
+        )
+
+        if target_service not in SERVICES_LIST:
+            raise ValueError(f"LLM corrected target_service is not in platform profile: {target_service}")
+        if fault_type not in FAULT_RUNBOOK_MAPPING:
+            raise ValueError(f"LLM corrected unsupported fault type: {fault_type}")
+        if namespace not in ALLOWED_NAMESPACES:
+            raise ValueError(f"LLM corrected namespace is not allowed: {namespace}")
+
+        allowed_deployments = {
+            fallback_deployment,
+            DEFAULT_DEPLOYMENT_TEMPLATE.replace("{{target_service}}", target_service),
+            f"deployment/{target_service}",
+        }
+        if deployment not in allowed_deployments:
+            raise ValueError(f"LLM corrected unsupported deployment: {deployment}")
+
+        corrected.setdefault("system", SYSTEM_NAME)
+        corrected["target_service"] = target_service
+        corrected["suspected_fault_type"] = fault_type
+        corrected["namespace"] = namespace
+        corrected["deployment"] = deployment
+        return corrected
+
+    def _validate_runbook(self, decision: Dict[str, Any], corrected_fault_type: str) -> None:
         matched_runbook = decision.get("matched_runbook")
         valid_names = {key for key in self.runbooks}
         valid_names.update(
@@ -112,6 +183,16 @@ class LLMDecisionOutputParser:
         )
         if matched_runbook not in valid_names:
             raise ValueError(f"LLM hallucinated unsupported runbook: {matched_runbook}")
+
+        expected_key = FAULT_RUNBOOK_MAPPING.get(corrected_fault_type, "DefaultRecoveryRunbook")
+        expected = self.runbooks.get(expected_key, {})
+        expected_names = {expected_key}
+        if isinstance(expected, dict) and expected.get("name"):
+            expected_names.add(expected["name"])
+        if matched_runbook not in expected_names:
+            raise ValueError(
+                f"LLM runbook {matched_runbook} does not match corrected fault {corrected_fault_type}"
+            )
 
     def _validate_action_plan(
         self,
@@ -232,7 +313,12 @@ class SelfHealer:
             }
         }
 
-    def decide(self, anomaly_context: Union[Dict[str, Any], str], suspected_fault_type: str = None) -> Dict[str, Any]:
+    def decide(
+        self,
+        anomaly_context: Union[Dict[str, Any], str],
+        suspected_fault_type: str = None,
+        detect_evidence: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         """
         Select runbook and render action plan.
         Accepts full anomaly_context dict (preferred) or legacy (target_service, fault_type) args.
@@ -262,7 +348,7 @@ class SelfHealer:
             try:
                 client = LLMFactory.get_client()
                 parser = LLMDecisionOutputParser(self.runbooks)
-                prompt = self._format_prompt(target_service, fault_type, parser)
+                prompt = self._format_prompt(ctx, detect_evidence or {}, parser)
                 response_text = client.generate_decision(prompt)
                 decision = parser.parse(response_text, target_service, namespace, deployment)
                 print(
@@ -334,26 +420,59 @@ class SelfHealer:
 
     def _format_prompt(
         self,
-        target_service: str,
-        suspected_fault_type: str,
+        anomaly_context: Dict[str, Any],
+        detect_evidence: Dict[str, Any],
         parser: LLMDecisionOutputParser,
     ) -> str:
+        target_service = anomaly_context.get("target_service", DEFAULT_SERVICE)
+        suspected_fault_type = anomaly_context.get("suspected_fault_type", "unknown")
         return f"""You are a senior Site Reliability Engineer (SRE) managing a microservices cluster.
-An anomaly has been detected on:
-- Target Service: {target_service}
-- Suspected Fault: {suspected_fault_type}
+You are operating inside the /v1/decide stage. Your job is NOT to blindly trust /v1/detect.
+First review whether the detect/RCA output is plausible, then decide the final runbook.
+
+Detected anomaly_context from /v1/detect:
+{json.dumps(anomaly_context, indent=2)}
+
+Additional detect evidence for review:
+{json.dumps(detect_evidence, indent=2)}
+
+Platform profile summary:
+{json.dumps({
+    "system": SYSTEM_NAME,
+    "services": SERVICES_LIST,
+    "fault_runbook_mapping": FAULT_RUNBOOK_MAPPING,
+    "dependency_graph": DEPENDENCY_GRAPH,
+    "default_namespace": DEFAULT_NAMESPACE,
+    "allowed_namespaces": ALLOWED_NAMESPACES,
+    "deployment_template": DEFAULT_DEPLOYMENT_TEMPLATE,
+}, indent=2)}
 
 Available runbooks templates:
 {json.dumps(self.runbooks, indent=2)}
 
-Please select or generate a recovery plan. You can use one of the templates above or design a customized plan.
-Substitute any instances of '{{target_service}}' with the actual value: '{target_service}'.
+Instructions:
+1. Assess if /v1/detect likely identified the correct target_service and suspected_fault_type.
+2. If detect evidence suggests a better service/fault, correct it in corrected_anomaly_context.
+3. Choose matched_runbook from fault_runbook_mapping using the corrected fault type.
+4. Render action_plan targets using the corrected target service and deployment template.
+5. Do not invent services, fault types, runbooks, namespaces, or actions outside the platform profile.
 
 Structured output instructions:
 {parser.format_instructions()}
 
 You MUST respond with a single, valid JSON object containing exactly the following keys and matching types:
 {{
+  "detect_assessment": {{
+    "is_detect_output_plausible": true,
+    "assessment_reason": "Short reason based on detect evidence"
+  }},
+  "corrected_anomaly_context": {{
+    "target_service": "service from platform profile",
+    "suspected_fault_type": "fault type from fault_runbook_mapping",
+    "system": "{SYSTEM_NAME}",
+    "namespace": "{DEFAULT_NAMESPACE}",
+    "deployment": "deployment/service"
+  }},
   "matched_runbook": "Name of the runbook chosen (string)",
   "pattern_type": "urgent" or "deferred" (string),
   "action_plan": [
@@ -370,7 +489,7 @@ You MUST respond with a single, valid JSON object containing exactly the followi
   "blast_radius_config": {{
     "max_pod_impact_pct": 25,
     "circuit_breaker_error_rate": 0.20,
-    "allowed_namespaces": ["production", "default"]
+    "allowed_namespaces": {json.dumps(ALLOWED_NAMESPACES)}
   }},
   "verify_policy": {{
     "window_seconds": 120,

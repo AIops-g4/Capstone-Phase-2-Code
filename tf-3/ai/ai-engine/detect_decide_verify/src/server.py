@@ -94,6 +94,7 @@ class DecideRequest(BaseModel):
     idempotency_key: str
     dry_run_mode: bool
     anomaly_context: AnomalyContext
+    detect_evidence: Optional[Dict[str, Any]] = None
 
 class ActionPlanStep(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -124,6 +125,8 @@ class DecideResponse(BaseModel):
     idempotency_key: str
     dry_run_mode: bool
     cost_cap_exceeded: bool = False
+    detect_assessment: Optional[Dict[str, Any]] = None
+    corrected_anomaly_context: Optional[Dict[str, Any]] = None
 
 class ActionExecuted(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -193,7 +196,8 @@ async def decide_action_plan(
     idempotency_key: str = Body(...),
     correlation_id: str = Body(...),
     anomaly_context: Dict[str, Any] = Body(...),
-    dry_run_mode: bool = Body(...)
+    dry_run_mode: bool = Body(...),
+    detect_evidence: Optional[Dict[str, Any]] = Body(None)
 ):
     """
     Endpoint: POST /v1/decide
@@ -203,13 +207,15 @@ async def decide_action_plan(
         correlation_id=correlation_id,
         idempotency_key=idempotency_key,
         dry_run_mode=dry_run_mode,
-        anomaly_context=anomaly_context
+        anomaly_context=anomaly_context,
+        detect_evidence=detect_evidence,
     )
     res = aiops_engine.decide_healing_action(
         correlation_id=request.correlation_id,
         idempotency_key=request.idempotency_key,
         dry_run_mode=request.dry_run_mode,
-        anomaly_context=request.anomaly_context.model_dump()
+        anomaly_context=request.anomaly_context.model_dump(),
+        detect_evidence=request.detect_evidence,
     )
     return DecideResponse(**res)
 

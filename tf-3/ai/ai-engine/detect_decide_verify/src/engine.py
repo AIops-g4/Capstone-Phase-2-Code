@@ -157,7 +157,8 @@ class AIOpsEngine:
         correlation_id: str, 
         idempotency_key: str, 
         dry_run_mode: bool, 
-        anomaly_context: Dict[str, Any]
+        anomaly_context: Dict[str, Any],
+        detect_evidence: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Determines and templates healing action plans, suppressing duplicate/symptom alerts.
@@ -208,7 +209,7 @@ class AIOpsEngine:
         if not decide_ctx.get("deployment"):
             decide_ctx["deployment"] = _render_deployment(top_service)
         decide_ctx.setdefault("namespace", DEFAULT_NAMESPACE)
-        decision = self.healing_engine.decide(decide_ctx)
+        decision = self.healing_engine.decide(decide_ctx, detect_evidence=detect_evidence)
         
         return {
             "matched_runbook": decision["matched_runbook"],
@@ -219,7 +220,9 @@ class AIOpsEngine:
             "correlation_id": correlation_id,
             "idempotency_key": idempotency_key,
             "dry_run_mode": dry_run_mode,
-            "cost_cap_exceeded": False
+            "cost_cap_exceeded": False,
+            "detect_assessment": decision.get("detect_assessment"),
+            "corrected_anomaly_context": decision.get("corrected_anomaly_context"),
         }
 
     def verify_healing(
