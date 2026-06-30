@@ -167,6 +167,13 @@ cd ai/ai-engine/detect_decide_verify
 
 ## 4.1. Yêu cầu các file JSON cấu hình kiến trúc
 
+- `PLATFORM_PROFILE_PATH` là __bắt buộc nhất__ vì chứa service catalog, fault catalog, runbook mapping, runbooks, dependency graph.
+
+- `PLATFORM_PROFILE_SCHEMA_PATH` nên có để validate profile trước deploy.
+
+- `DEPENDENCY_GRAPH_PATH` hiện vẫn nên set vì một số analyzer legacy còn đọc file graph riêng; nội dung nên đồng bộ với `platform_profile.dependency_graph`.
+
+
 ```mermaid
 flowchart TD
     Env[".env"] --> ProfilePath["PLATFORM_PROFILE_PATH"]
