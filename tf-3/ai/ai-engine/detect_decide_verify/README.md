@@ -1,96 +1,449 @@
-# AIOps AI Engine - Hệ Thống Phát Hiện Bất Thường & Phân Tích Nguyên Nhân Gốc (RCA)
+# AIOps AI Engine — Detect + Decide + Verify E2E Stage
 
-Hệ thống AIOps AI Engine được thiết kế để tự động phát hiện các hành vi bất thường trong chuỗi chỉ số hiệu năng (metrics) của hệ thống microservices và phân tích, định vị chính xác dịch vụ gốc gây ra lỗi (Service Root Cause Localization) kết hợp với các kịch bản tự phục hồi (Runbooks).
+Stage `detect_decide_verify` là bản đầy đủ của AI Engine cho vòng lặp self-healing:
 
----
+1. `POST /v1/detect` — phát hiện anomaly + RCA service/fault.
+2. `POST /v1/decide` — chọn runbook và sinh action plan.
+3. `POST /v1/verify` — verify kết quả sau khi CDO/executor thực thi action.
 
-## 1. Hướng Dẫn Cài Đặt Môi Trường
-
-Hệ thống chạy trên môi trường **Conda** với phiên bản Python 3.12.
-
-### Bước 1: Kích hoạt môi trường Conda
-Kích hoạt môi trường `w6-mini-project` đã được cài đặt sẵn:
-```bash
-conda activate w6-mini-project
-```
-
-### Bước 2: Cài đặt thư viện bổ sung (nếu chưa có)
-Hệ thống sử dụng thuật toán **BOCPD** và **BARO RCA** từ thư viện `fse-baro`:
-```bash
-pip install fse-baro
-```
-
-### Bước 3: Tải và thiết lập bộ dữ liệu (Dataset Setup)
-Dataset nằm ở **`../dataset/`** (thư mục `ai-engine/dataset`, dùng chung cho `detect` và `decide`).
-
-Chạy các lệnh sau từ thư mục `detect/` để tải RE2 và RE3 từ Google Drive:
-
-```bash
-# Cài đặt công cụ gdown để tải dữ liệu (nếu chưa có)
-pip install gdown
-
-# Tạo thư mục dataset (ai-engine/dataset)
-mkdir -p ../dataset
-
-# Tải và giải nén bộ dữ liệu RE2
-gdown --id 12VpUPNx_ZWebA-cICyKmQmXjF3KpLJpP -O ../dataset/re2.zip
-unzip ../dataset/re2.zip -d ../dataset/
-rm ../dataset/re2.zip
-
-# Tải và giải nén bộ dữ liệu RE3
-gdown --id 1cZpnaZ1ijLUBssXzCnbGVWsT1NlnXtoy -O ../dataset/re3.zip
-unzip ../dataset/re3.zip -d ../dataset/
-rm ../dataset/re3.zip
-```
-
-### Bước 4: Khởi tạo Nhãn Ground Truth và Kịch Bản Runbooks
-Sau khi đã tải và giải nén bộ dữ liệu, chạy script sau để tự động quét thư mục dữ liệu, trích xuất thời điểm tiêm lỗi và khởi tạo các file nhãn `ground_truth.json` cũng như danh sách kịch bản tự phục hồi `runbooks.json`:
-
-```bash
-conda run -n w6-mini-project python scripts/generate_dataset_metadata.py
-```
+Stage này được thiết kế để dùng chung cho nhiều team CDO. Những phần phụ thuộc kiến trúc từng team như service list, dependency graph, fault → runbook mapping, namespace, deployment template và runbook catalog phải được đặt trong **platform profile JSON**, không hardcode trong code.
 
 ---
 
-## 2. Khởi Chạy API Server (Chế độ Production)
+## 1. Cấu trúc file quan trọng
 
-API Server cung cấp cổng giao tiếp RESTful API để tích hợp trực tiếp với hệ thống giám sát thời gian thực. Cổng mặc định là `8050`.
+```text
+ai/ai-engine/detect_decide_verify/
+├── .env
+├── .env.example
+├── README.md
+├── scripts/
+│   └── benchmark_e2e.py
+└── src/
+    ├── config.py
+    ├── server.py
+    ├── engine.py
+    ├── correlation_analyzer.py
+    ├── self_healer.py
+    ├── incident.py
+    ├── verifier.py
+    └── llm.py
 
-### Lệnh khởi chạy:
-```bash
-conda run -n w6-mini-project python src/server.py
+ai/ai-engine/dataset/
+├── platform_profile.schema.json
+├── platform_profile_online_boutique.json
+├── runbooks.json
+├── dependency_graph.json
+├── ground_truth.json
+└── benchmark_reports/
+    └── benchmark_e2e.json
 ```
 
-### Các Endpoint Chính:
-1. **`POST /v1/detect`**: Nhận luồng metrics và logs thời gian thực.
-   * **Cơ chế quét thông minh (Immediate Scanning)**: Vòng lặp quét bất thường sẽ trả về kết quả ngay lập tức khi phát hiện điểm bất thường đầu tiên, giúp giảm thiểu thời gian phục hồi (RTO) tối đa.
-2. **`POST /v1/decide`**: Khớp dịch vụ bị lỗi với kịch bản tự phục hồi (Runbook) tương ứng và xuất ra kế hoạch hành động.
-   * **Dịch vụ hóa (Service-Centric)**: Bỏ qua phân loại loại lỗi phức tạp, mặc định trả về `cpu` và ánh xạ trực tiếp sang kịch bản `DefaultRecoveryRunbook` để tăng tốc độ khởi động lại dịch vụ bị lỗi.
+### File profile chính
 
----
+```text
+ai/ai-engine/dataset/platform_profile_online_boutique.json
+```
 
-## 3. Chạy Đánh Giá Ngoại Tuyến (Offline Evaluation)
+Đây là profile mẫu hiện tại. Với 2 team CDO, nên tạo 2 file riêng:
 
-Kịch bản đánh giá ngoại tuyến giúp kiểm tra độ chính xác và hiệu năng của AI Engine trên tập dữ liệu sự cố giả lập gồm **90 kịch bản lỗi**.
+```text
+ai/ai-engine/dataset/platform_profile_cdo_team_a.json
+ai/ai-engine/dataset/platform_profile_cdo_team_b.json
+```
 
-Chạy lệnh duy nhất sau để thực hiện đánh giá hoàn chỉnh sử dụng thuật toán phát hiện bất thường BOCPD và engine phân tích nguyên nhân gốc BARO:
+Sau đó chọn profile bằng biến môi trường:
 
-```bash
-conda run -n w6-mini-project python scripts/evaluate.py --sample-size 90 --engine baro --use-bocpd
+```env
+PLATFORM_PROFILE_PATH=../dataset/platform_profile_cdo_team_a.json
 ```
 
 ---
 
-## 4. Các Tính Năng & Tối Ưu Nổi Bật
+## 2. Platform profile JSON là gì?
 
-1. **Kiến trúc Đánh Giá Song Song (Dual-Track Architecture)**:
-   * Khi bật BOCPD, hệ thống chỉ chạy phát hiện bất thường trên một phân đoạn nhỏ (Sliced Window) để đảm bảo tốc độ cực nhanh (tăng tốc **10 lần**).
-   * Khi phát hiện bất thường, hệ thống tự động ánh xạ ngược chỉ mục (index) về chuỗi thời gian đầy đủ (Full Time-Series) để chạy phân tích tương quan RCA với baseline dài **600 giây** ổn định, đảm bảo độ chính xác định vị dịch vụ đạt mức tối đa.
-2. **Cắt tỉa Baseline Động (Dynamic Baseline Capping)**:
-   * Tự động điều chỉnh độ dài baseline dựa trên vị trí thực tế của sự cố trong các chuỗi dữ liệu ngắn:
-     ```python
-     baseline_len = min(EVAL_BOCPD_BASELINE_LENGTH, inject_row_idx)
-     ```
-   * Giúp loại bỏ hoàn toàn hiện tượng baseline bị nhiễm dữ liệu lỗi (baseline contamination), giữ Z-score luôn chính xác 100%.
-3. **Bỏ qua các chỉ số dư thừa**:
-   * Hệ thống tự lọc sạch và chỉ giữ lại các chỉ số SLIs quan trọng (Latency và Error rate) khi chạy phát hiện bất thường đa biến bằng BOCPD, giúp giảm số chiều dữ liệu, loại bỏ nhiễu và tăng tốc độ xử lý ma trận đồng phương sai lên **160 lần**.
+Platform profile gom tất cả thông tin phụ thuộc kiến trúc/runbook của từng team CDO:
+
+- tên system/app
+- namespace mặc định
+- deployment template
+- service list
+- metric type list
+- dependency graph dùng cho symptom suppression
+- fault type → runbook mapping
+- runbook catalog
+
+Schema đầy đủ nằm tại:
+
+```text
+ai/ai-engine/dataset/platform_profile.schema.json
+```
+
+---
+
+## 3. JSON profile mẫu tối thiểu
+
+```json
+{
+  "profile_name": "cdo-team-a-prod",
+  "system": "TEAM-A-SYSTEM",
+  "default_namespace": "team-a-prod",
+  "default_deployment_template": "deployment/{{target_service}}",
+  "default_service": "api-gateway",
+  "allowed_namespaces": ["team-a-prod", "team-a-staging"],
+  "services": ["api-gateway", "order-service", "payment-service"],
+  "metric_types": ["cpu", "mem", "latency", "error", "socket", "diskio"],
+  "fault_runbook_mapping": {
+    "cpu": "TeamACPUScaleRunbook",
+    "mem": "TeamAMemoryPatchRunbook",
+    "delay": "TeamALatencyRestartRunbook",
+    "loss": "TeamAPacketLossRunbook",
+    "disk": "TeamADiskIORunbook",
+    "socket": "TeamASocketScaleRunbook",
+    "unknown": "TeamADefaultRunbook"
+  },
+  "dependency_graph": {
+    "api-gateway": ["order-service", "payment-service"],
+    "order-service": ["payment-service"]
+  },
+  "runbooks": {
+    "TeamACPUScaleRunbook": {
+      "name": "TeamACPUScaleRunbook",
+      "description": "Scale replicas when CPU saturation is detected.",
+      "pattern_type": "urgent",
+      "action_plan": [
+        {
+          "step": 1,
+          "action": "SCALE_REPLICAS",
+          "target": "deployment/{{target_service}}",
+          "params": {
+            "namespace": "team-a-prod",
+            "replicas": 3
+          }
+        }
+      ],
+      "blast_radius_config": {
+        "max_pod_impact_pct": 25,
+        "circuit_breaker_error_rate": 0.2,
+        "allowed_namespaces": ["team-a-prod", "team-a-staging"]
+      },
+      "verify_policy": {
+        "window_seconds": 120,
+        "success_conditions": ["pod_ready == true"]
+      }
+    },
+    "TeamADefaultRunbook": {
+      "name": "TeamADefaultRunbook",
+      "description": "Fallback restart for unknown faults.",
+      "pattern_type": "urgent",
+      "action_plan": [
+        {
+          "step": 1,
+          "action": "RESTART_DEPLOYMENT",
+          "target": "deployment/{{target_service}}",
+          "params": {
+            "namespace": "team-a-prod",
+            "grace_period_seconds": 30
+          }
+        }
+      ],
+      "blast_radius_config": {
+        "max_pod_impact_pct": 25,
+        "circuit_breaker_error_rate": 0.2,
+        "allowed_namespaces": ["team-a-prod", "team-a-staging"]
+      },
+      "verify_policy": {
+        "window_seconds": 120,
+        "success_conditions": ["pod_ready == true"]
+      }
+    }
+  }
+}
+```
+
+> Lưu ý: các giá trị trong `fault_runbook_mapping` phải match key trong `runbooks`.
+
+---
+
+## 4. JSON Schema validation
+
+Schema:
+
+```text
+../dataset/platform_profile.schema.json
+```
+
+Validate profile hiện tại:
+
+```bash
+cd ai/ai-engine/detect_decide_verify
+/home/duckq1u/miniconda3/envs/capstone/bin/python - <<'PY'
+import json
+from pathlib import Path
+import jsonschema
+
+schema = json.loads(Path('../dataset/platform_profile.schema.json').read_text())
+profile = json.loads(Path('../dataset/platform_profile_online_boutique.json').read_text())
+jsonschema.validate(profile, schema)
+print('PASS')
+PY
+```
+
+Validate profile của team A:
+
+```bash
+cd ai/ai-engine/detect_decide_verify
+/home/duckq1u/miniconda3/envs/capstone/bin/python - <<'PY'
+import json
+from pathlib import Path
+import jsonschema
+
+schema = json.loads(Path('../dataset/platform_profile.schema.json').read_text())
+profile = json.loads(Path('../dataset/platform_profile_cdo_team_a.json').read_text())
+jsonschema.validate(profile, schema)
+print('PASS')
+PY
+```
+
+---
+
+## 5. Thiết lập `.env`
+
+Copy từ example nếu chưa có:
+
+```bash
+cd ai/ai-engine/detect_decide_verify
+cp .env.example .env
+```
+
+Các biến quan trọng:
+
+```env
+DATASET_DIR=../dataset
+GROUND_TRUTH_PATH=../dataset/ground_truth.json
+RUNBOOKS_PATH=../dataset/runbooks.json
+DEPENDENCY_GRAPH_PATH=../dataset/dependency_graph.json
+PLATFORM_PROFILE_PATH=../dataset/platform_profile_online_boutique.json
+```
+
+Với CDO team A:
+
+```env
+PLATFORM_PROFILE_PATH=../dataset/platform_profile_cdo_team_a.json
+```
+
+Với CDO team B:
+
+```env
+PLATFORM_PROFILE_PATH=../dataset/platform_profile_cdo_team_b.json
+```
+
+Các biến override profile nếu cần:
+
+```env
+SYSTEM_NAME=E-COMMERCE
+DEFAULT_NAMESPACE=production
+DEFAULT_DEPLOYMENT_TEMPLATE=deployment/{{target_service}}
+DEFAULT_SERVICE=checkoutservice
+ALLOWED_NAMESPACES=production,default
+SERVICES_LIST=checkoutservice,currencyservice,emailservice
+METRIC_TYPES_LIST=cpu,mem,latency,error,socket,diskio
+```
+
+Khuyến nghị: nếu đã cấu hình trong `PLATFORM_PROFILE_PATH`, chỉ override bằng env khi thật sự cần.
+
+---
+
+## 6. Cấu hình LLM cho `/v1/decide`
+
+Mặc định tắt LLM để benchmark deterministic:
+
+```env
+USE_LLM_DECISION=False
+```
+
+Bật LLM khi có credential:
+
+```env
+USE_LLM_DECISION=True
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o
+OPENAI_API_KEY=...
+```
+
+Hoặc Anthropic:
+
+```env
+USE_LLM_DECISION=True
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-3-5-sonnet-20241022
+ANTHROPIC_API_KEY=...
+```
+
+Hoặc Bedrock:
+
+```env
+USE_LLM_DECISION=True
+LLM_PROVIDER=bedrock
+LLM_MODEL=us.anthropic.claude-3-5-sonnet-20241022-v2:0
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_SESSION_TOKEN=
+AWS_ENDPOINT_URL=
+```
+
+### LLM JSON guardrail
+
+`src/self_healer.py` có `LLMDecisionOutputParser`, tương tự structured output parser:
+
+- extract JSON object
+- validate required keys
+- validate runbook thuộc profile `runbooks`
+- validate action thuộc enum contract
+- validate target/namespace
+- invalid thì fallback rule-based
+
+Do đó LLM chỉ hỗ trợ `/v1/decide`; nó không execute Kubernetes trực tiếp.
+
+---
+
+## 7. Chạy API server
+
+```bash
+cd ai/ai-engine/detect_decide_verify
+/home/duckq1u/miniconda3/envs/capstone/bin/python -m src.server
+```
+
+Mặc định:
+
+```text
+http://127.0.0.1:8050
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8050/health
+```
+
+---
+
+## 8. Endpoint E2E
+
+### `POST /v1/detect`
+
+Input: telemetry window.
+
+Output: anomaly + RCA context.
+
+```json
+{
+  "anomaly_detected": true,
+  "anomaly_context": {
+    "target_service": "checkoutservice",
+    "suspected_fault_type": "cpu",
+    "system": "E-COMMERCE",
+    "namespace": "production",
+    "deployment": "deployment/checkoutservice"
+  },
+  "confidence": 0.9,
+  "reasoning": "...",
+  "correlation_id": "..."
+}
+```
+
+### `POST /v1/decide`
+
+Input: `anomaly_context` từ detect.
+
+Output: runbook + action plan.
+
+```json
+{
+  "matched_runbook": "CPUSaturationRecoveryRunbook",
+  "pattern_type": "urgent",
+  "action_plan": [
+    {
+      "step": 1,
+      "action": "SCALE_REPLICAS",
+      "target": "deployment/checkoutservice",
+      "params": {
+        "namespace": "production",
+        "replicas": 3
+      }
+    }
+  ],
+  "blast_radius_config": {
+    "max_pod_impact_pct": 25,
+    "circuit_breaker_error_rate": 0.2,
+    "allowed_namespaces": ["production", "default"]
+  },
+  "verify_policy": {
+    "window_seconds": 120,
+    "success_conditions": ["pod_ready == true"]
+  }
+}
+```
+
+### `POST /v1/verify`
+
+Input: action đã được CDO/executor thực thi + post-healing telemetry.
+
+Output:
+
+```json
+{
+  "success": true,
+  "regression_detected": false,
+  "next_action": "DONE"
+}
+```
+
+---
+
+## 9. Chạy benchmark E2E
+
+```bash
+cd ai/ai-engine/detect_decide_verify
+/home/duckq1u/miniconda3/envs/capstone/bin/python scripts/benchmark_e2e.py --sample-size 90 --engine baro --top-k 3
+```
+
+Report lưu tại:
+
+```text
+../dataset/benchmark_reports/benchmark_e2e.json
+```
+
+Report gồm:
+
+- detection rate
+- service Top-1/Top-3 accuracy
+- fault type accuracy
+- runbook accuracy E2E
+- oracle runbook accuracy
+- verify success rate
+- full pipeline success
+- fault confusion matrix
+- fault accuracy by type
+
+---
+
+## 10. Checklist cho mỗi team CDO
+
+1. Tạo file profile riêng:
+   - `platform_profile_cdo_team_a.json`
+   - `platform_profile_cdo_team_b.json`
+2. Fill đúng:
+   - `services`
+   - `dependency_graph`
+   - `fault_runbook_mapping`
+   - `runbooks`
+   - namespace/deployment template
+3. Validate bằng `platform_profile.schema.json`.
+4. Trỏ `.env`:
+   ```env
+   PLATFORM_PROFILE_PATH=../dataset/platform_profile_cdo_team_a.json
+   ```
+5. Chạy server hoặc benchmark.
+6. Không hardcode service/team-specific logic trong code; nếu kiến trúc đổi thì sửa JSON profile.

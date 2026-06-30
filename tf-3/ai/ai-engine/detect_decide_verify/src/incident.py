@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 from typing import Dict, Any, Tuple
-from .config import DEPENDENCY_GRAPH_PATH, ALERT_HEALING_WINDOW_SECONDS
+from .config import DEPENDENCY_GRAPH, DEPENDENCY_GRAPH_PATH, ALERT_HEALING_WINDOW_SECONDS
 
 class IncidentManager:
     """
@@ -32,10 +32,7 @@ class IncidentManager:
             self._load_defaults()
 
     def _load_defaults(self) -> None:
-        self.dependency_graph = {
-            "frontend": ["checkoutservice", "recommendationservice", "productcatalogservice", "cartservice", "shippingservice", "currencyservice", "adservice", "paymentservice", "emailservice"],
-            "checkoutservice": ["shippingservice", "emailservice", "paymentservice", "cartservice", "currencyservice", "productcatalogservice"]
-        }
+        self.dependency_graph = DEPENDENCY_GRAPH.copy()
 
     def correlate_alert(self, target_service: str, fault_type: str, timestamp: int) -> Tuple[str, bool]:
         """

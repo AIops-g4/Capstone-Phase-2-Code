@@ -6,7 +6,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, ConfigDict
 
 from .engine import AIOpsEngine
-from .config import API_HOST, API_PORT
+from .config import API_HOST, API_PORT, DEFAULT_NAMESPACE, SYSTEM_NAME
 
 # Initialize FastAPI App
 app = FastAPI(
@@ -73,8 +73,8 @@ class AnomalyContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
     target_service: str = Field(..., description="Identified faulty service")
     suspected_fault_type: str = Field(..., description="Identified fault type")
-    system: str = Field(default="E-COMMERCE", description="System name")
-    namespace: Optional[str] = Field(default="production", description="Kubernetes namespace")
+    system: str = Field(default=SYSTEM_NAME, description="System name")
+    namespace: Optional[str] = Field(default=DEFAULT_NAMESPACE, description="Kubernetes namespace")
     deployment: Optional[str] = Field(None, description="Kubernetes deployment")
     trigger_metric: Optional[str] = Field(None, description="Metric triggering the alert")
     trigger_value: Optional[float] = Field(None, description="Metric value triggering the alert")

@@ -1,3 +1,4 @@
+import json
 import os
 
 # Define package and dotenv paths
@@ -60,6 +61,17 @@ def _parse_pattern_map(value: str) -> dict:
     return parsed
 
 
+def _load_json_file(path: str, default: dict | None = None) -> dict:
+    if not path or not os.path.exists(path):
+        return default or {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as exc:
+        print(f"Warning: Failed to load JSON config from {path}: {exc}")
+        return default or {}
+
+
 # --- Configuration Constants ---
 
 # File Paths
@@ -75,6 +87,14 @@ RUNBOOKS_PATH = _resolve_path(
     os.getenv("RUNBOOKS_PATH", os.path.join(DATASET_DIR, "runbooks.json")),
     DETECT_DIR,
 )
+PLATFORM_PROFILE_PATH = _resolve_path(
+    os.getenv(
+        "PLATFORM_PROFILE_PATH",
+        os.path.join(DATASET_DIR, "platform_profile_online_boutique.json"),
+    ),
+    DETECT_DIR,
+)
+PLATFORM_PROFILE = _load_json_file(PLATFORM_PROFILE_PATH)
 
 # Server Configuration
 API_HOST = os.getenv("API_HOST", "127.0.0.1")
@@ -139,7 +159,10 @@ EVAL_BOCPD_WINDOW_AFTER = int(os.getenv("EVAL_BOCPD_WINDOW_AFTER", "30"))
 EVAL_BOCPD_BASELINE_LENGTH = int(os.getenv("EVAL_BOCPD_BASELINE_LENGTH", "100"))
 
 # OOP Modular & Configurable Hyperparameters
-DEPENDENCY_GRAPH_PATH = os.getenv("DEPENDENCY_GRAPH_PATH", os.path.join(DATASET_DIR, "dependency_graph.json"))
+DEPENDENCY_GRAPH_PATH = _resolve_path(
+    os.getenv("DEPENDENCY_GRAPH_PATH", os.path.join(DATASET_DIR, "dependency_graph.json")),
+    DETECT_DIR,
+)
 BOCPD_HAZARD = int(os.getenv("BOCPD_HAZARD", "50"))
 RCA_ANALYSIS_WINDOW_AFTER = int(os.getenv("RCA_ANALYSIS_WINDOW_AFTER", "10"))
 BARO_RCA_CONFIDENCE = float(os.getenv("BARO_RCA_CONFIDENCE", "0.90"))
@@ -167,11 +190,28 @@ FAULT_BARO_RANK_WEIGHT = float(os.getenv("FAULT_BARO_RANK_WEIGHT", "1.5"))
 FAULT_SCORE_MIN = float(os.getenv("FAULT_SCORE_MIN", "1.0"))
 
 # Parse lists of services and metric types
-SERVICES_LIST = [s.strip() for s in os.getenv("SERVICES_LIST", "checkoutservice,currencyservice,emailservice,productcatalogservice,recommendationservice,adservice,cartservice,frontend,paymentservice,redis,shippingservice").split(",") if s.strip()]
-METRIC_TYPES_LIST = [m.strip() for m in os.getenv("METRIC_TYPES_LIST", "cpu,mem,latency,error,socket,diskio").split(",") if m.strip()]
+_profile_services = ",".join(PLATFORM_PROFILE.get("services", []))
+_profile_metric_types = ",".join(PLATFORM_PROFILE.get("metric_types", []))
+SERVICES_LIST = [s.strip() for s in os.getenv("SERVICES_LIST", _profile_services or "checkoutservice,currencyservice,emailservice,productcatalogservice,recommendationservice,adservice,cartservice,frontend,paymentservice,redis,shippingservice").split(",") if s.strip()]
+METRIC_TYPES_LIST = [m.strip() for m in os.getenv("METRIC_TYPES_LIST", _profile_metric_types or "cpu,mem,latency,error,socket,diskio").split(",") if m.strip()]
+SYSTEM_NAME = os.getenv("SYSTEM_NAME", PLATFORM_PROFILE.get("system", "E-COMMERCE"))
+DEFAULT_NAMESPACE = os.getenv("DEFAULT_NAMESPACE", PLATFORM_PROFILE.get("default_namespace", "production"))
+DEFAULT_DEPLOYMENT_TEMPLATE = os.getenv(
+    "DEFAULT_DEPLOYMENT_TEMPLATE",
+    PLATFORM_PROFILE.get("default_deployment_template", "deployment/{{target_service}}"),
+)
+DEFAULT_SERVICE = os.getenv("DEFAULT_SERVICE", PLATFORM_PROFILE.get("default_service", SERVICES_LIST[0] if SERVICES_LIST else "service"))
+ALLOWED_NAMESPACES = [
+    ns.strip()
+    for ns in os.getenv(
+        "ALLOWED_NAMESPACES",
+        ",".join(PLATFORM_PROFILE.get("allowed_namespaces", [DEFAULT_NAMESPACE, "default"])),
+    ).split(",")
+    if ns.strip()
+]
 
 # Decide — full fault → runbook mapping (aligned with decide/src/config.py)
-FAULT_RUNBOOK_MAPPING = {
+FAULT_RUNBOOK_MAPPING = PLATFORM_PROFILE.get("fault_runbook_mapping") or {
     "cpu": "CPUSaturationRecoveryRunbook",
     "mem": "MemoryLeakRecoveryRunbook",
     "delay": "NetworkLatencyRecoveryRunbook",
@@ -184,6 +224,7 @@ FAULT_RUNBOOK_MAPPING = {
     "f4": "DefaultRecoveryRunbook",
     "f5": "DefaultRecoveryRunbook",
 }
+DEPENDENCY_GRAPH = PLATFORM_PROFILE.get("dependency_graph", {})
 
 # LLM Configurable Parameters
 USE_LLM_DECISION = os.getenv("USE_LLM_DECISION", "False").lower() == "true"

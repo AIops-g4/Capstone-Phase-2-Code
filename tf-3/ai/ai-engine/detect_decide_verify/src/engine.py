@@ -12,8 +12,16 @@ from .verifier import VerificationEngine
 from .config import (
     RUNBOOKS_PATH,
     BASELINE_LENGTH,
-    ANALYSIS_WINDOW_SIZE
+    ANALYSIS_WINDOW_SIZE,
+    ALLOWED_NAMESPACES,
+    DEFAULT_DEPLOYMENT_TEMPLATE,
+    DEFAULT_NAMESPACE,
+    SYSTEM_NAME,
 )
+
+
+def _render_deployment(target_service: str) -> str:
+    return DEFAULT_DEPLOYMENT_TEMPLATE.replace("{{target_service}}", target_service)
 
 class AIOpsEngine:
     """
@@ -133,9 +141,9 @@ class AIOpsEngine:
             "anomaly_context": {
                 "target_service": target_service,
                 "suspected_fault_type": suspected_fault_type,
-                "system": "E-COMMERCE",
-                "namespace": "production",
-                "deployment": target_service,
+                "system": SYSTEM_NAME,
+                "namespace": DEFAULT_NAMESPACE,
+                "deployment": _render_deployment(target_service),
                 "trigger_metric": trigger_metric,
                 "trigger_value": trigger_val
             },
@@ -185,7 +193,7 @@ class AIOpsEngine:
                 "blast_radius_config": {
                     "max_pod_impact_pct": 0,
                     "circuit_breaker_error_rate": 0.0,
-                    "allowed_namespaces": ["production"]
+                        "allowed_namespaces": [DEFAULT_NAMESPACE]
                 },
                 "verify_policy": {"window_seconds": 10, "success_conditions": []},
                 "correlation_id": correlation_id,
@@ -198,8 +206,8 @@ class AIOpsEngine:
         decide_ctx = dict(anomaly_context)
         decide_ctx["target_service"] = top_service
         if not decide_ctx.get("deployment"):
-            decide_ctx["deployment"] = f"deployment/{top_service}"
-        decide_ctx.setdefault("namespace", "production")
+            decide_ctx["deployment"] = _render_deployment(top_service)
+        decide_ctx.setdefault("namespace", DEFAULT_NAMESPACE)
         decision = self.healing_engine.decide(decide_ctx)
         
         return {
