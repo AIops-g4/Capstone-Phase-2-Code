@@ -1,8 +1,5 @@
-import os
 import uuid
-from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Literal, Union
-import pandas as pd
 from fastapi import FastAPI, Header, HTTPException, Request, status, Body
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, ConfigDict
@@ -13,11 +10,9 @@ from .config import (
     API_PORT,
     DEFAULT_NAMESPACE,
     SYSTEM_NAME,
-    DATASET_DIR,
-    EVAL_BOCPD_WINDOW_BEFORE,
-    EVAL_BOCPD_WINDOW_AFTER,
 )
 from .recovery_orchestrator import run_e2e_benchmark
+from .telemetry_sources import TelemetrySourceError, load_telemetry_from_source
 
 # Initialize FastAPI App
 app = FastAPI(
@@ -194,85 +189,6 @@ class FaultRankRequest(BaseModel):
 #                          API ENDPOINTS
 # =====================================================================
 
-def _iso(ts: int | float) -> str:
-    return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _load_benchmark_fixture_telemetry(source: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    Server-side telemetry provider used by benchmark/CDO tests.
-
-    This mirrors the future native K8s integration shape: the caller sends only
-    a source selector, while the AI Engine server fetches metrics/logs itself.
-    """
-    service_fault = source.get("service_fault")
-    run_id = str(source.get("run_id"))
-    if not service_fault or not run_id:
-        raise HTTPException(status_code=400, detail="telemetry_source requires service_fault and run_id")
-
-    run_dir = os.path.join(DATASET_DIR, service_fault, run_id)
-    metrics_path = os.path.join(run_dir, "simple_metrics.csv")
-    logs_path = os.path.join(run_dir, "logs.csv")
-    if not os.path.exists(metrics_path):
-        raise HTTPException(status_code=404, detail=f"Benchmark telemetry not found: {metrics_path}")
-
-    df_metrics = pd.read_csv(metrics_path).sort_values("time").reset_index(drop=True)
-    original_rows = len(df_metrics)
-    inject_time = source.get("inject_time")
-    if inject_time is not None:
-        window_before = int(source.get("window_before", EVAL_BOCPD_WINDOW_BEFORE))
-        window_after = int(source.get("window_after", EVAL_BOCPD_WINDOW_AFTER))
-        start_ts = int(inject_time) - window_before
-        end_ts = int(inject_time) + window_after
-        df_metrics = df_metrics[(df_metrics["time"] >= start_ts) & (df_metrics["time"] <= end_ts)].reset_index(drop=True)
-        if df_metrics.empty:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No telemetry rows in sliced window {start_ts}..{end_ts} for {service_fault}/{run_id}",
-            )
-        print(
-            f"[API][SERVER] Sliced benchmark telemetry around inject_time={inject_time}: "
-            f"rows {original_rows} -> {len(df_metrics)} "
-            f"(window_before={window_before}, window_after={window_after})"
-        )
-    tenant_id = str(source.get("tenant_id", "benchmark-cdo"))
-    telemetry: List[Dict[str, Any]] = []
-
-    for _, row in df_metrics.iterrows():
-        ts = _iso(row["time"])
-        for col, value in row.items():
-            if col == "time" or pd.isna(value):
-                continue
-            telemetry.append({
-                "ts": ts,
-                "tenant_id": tenant_id,
-                "service": str(col).split("_", 1)[0],
-                "signal_name": str(col),
-                "value": float(value),
-                "labels": {},
-            })
-
-    if os.path.exists(logs_path):
-        df_logs = pd.read_csv(logs_path)
-        if inject_time is not None and "timestamp" in df_logs.columns:
-            start_ns = (int(inject_time) - int(source.get("window_before", EVAL_BOCPD_WINDOW_BEFORE))) * 1_000_000_000
-            end_ns = (int(inject_time) + int(source.get("window_after", EVAL_BOCPD_WINDOW_AFTER))) * 1_000_000_000
-            df_logs = df_logs[(df_logs["timestamp"] >= start_ns) & (df_logs["timestamp"] <= end_ns)]
-        for _, row in df_logs.iterrows():
-            raw_ts = row.get("timestamp", df_metrics["time"].iloc[0] * 1_000_000_000)
-            ts_sec = int(raw_ts // 1_000_000_000) if raw_ts > 10_000_000_000 else int(raw_ts)
-            telemetry.append({
-                "ts": _iso(ts_sec),
-                "tenant_id": tenant_id,
-                "service": str(row.get("container_name", "unknown")),
-                "signal_name": "application_log_event",
-                "value": str(row.get("message", "")),
-                "labels": {"level": str(row.get("level", "info"))},
-            })
-
-    print(f"[API][SERVER] Loaded telemetry source {service_fault}/{run_id}: {len(telemetry)} points")
-    return telemetry
-
 @app.post("/v1/detect", response_model=DetectResponse, response_model_exclude_none=True)
 async def detect_anomalies(
     x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
@@ -291,11 +207,11 @@ async def detect_anomalies(
     Ingests telemetry, runs dual-track anomaly detection, diagnoses root causes (RCA), and correlates alerts.
     """
     print("\n[API][SERVER] POST /v1/detect received")
-    if telemetry_source and not telemetry_window:
-        source_kind = telemetry_source.get("kind", "benchmark_fixture")
-        if source_kind not in {"benchmark_fixture", "k8s", "prometheus_loki"}:
-            raise HTTPException(status_code=400, detail=f"Unsupported telemetry_source kind: {source_kind}")
-        telemetry_window = _load_benchmark_fixture_telemetry(telemetry_source)
+    if not telemetry_window:
+        try:
+            telemetry_window = load_telemetry_from_source(telemetry_source)
+        except TelemetrySourceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
     request = DetectRequest(
         correlation_id=correlation_id,

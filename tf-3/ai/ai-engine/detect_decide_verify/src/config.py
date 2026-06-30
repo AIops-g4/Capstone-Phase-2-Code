@@ -61,6 +61,10 @@ def _parse_pattern_map(value: str) -> dict:
     return parsed
 
 
+def _parse_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 def _load_json_file(path: str, default: dict | None = None) -> dict:
     if not path or not os.path.exists(path):
         return default or {}
@@ -220,6 +224,39 @@ ALLOWED_NAMESPACES = [
     ).split(",")
     if ns.strip()
 ]
+
+# Server-side telemetry source configuration.
+# - bench keeps deterministic benchmark_fixture datasets.
+# - production reads telemetry from Kubernetes pods and Prometheus/Loki-compatible backends.
+TELEMETRY_RUNTIME_MODE = os.getenv("TELEMETRY_RUNTIME_MODE", "bench").strip().lower()
+BENCH_TELEMETRY_SOURCE_KIND = os.getenv("BENCH_TELEMETRY_SOURCE_KIND", "benchmark_fixture").strip()
+PRODUCTION_TELEMETRY_SOURCE_KIND = os.getenv("PRODUCTION_TELEMETRY_SOURCE_KIND", "k8s").strip()
+_runtime_default_telemetry_source_kind = (
+    PRODUCTION_TELEMETRY_SOURCE_KIND if TELEMETRY_RUNTIME_MODE == "production" else BENCH_TELEMETRY_SOURCE_KIND
+)
+DEFAULT_TELEMETRY_SOURCE_KIND = (
+    os.getenv("DEFAULT_TELEMETRY_SOURCE_KIND", "").strip() or _runtime_default_telemetry_source_kind
+)
+
+# Kubernetes telemetry reader settings. AI Engine only reads telemetry; it must not
+# mutate Kubernetes resources. Request telemetry_source fields can override these.
+K8S_NAMESPACE = os.getenv("K8S_NAMESPACE", DEFAULT_NAMESPACE)
+K8S_CONTEXT = os.getenv("K8S_CONTEXT", "").strip()
+K8S_IN_CLUSTER = os.getenv("K8S_IN_CLUSTER", "False").lower() == "true"
+K8S_LABEL_SELECTOR = os.getenv("K8S_LABEL_SELECTOR", "").strip()
+K8S_SERVICE_LABEL_KEYS = _parse_csv(os.getenv("K8S_SERVICE_LABEL_KEYS", "app.kubernetes.io/name,app,service,k8s-app"))
+K8S_CONTAINER_NAMES = _parse_csv(os.getenv("K8S_CONTAINER_NAMES", ""))
+K8S_LOG_SINCE_SECONDS = int(os.getenv("K8S_LOG_SINCE_SECONDS", "300"))
+K8S_LOG_TAIL_LINES = int(os.getenv("K8S_LOG_TAIL_LINES", "500"))
+K8S_METRICS_PROVIDER = os.getenv("K8S_METRICS_PROVIDER", "prometheus").strip().lower()
+K8S_METRIC_WINDOW_SECONDS = int(os.getenv("K8S_METRIC_WINDOW_SECONDS", "300"))
+
+# Prometheus/Loki endpoints for production telemetry. Prometheus is used for
+# metric time series; Kubernetes API is used for pod logs in k8s mode.
+PROMETHEUS_BASE_URL = os.getenv("PROMETHEUS_BASE_URL", "").rstrip("/")
+PROMETHEUS_QUERY_STEP_SECONDS = int(os.getenv("PROMETHEUS_QUERY_STEP_SECONDS", "15"))
+PROMETHEUS_REQUEST_TIMEOUT_SECONDS = int(os.getenv("PROMETHEUS_REQUEST_TIMEOUT_SECONDS", "10"))
+LOKI_BASE_URL = os.getenv("LOKI_BASE_URL", "").rstrip("/")
 
 # Decide — fault type → runbook mapping. Fault candidates come from
 # platform_profile.metric_types so each CDO team can define its own catalog.
