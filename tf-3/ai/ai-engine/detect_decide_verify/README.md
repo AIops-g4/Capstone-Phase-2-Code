@@ -162,6 +162,234 @@ cd ai/ai-engine/detect_decide_verify
   scripts/benchmark_e2e.py
 ```
 
+
+---
+
+## 4.1. Yêu cầu các file JSON cấu hình kiến trúc
+
+```mermaid
+flowchart TD
+    Env[".env"] --> ProfilePath["PLATFORM_PROFILE_PATH"]
+    Env --> SchemaPath["PLATFORM_PROFILE_SCHEMA_PATH"]
+    Env --> GraphPath["DEPENDENCY_GRAPH_PATH"]
+    Env --> RunbooksPath["RUNBOOKS_PATH"]
+    Env --> GtPath["GROUND_TRUTH_PATH"]
+
+    ProfilePath --> Profile["platform_profile_<env>.json"]
+    SchemaPath --> Schema["platform_profile.schema.json"]
+    GraphPath --> Graph["dependency_graph.json"]
+    RunbooksPath --> Runbooks["runbooks.json legacy/fallback"]
+    GtPath --> GT["ground_truth.json bench only"]
+
+    Profile --> Catalog["services + metric_types + fault_runbook_mapping + runbooks"]
+    Schema --> Validate["validate profile shape"]
+    Graph --> RCA["dependency/symptom context"]
+    Runbooks --> Decide["SelfHealer fallback"]
+    GT --> Bench["benchmark_e2e.py"]
+```
+
+### 4.1.1 `PLATFORM_PROFILE_PATH` — file quan trọng nhất cho production
+
+`PLATFORM_PROFILE_PATH` trỏ tới JSON profile của từng môi trường/CDO team. Đây là source-of-truth cho catalog runtime, thay vì hardcode trong `.env`.
+
+| Field trong profile | Bắt buộc | Dùng cho |
+|---|---:|---|
+| `profile_name` | ✓ | Tên profile, ví dụ `online-boutique-prod` |
+| `system` | ✓ | Trả về trong `anomaly_context.system` |
+| `default_namespace` | ✓ | Namespace default cho action plan |
+| `default_deployment_template` | ✓ | Render target dạng `deployment/{{target_service}}` |
+| `default_service` | ✓ | Fallback service khi inference rỗng |
+| `allowed_namespaces` | ✓ | Blast radius / namespace allow-list |
+| `services` | ✓ | Danh sách service hợp lệ cho RCA/LLM |
+| `metric_types` | ✓ | Danh sách fault type hợp lệ, ví dụ `cpu`, `mem`, `delay` |
+| `fault_runbook_mapping` | ✓ | Map fault type → runbook key |
+| `dependency_graph` | ✓ | Graph phụ thuộc service nhúng trong profile |
+| `runbooks` | ✓ | Catalog runbook/action plan |
+
+Ví dụ tối thiểu:
+
+```json
+{
+  "profile_name": "online-boutique-prod",
+  "system": "E-COMMERCE",
+  "default_namespace": "production",
+  "default_deployment_template": "deployment/{{target_service}}",
+  "default_service": "checkoutservice",
+  "allowed_namespaces": ["production"],
+  "services": ["frontend", "checkoutservice", "paymentservice"],
+  "metric_types": ["cpu", "mem", "delay", "loss", "socket", "disk"],
+  "fault_runbook_mapping": {
+    "cpu": "CPUSaturationRecoveryRunbook",
+    "mem": "MemoryLeakRecoveryRunbook"
+  },
+  "dependency_graph": {
+    "frontend": ["checkoutservice"],
+    "checkoutservice": ["paymentservice"]
+  },
+  "runbooks": {
+    "CPUSaturationRecoveryRunbook": {
+      "name": "CPUSaturationRecoveryRunbook",
+      "description": "Scale service when CPU saturation is detected.",
+      "pattern_type": "urgent",
+      "action_plan": [
+        {
+          "step": 1,
+          "action": "SCALE_REPLICAS",
+          "target": "deployment/{{target_service}}",
+          "params": {"namespace": "production", "replicas": 3}
+        }
+      ],
+      "blast_radius_config": {
+        "max_pod_impact_pct": 25,
+        "circuit_breaker_error_rate": 0.2,
+        "allowed_namespaces": ["production"]
+      },
+      "verify_policy": {"window_seconds": 120, "success_conditions": ["pod_ready == true"]}
+    },
+    "MemoryLeakRecoveryRunbook": {
+      "name": "MemoryLeakRecoveryRunbook",
+      "description": "Patch memory limits when memory leak/OOM risk is detected.",
+      "pattern_type": "urgent",
+      "action_plan": [
+        {
+          "step": 1,
+          "action": "PATCH_MEMORY_LIMIT",
+          "target": "deployment/{{target_service}}",
+          "params": {"namespace": "production", "container": "main", "memory_request_mb": 512, "memory_limit_mb": 1024}
+        }
+      ],
+      "blast_radius_config": {
+        "max_pod_impact_pct": 25,
+        "circuit_breaker_error_rate": 0.2,
+        "allowed_namespaces": ["production"]
+      },
+      "verify_policy": {"window_seconds": 120}
+    }
+  }
+}
+```
+
+### 4.1.2 `PLATFORM_PROFILE_SCHEMA_PATH` — schema để kiểm tra profile
+
+`platform_profile.schema.json` mô tả cấu trúc bắt buộc của `PLATFORM_PROFILE_PATH`.
+
+```mermaid
+flowchart LR
+    Profile["platform_profile_online_boutique.json"] --> Validate["jsonschema validate"]
+    Schema["platform_profile.schema.json"] --> Validate
+    Validate -->|pass| Run["AI Engine startup / benchmark"]
+    Validate -->|fail| Fix["Fix services / metric_types / runbooks / graph"]
+```
+
+Lệnh validate profile:
+
+```bash
+cd ai/ai-engine/detect_decide_verify
+/home/duckq1u/miniconda3/envs/capstone/bin/python - <<'PY'
+import json
+from jsonschema import Draft202012Validator
+from src.config import PLATFORM_PROFILE_PATH, PLATFORM_PROFILE_SCHEMA_PATH
+with open(PLATFORM_PROFILE_SCHEMA_PATH, 'r', encoding='utf-8') as f:
+    schema = json.load(f)
+with open(PLATFORM_PROFILE_PATH, 'r', encoding='utf-8') as f:
+    profile = json.load(f)
+errors = sorted(Draft202012Validator(schema).iter_errors(profile), key=lambda e: list(e.path))
+if errors:
+    for e in errors:
+        print('FAIL', '.'.join(map(str, e.path)) or '<root>', '-', e.message)
+    raise SystemExit(1)
+print('PLATFORM_PROFILE_SCHEMA_VALID')
+print('profile=', PLATFORM_PROFILE_PATH)
+PY
+```
+
+### 4.1.3 `DEPENDENCY_GRAPH_PATH` — graph phụ thuộc service
+
+`dependency_graph.json` là map `service -> list[related services]`, ví dụ:
+
+```json
+{
+  "frontend": ["checkoutservice", "recommendationservice"],
+  "checkoutservice": ["paymentservice", "cartservice"]
+}
+```
+
+Hiện tại profile cũng có field `dependency_graph`. Có 2 cách vận hành:
+
+| Cách | Env cần set | Khi nào dùng |
+|---|---|---|
+| Graph nhúng trong profile | `PLATFORM_PROFILE_PATH` | Khuyến nghị cho production để giảm số file rời |
+| Graph file riêng | `DEPENDENCY_GRAPH_PATH` | Khi muốn benchmark/so sánh graph độc lập hoặc tái dùng chung |
+
+> Lưu ý: code hiện vẫn đọc `DEPENDENCY_GRAPH_PATH` cho analyzer/correlation legacy. Vì vậy trong production nên **giữ `DEPENDENCY_GRAPH_PATH` trỏ tới một file graph nhỏ đồng bộ với profile**, hoặc generate file này từ `platform_profile.dependency_graph` trong pipeline deploy.
+
+### 4.1.4 `RUNBOOKS_PATH`, `GROUND_TRUTH_PATH`, `DATASET_DIR`
+
+| Env | Production có cần? | Bench có cần? | Ghi chú |
+|---|---:|---:|---|
+| `RUNBOOKS_PATH` | Không bắt buộc nếu `PLATFORM_PROFILE_PATH.runbooks` đầy đủ | Có thể dùng fallback | Stage ưu tiên load runbooks từ platform profile; file này là legacy/fallback |
+| `GROUND_TRUTH_PATH` | Không | Có | Chỉ dùng cho benchmark/evaluate labels |
+| `DATASET_DIR` | Không nếu đọc K8s/Prometheus | Có | Chỉ cần cho `benchmark_fixture` |
+
+### 4.1.5 Production có phải chỉ set 2 path JSON không?
+
+**Không.** Production không chỉ cần set `PLATFORM_PROFILE_SCHEMA_PATH` và `DEPENDENCY_GRAPH_PATH`.
+
+Minimum production checklist nên là:
+
+```env
+# 1) Kiến trúc/catalog
+PLATFORM_PROFILE_PATH=/app/config/platform_profile_prod.json
+PLATFORM_PROFILE_SCHEMA_PATH=/app/config/platform_profile.schema.json
+DEPENDENCY_GRAPH_PATH=/app/config/dependency_graph.json
+
+# 2) Chế độ đọc telemetry runtime
+TELEMETRY_RUNTIME_MODE=production
+PRODUCTION_TELEMETRY_SOURCE_KIND=k8s
+DEFAULT_TELEMETRY_SOURCE_KIND=
+
+# 3) K8s logs source
+K8S_NAMESPACE=production
+K8S_IN_CLUSTER=True
+K8S_LABEL_SELECTOR=app.kubernetes.io/part-of=online-boutique
+K8S_SERVICE_LABEL_KEYS=app.kubernetes.io/name,app,service,k8s-app
+K8S_LOG_SINCE_SECONDS=300
+K8S_LOG_TAIL_LINES=500
+
+# 4) Metrics source
+K8S_METRICS_PROVIDER=prometheus
+PROMETHEUS_BASE_URL=http://prometheus-server.monitoring.svc.cluster.local:9090
+PROMETHEUS_QUERY_STEP_SECONDS=15
+```
+
+Nếu muốn tối giản file JSON, production cần ít nhất:
+
+1. `PLATFORM_PROFILE_PATH` — **bắt buộc**, chứa services, metric_types, runbook mapping, runbooks, dependency_graph.
+2. `PLATFORM_PROFILE_SCHEMA_PATH` — nên có để validate profile trước khi deploy.
+3. `DEPENDENCY_GRAPH_PATH` — nên set vì code hiện vẫn đọc file graph riêng cho analyzer legacy; nội dung nên đồng bộ với `platform_profile.dependency_graph`.
+
+Ngoài các path JSON, vẫn bắt buộc set nhóm env telemetry (`TELEMETRY_RUNTIME_MODE`, `K8S_*`, `PROMETHEUS_*`) để AI Engine biết đọc logs/metrics thật từ đâu.
+
+### 4.1.6 Smoke test JSON paths
+
+```bash
+cd ai/ai-engine/detect_decide_verify
+/home/duckq1u/miniconda3/envs/capstone/bin/python - <<'PY'
+from src.config import (
+    PLATFORM_PROFILE_PATH, PLATFORM_PROFILE_SCHEMA_PATH, DEPENDENCY_GRAPH_PATH,
+    SERVICES_LIST, METRIC_TYPES_LIST, FAULT_TYPE_CATALOG, DEFAULT_NAMESPACE
+)
+print('PLATFORM_PROFILE_PATH=', PLATFORM_PROFILE_PATH)
+print('PLATFORM_PROFILE_SCHEMA_PATH=', PLATFORM_PROFILE_SCHEMA_PATH)
+print('DEPENDENCY_GRAPH_PATH=', DEPENDENCY_GRAPH_PATH)
+print('DEFAULT_NAMESPACE=', DEFAULT_NAMESPACE)
+print('SERVICES_LIST=', SERVICES_LIST)
+print('METRIC_TYPES_LIST=', METRIC_TYPES_LIST)
+print('FAULT_TYPE_CATALOG=', FAULT_TYPE_CATALOG)
+PY
+```
+
+
 ---
 
 ## 5. Chạy chế độ bench

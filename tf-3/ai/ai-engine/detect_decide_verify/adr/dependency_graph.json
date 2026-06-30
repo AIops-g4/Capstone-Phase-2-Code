@@ -1,0 +1,4 @@
+{
+  "frontend": ["checkoutservice", "recommendationservice", "productcatalogservice", "cartservice", "shippingservice", "currencyservice", "adservice", "paymentservice", "emailservice"],
+  "checkoutservice": ["shippingservice", "emailservice", "paymentservice", "cartservice", "currencyservice", "productcatalogservice"]
+}

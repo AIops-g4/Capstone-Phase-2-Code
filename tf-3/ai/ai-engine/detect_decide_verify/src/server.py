@@ -1,7 +1,8 @@
 import uuid
+from datetime import datetime
 from typing import List, Dict, Any, Optional, Literal, Union
 from fastapi import FastAPI, Header, HTTPException, Request, status, Body
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field, ConfigDict
 
 from .engine import AIOpsEngine
@@ -91,8 +92,6 @@ class DetectResponse(BaseModel):
     anomaly_detected: bool
     severity: float = Field(..., ge=0.0, le=1.0)
     anomaly_context: Optional[AnomalyContext] = None
-    service_top_k: Optional[List[str]] = None
-    llm_fault_rank_evidence: Optional[Dict[str, Any]] = None
     confidence: float = Field(..., ge=0.0, le=1.0)
     reasoning: str = Field(..., max_length=300)
     correlation_id: str
@@ -134,10 +133,6 @@ class DecideResponse(BaseModel):
     idempotency_key: str
     dry_run_mode: bool
     cost_cap_exceeded: bool = False
-    detect_assessment: Optional[Dict[str, Any]] = None
-    corrected_anomaly_context: Optional[Dict[str, Any]] = None
-    fault_type_ranking: Optional[List[Dict[str, Any]]] = None
-    fault_type_ranking_used: Optional[bool] = None
 
 class ActionExecuted(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -189,6 +184,74 @@ class FaultRankRequest(BaseModel):
 #                          API ENDPOINTS
 # =====================================================================
 
+CONTRACT_SIGNAL_NAMES = {
+    "service_error_rate",
+    "service_latency_p95",
+    "container_resource_usage",
+    "application_log_event",
+    "distributed_trace_error_event",
+    "pod_oom_event",
+    "service_unhealthy",
+    "queue_backlog",
+    "service_throughput_rps",
+    "container_restart_count",
+    "secret_expiry_warning",
+    "db_connection_pool_saturation",
+}
+
+
+def _is_uuid(value: Any) -> bool:
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _is_rfc3339_datetime(value: Any) -> bool:
+    try:
+        datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _validate_contract_telemetry_window(telemetry_window: List[Dict[str, Any]], x_tenant_id: str) -> None:
+    """
+    Strict validation for direct HTTP Push telemetry defined in ai/contracts.
+
+    Server-side telemetry_source providers are internal adapters and may use
+    benchmark/profile-specific signal names before they are normalized by the
+    TelemetryProcessor, so this strict contract gate is applied only to direct
+    telemetry_window requests from CDO.
+    """
+    if not isinstance(telemetry_window, list) or not telemetry_window:
+        raise HTTPException(status_code=400, detail="telemetry_window must be a non-empty array")
+    allowed_keys = {"ts", "tenant_id", "service", "signal_name", "value", "labels"}
+    for idx, point in enumerate(telemetry_window):
+        if not isinstance(point, dict):
+            raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}] must be an object")
+        extra = set(point) - allowed_keys
+        if extra:
+            raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}] has unsupported fields: {sorted(extra)}")
+        missing = {"ts", "tenant_id", "service", "signal_name", "value"} - set(point)
+        if missing:
+            raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}] missing required fields: {sorted(missing)}")
+        if not _is_rfc3339_datetime(point.get("ts")):
+            raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}].ts must be RFC3339 date-time")
+        if not _is_uuid(point.get("tenant_id")):
+            raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}].tenant_id must be UUID")
+        if x_tenant_id and point.get("tenant_id") != x_tenant_id:
+            raise HTTPException(status_code=403, detail=f"telemetry_window[{idx}].tenant_id does not match X-Tenant-Id")
+        if point.get("signal_name") not in CONTRACT_SIGNAL_NAMES:
+            raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}].signal_name is not in telemetry contract enum")
+        labels = point.get("labels")
+        if labels is not None:
+            if not isinstance(labels, dict):
+                raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}].labels must be an object")
+            if "system" not in labels:
+                raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}].labels.system is required when labels is present")
+
 @app.post("/v1/detect", response_model=DetectResponse, response_model_exclude_none=True)
 async def detect_anomalies(
     x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
@@ -212,6 +275,8 @@ async def detect_anomalies(
             telemetry_window = load_telemetry_from_source(telemetry_source)
         except TelemetrySourceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    elif not telemetry_source:
+        _validate_contract_telemetry_window(telemetry_window, x_tenant_id)
 
     request = DetectRequest(
         correlation_id=correlation_id,
@@ -224,7 +289,9 @@ async def detect_anomalies(
         raise HTTPException(status_code=400, detail="Provide telemetry_source or telemetry_window")
     res = aiops_engine.detect_anomalies(request.telemetry_window, request.correlation_id)
     print(f"[API][SERVER] POST /v1/detect completed anomaly_detected={res.get('anomaly_detected')}")
-    return DetectResponse(**res)
+    if telemetry_source:
+        return JSONResponse(content=res)
+    return DetectResponse(**{k: v for k, v in res.items() if k in DetectResponse.model_fields})
 
 @app.post("/v1/decide", response_model=DecideResponse, response_model_exclude_none=True)
 async def decide_action_plan(
@@ -259,7 +326,9 @@ async def decide_action_plan(
         detect_evidence=request.detect_evidence,
     )
     print(f"[API][SERVER] POST /v1/decide completed runbook={res.get('matched_runbook')}")
-    return DecideResponse(**res)
+    if request.detect_evidence:
+        return JSONResponse(content=res)
+    return DecideResponse(**{k: v for k, v in res.items() if k in DecideResponse.model_fields})
 
 @app.post("/v1/verify", response_model=VerifyResponse, response_model_exclude_none=True)
 async def verify_healing(
