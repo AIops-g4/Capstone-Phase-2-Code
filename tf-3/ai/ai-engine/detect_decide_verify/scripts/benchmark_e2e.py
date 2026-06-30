@@ -17,6 +17,7 @@ import os
 import sys
 import time
 import uuid
+from collections import defaultdict
 from types import SimpleNamespace
 
 import numpy as np
@@ -157,6 +158,9 @@ def run_e2e_benchmark(
     per_run: list[dict] = []
     y_true: list[str] = []
     y_pred: list[str] = []
+    fault_confusion: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    fault_totals: dict[str, int] = defaultdict(int)
+    fault_correct_by_type: dict[str, int] = defaultdict(int)
 
     t0_all = time.perf_counter()
 
@@ -173,6 +177,10 @@ def run_e2e_benchmark(
         service_fault = gt["service_fault"]
         run_id = gt["run_id"]
         inject_time = gt["inject_time"]
+
+        print(f"[{idx + 1}/{len(run_keys)}] Evaluating Run: {run_key}")
+        print(f"  True Fault Service: {true_service} injected at {inject_time}")
+        print(f"  True Fault Type:    {true_fault}")
 
         run_dir = os.path.join(DATASET_DIR, service_fault, run_id)
         metrics_path = os.path.join(run_dir, "simple_metrics.csv")
@@ -192,8 +200,7 @@ def run_e2e_benchmark(
             per_run.append(row)
             y_true.append(true_service)
             y_pred.append("missing_data")
-            if verbose:
-                print(f"[{idx + 1}/{len(run_keys)}] {run_key} — SKIP (missing data)")
+            print(f"  [ERROR] Missing metrics or logs files for {run_key}. Skipping.\n")
             continue
 
         df_metrics = pd.read_csv(metrics_path).sort_values("time").reset_index(drop=True)
@@ -224,15 +231,18 @@ def run_e2e_benchmark(
             )
 
         if detection_idx < 0:
+            print("  [RESULT] Anomaly Detection FAILED (False Negative).\n")
             y_true.append(true_service)
             y_pred.append("undetected")
             per_run.append(row)
-            if verbose:
-                print(f"[{idx + 1}/{len(run_keys)}] {run_key} — NOT DETECTED")
             continue
 
         detected += 1
         row["detected"] = True
+        detect_time = df_metrics.iloc[detection_idx]["time"]
+        rto = int(detect_time - inject_time)
+        row["rto"] = rto
+        print(f"  [DETECTED] Anomaly flagged at second {detection_idx} (Time: {detect_time}, RTO: {rto}s).")
 
         time_start = int(df_metrics["time"].min())
         time_end = int(df_metrics["time"].max())
@@ -252,6 +262,8 @@ def run_e2e_benchmark(
         service_ok = pred_service == true_service
         in_top_k = true_service in top_k_candidates
         fault_ok = pred_fault == true_fault
+        fault_confusion[true_fault][pred_fault] += 1
+        fault_totals[true_fault] += 1
 
         if service_ok:
             service_top1 += 1
@@ -259,6 +271,7 @@ def run_e2e_benchmark(
             service_topk += 1
         if fault_ok:
             fault_correct += 1
+            fault_correct_by_type[true_fault] += 1
 
         y_true.append(true_service)
         y_pred.append(pred_service)
@@ -348,13 +361,14 @@ def run_e2e_benchmark(
         )
         per_run.append(row)
 
-        if verbose:
-            print(
-                f"[{idx + 1}/{len(run_keys)}] {run_key} | "
-                f"svc={'OK' if service_ok else pred_service} | "
-                f"fault={'OK' if fault_ok else pred_fault} | "
-                f"runbook={'OK' if runbook_ok else pred_runbook}"
-            )
+        print(f"  [DIAGNOSIS] Predicted Service: {pred_service} [{'OK' if service_ok else 'WRONG'}]")
+        print(f"  [DIAGNOSIS] Predicted Fault:   {pred_fault} [{'OK' if fault_ok else 'WRONG'}]")
+        print(f"  [DIAGNOSIS] Top-{eval_top_k} Candidates: {', '.join(top_k_candidates)} [{'OK' if in_top_k else 'WRONG'}]")
+        print(f"  [DIAGNOSIS] Confidence Score:  {confidence:.2f}")
+        print(f"  [DECIDE]    Predicted Runbook: {pred_runbook} [{'OK' if runbook_ok else 'WRONG'}]")
+        print(f"  [DECIDE]    Oracle Runbook:    {oracle_runbook} [{'OK' if oracle_ok else 'WRONG'}]")
+        print(f"  [VERIFY]    Result:            {'OK' if verify_ok and verify_next_action == 'DONE' else verify_next_action}")
+        print(f"  [REASONING] {reasoning}\n")
 
     duration_s = time.perf_counter() - t0_all
 
@@ -371,6 +385,15 @@ def run_e2e_benchmark(
     )
 
     p99 = sorted(latencies_ms)[int(0.99 * len(latencies_ms)) - 1] if latencies_ms else 0.0
+    fault_confusion_matrix = {
+        true_fault: dict(sorted(pred_counts.items()))
+        for true_fault, pred_counts in sorted(fault_confusion.items())
+    }
+    fault_accuracy_by_type = {
+        fault: round(fault_correct_by_type.get(fault, 0) / total_count, 4)
+        for fault, total_count in sorted(fault_totals.items())
+        if total_count
+    }
 
     report = {
         "benchmark": "detect_decide_e2e",
@@ -382,6 +405,8 @@ def run_e2e_benchmark(
             "service_top1_on_detected": round(service_top1 / detected, 4) if detected else 0,
             f"service_top{eval_top_k}_accuracy": round(service_topk / total, 4) if total else 0,
             "fault_type_accuracy_on_detected": round(fault_correct / detected, 4) if detected else 0,
+            "fault_accuracy_by_type": fault_accuracy_by_type,
+            "fault_confusion_matrix": fault_confusion_matrix,
             "macro_precision": round(float(precision), 4),
             "macro_recall": round(float(recall), 4),
             "macro_f1": round(float(f1), 4),
@@ -424,29 +449,33 @@ def _print_summary(report: dict) -> None:
     top_k = report["config"]["top_k"]
 
     print("\n=======================================================")
-    print("              E2E BENCHMARK SUMMARY REPORT               ")
+    print("          DETECT_DECIDE_VERIFY E2E SUMMARY REPORT       ")
     print("=======================================================")
-    print(f"Duration:                    {report['duration_seconds']}s")
-    print(f"Total runs:                  {report['total_runs']}")
-    print("--- Detect (RCA) ---")
-    print(f"Anomaly detection rate:      {d['detection_rate'] * 100:.1f}% ({d['detected_runs']}/{report['total_runs']})")
-    print(f"Service Top-1 accuracy:      {d['service_top1_accuracy'] * 100:.1f}%")
-    print(f"Service Top-{top_k} accuracy:     {d[f'service_top{top_k}_accuracy'] * 100:.1f}%")
-    print(f"Macro-Precision:             {d['macro_precision']:.3f}")
-    print(f"Macro-Recall:                {d['macro_recall']:.3f}")
-    print(f"Macro-F1:                      {d['macro_f1']:.3f} (threshold: 0.85)")
+    print(f"Evaluation completed in:       {report['duration_seconds']:.2f} seconds")
+    print(f"Total Runs Evaluated:          {report['total_runs']}")
+    print(f"Total Alerts Triggered:        {d['detected_runs']}")
+    print(f"Anomaly Detection Rate:        {d['detection_rate'] * 100:.1f}% ({d['detected_runs']}/{report['total_runs']})")
+    print(f"Service Top-1 Accuracy:        {d['service_top1_accuracy'] * 100:.1f}%")
+    print(f"Service Top-{top_k} Accuracy:        {d[f'service_top{top_k}_accuracy'] * 100:.1f}%")
+    print(f"Fault Type Accuracy:           {d['fault_type_accuracy_on_detected'] * 100:.1f}% (on detected)")
+    print("-------------------------------------------------------")
+    print(f"Macro-Precision (Service RCA): {d['macro_precision']:.3f}")
+    print(f"Macro-Recall (Service RCA):    {d['macro_recall']:.3f}")
+    print(f"Macro-F1-Score (Service RCA):  {d['macro_f1']:.3f} (Threshold: 0.85)")
     if d["macro_f1"] >= 0.85:
         print("[SUCCESS] Macro-F1 passes the 0.85 specification threshold.")
     else:
         print("[WARNING] Macro-F1 is below the 0.85 specification threshold.")
-    print("--- Decide (chained from detect output) ---")
-    print(f"Fault type accuracy:         {d['fault_type_accuracy_on_detected'] * 100:.1f}% (on detected)")
-    print(f"Runbook accuracy (E2E):      {c['runbook_accuracy_e2e'] * 100:.1f}% ({c['correct_runbook_e2e']}/{d['detected_runs']} detected)")
-    print(f"Runbook accuracy (oracle):   {c['runbook_accuracy_oracle_fault'] * 100:.1f}% (GT fault, on detected)")
-    print("--- Verify (mock post-healing telemetry) ---")
-    print(f"Verify success rate:         {v['success_rate_on_detected'] * 100:.1f}% ({v['success_count']}/{d['detected_runs']} detected)")
-    print(f"Full pipeline success:       {c['pipeline_success_rate'] * 100:.1f}% (detect+svc+runbook)")
-    print(f"Decide latency (mean):       {report['latency_ms']['decide_mean']} ms")
+    print("-------------------------------------------------------")
+    print(f"Runbook Accuracy (E2E):        {c['runbook_accuracy_e2e'] * 100:.1f}% ({c['correct_runbook_e2e']}/{d['detected_runs']} detected)")
+    print(f"Runbook Accuracy (Oracle):     {c['runbook_accuracy_oracle_fault'] * 100:.1f}% (GT fault, on detected)")
+    print(f"Verify Success Rate:           {v['success_rate_on_detected'] * 100:.1f}% ({v['success_count']}/{d['detected_runs']} detected)")
+    print(f"Full Pipeline Success:         {c['pipeline_success_rate'] * 100:.1f}% (detect+svc+runbook+verify)")
+    print(f"Decide Latency Mean/P99:       {report['latency_ms']['decide_mean']} / {report['latency_ms']['decide_p99']} ms")
+    print("-------------------------------------------------------")
+    print("Fault accuracy by type:")
+    for fault, acc in d.get("fault_accuracy_by_type", {}).items():
+        print(f"  - {fault:<8}: {acc * 100:.1f}%")
     print("=======================================================\n")
 
 

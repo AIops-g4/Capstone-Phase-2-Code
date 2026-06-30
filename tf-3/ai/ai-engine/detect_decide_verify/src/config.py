@@ -35,6 +35,31 @@ def _resolve_path(value: str, base_dir: str) -> str:
     return value
 
 
+def _parse_float_map(value: str) -> dict:
+    parsed = {}
+    for item in value.split(","):
+        if not item.strip() or ":" not in item:
+            continue
+        key, raw_val = item.split(":", 1)
+        try:
+            parsed[key.strip()] = float(raw_val.strip())
+        except ValueError:
+            continue
+    return parsed
+
+
+def _parse_pattern_map(value: str) -> dict:
+    parsed = {}
+    for group in value.split(";"):
+        if not group.strip() or ":" not in group:
+            continue
+        key, raw_tokens = group.split(":", 1)
+        tokens = [t.strip().lower() for t in raw_tokens.split("|") if t.strip()]
+        if tokens:
+            parsed[key.strip()] = tokens
+    return parsed
+
+
 # --- Configuration Constants ---
 
 # File Paths
@@ -120,6 +145,26 @@ RCA_ANALYSIS_WINDOW_AFTER = int(os.getenv("RCA_ANALYSIS_WINDOW_AFTER", "10"))
 BARO_RCA_CONFIDENCE = float(os.getenv("BARO_RCA_CONFIDENCE", "0.90"))
 RCA_STD_REG_MULTIPLIER = float(os.getenv("RCA_STD_REG_MULTIPLIER", "0.05"))
 RCA_STD_REG_ADDITIVE = float(os.getenv("RCA_STD_REG_ADDITIVE", "0.05"))
+
+# Generic fault-type inference configuration. These defaults describe signal-name
+# families, not dataset folders or team-specific services. Override via env for
+# different CDO telemetry naming conventions without changing code.
+FAULT_SIGNAL_PATTERNS = _parse_pattern_map(os.getenv(
+    "FAULT_SIGNAL_PATTERNS",
+    "cpu:cpu|processor|core;"
+    "mem:mem|memory|oom|rss|heap;"
+    "disk:disk|diskio|disk_io|io|iops|fs|filesystem;"
+    "socket:socket|connection|conn|fd|file_descriptor|tcp;"
+    "loss:loss|packet|error|error_rate|unavailable|reset|refused|deadline|no healthy|dropped;"
+    "delay:latency|delay|p95|p90|p99|timeout|duration|slow"
+))
+FAULT_SIGNAL_WEIGHTS = _parse_float_map(os.getenv(
+    "FAULT_SIGNAL_WEIGHTS",
+    "cpu:1.2,mem:2.0,disk:3.5,socket:5.5,loss:3.2,delay:0.9"
+))
+FAULT_LOG_EVIDENCE_WEIGHT = float(os.getenv("FAULT_LOG_EVIDENCE_WEIGHT", "12.0"))
+FAULT_BARO_RANK_WEIGHT = float(os.getenv("FAULT_BARO_RANK_WEIGHT", "1.5"))
+FAULT_SCORE_MIN = float(os.getenv("FAULT_SCORE_MIN", "1.0"))
 
 # Parse lists of services and metric types
 SERVICES_LIST = [s.strip() for s in os.getenv("SERVICES_LIST", "checkoutservice,currencyservice,emailservice,productcatalogservice,recommendationservice,adservice,cartservice,frontend,paymentservice,redis,shippingservice").split(",") if s.strip()]

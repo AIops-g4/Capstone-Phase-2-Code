@@ -3,6 +3,7 @@ import sys
 import json
 import argparse
 import time
+from collections import defaultdict
 import pandas as pd
 import numpy as np
 
@@ -87,6 +88,9 @@ def run_evaluation(sample_size=None, top_k=None, output_path=None):
     
     y_true = []
     y_pred = []
+    fault_confusion = defaultdict(lambda: defaultdict(int))
+    fault_totals = defaultdict(int)
+    fault_correct_by_type = defaultdict(int)
     
     start_eval_time = time.time()
     
@@ -99,6 +103,7 @@ def run_evaluation(sample_size=None, top_k=None, output_path=None):
         service_fault = gt_info["service_fault"]
         run_id = gt_info["run_id"]
         true_service = gt_info["target_service"]
+        true_fault = gt_info.get("suspected_fault_type", "unknown")
         inject_time = gt_info["inject_time"]
         
         print(f"[{idx+1}/{len(run_keys)}] Evaluating Run: {run_key}")
@@ -192,6 +197,12 @@ def run_evaluation(sample_size=None, top_k=None, output_path=None):
         
         # Check correctness
         service_ok = (pred_service == true_service)
+        fault_ok = (pred_fault == true_fault)
+        fault_confusion[true_fault][pred_fault] += 1
+        fault_totals[true_fault] += 1
+        if fault_ok:
+            correct_fault += 1
+            fault_correct_by_type[true_fault] += 1
         
         if service_ok:
             correct_service += 1
@@ -207,6 +218,7 @@ def run_evaluation(sample_size=None, top_k=None, output_path=None):
             
         confidence_list.append(confidence)
         print(f"  [DIAGNOSIS] Predicted Service: {pred_service} [{'OK' if service_ok else 'WRONG'}]")
+        print(f"  [DIAGNOSIS] Predicted Fault:   {pred_fault} [{'OK' if fault_ok else 'WRONG'}]")
         print(f"  [DIAGNOSIS] Top-{eval_top_k} Candidates: {', '.join(top_k_candidates)} [{'OK' if in_top_k else 'WRONG'}]")
         print(f"  [DIAGNOSIS] Confidence Score:  {confidence:.2f}")
         print(f"  [REASONING] {reasoning}\n")
@@ -215,6 +227,9 @@ def run_evaluation(sample_size=None, top_k=None, output_path=None):
             "run_key": run_key,
             "detected": True,
             "service_correct": service_ok,
+            "true_fault": true_fault,
+            "pred_fault": pred_fault,
+            "fault_correct": fault_ok,
             "rto": rto
         })
         total_eval += 1
@@ -233,6 +248,16 @@ def run_evaluation(sample_size=None, top_k=None, output_path=None):
     # Top-1 and Top-K accuracy (out of all evaluated runs)
     top1_accuracy = correct_service / total_eval if total_eval > 0 else 0
     topk_accuracy = correct_top_k / total_eval if total_eval > 0 else 0
+    fault_accuracy = correct_fault / correct_detection if correct_detection > 0 else 0
+    fault_confusion_matrix = {
+        true_fault: dict(sorted(pred_counts.items()))
+        for true_fault, pred_counts in sorted(fault_confusion.items())
+    }
+    fault_accuracy_by_type = {
+        fault: round(fault_correct_by_type.get(fault, 0) / total_count, 4)
+        for fault, total_count in sorted(fault_totals.items())
+        if total_count
+    }
     
     # Calculate Macro-Averaged Precision, Recall, F1 for root cause service localization
     from sklearn.metrics import precision_recall_fscore_support
@@ -255,6 +280,7 @@ def run_evaluation(sample_size=None, top_k=None, output_path=None):
     print(f"Service Localization Accuracy (Top-1, Detections): {service_accuracy * 100:.1f}% ({correct_service}/{correct_detection})")
     print(f"Service Localization Accuracy (Top-1, Total):      {top1_accuracy * 100:.1f}% ({correct_service}/{total_eval})")
     print(f"Service Localization Accuracy (Top-{eval_top_k}, Total):      {topk_accuracy * 100:.1f}% ({correct_top_k}/{total_eval})")
+    print(f"Fault Type Accuracy (Detections): {fault_accuracy * 100:.1f}% ({correct_fault}/{correct_detection})")
     print(f"Average Recovery Time (RTO):       {avg_rto:.1f} seconds")
     print(f"Average Confidence Score:          {avg_confidence:.2f}")
     print(f"Total Anomaly Points Detected:     {total_anomaly_points}")
@@ -280,6 +306,9 @@ def run_evaluation(sample_size=None, top_k=None, output_path=None):
             "service_top1_accuracy_on_detected": round(service_accuracy, 4),
             "service_top1_accuracy_total": round(top1_accuracy, 4),
             f"service_top{eval_top_k}_accuracy_total": round(topk_accuracy, 4),
+            "fault_type_accuracy_on_detected": round(fault_accuracy, 4),
+            "fault_accuracy_by_type": fault_accuracy_by_type,
+            "fault_confusion_matrix": fault_confusion_matrix,
             "average_rto_seconds": round(float(avg_rto), 2),
             "average_confidence": round(float(avg_confidence), 4),
             "macro_precision": round(float(precision), 4),
