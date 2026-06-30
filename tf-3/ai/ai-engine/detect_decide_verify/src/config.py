@@ -95,6 +95,13 @@ PLATFORM_PROFILE_PATH = _resolve_path(
     DETECT_DIR,
 )
 PLATFORM_PROFILE = _load_json_file(PLATFORM_PROFILE_PATH)
+PLATFORM_PROFILE_SCHEMA_PATH = _resolve_path(
+    os.getenv(
+        "PLATFORM_PROFILE_SCHEMA_PATH",
+        os.path.join(DATASET_DIR, "platform_profile.schema.json"),
+    ),
+    DETECT_DIR,
+)
 
 # Server Configuration
 API_HOST = os.getenv("API_HOST", "127.0.0.1")
@@ -112,12 +119,15 @@ CORRELATION_THRESHOLD = float(os.getenv("CORRELATION_THRESHOLD", "0.4"))
 ANALYSIS_WINDOW_SIZE = int(os.getenv("ANALYSIS_WINDOW_SIZE", "120"))
 
 # BARO RCA Configuration
-USE_BARO_RCA = os.getenv("USE_BARO_RCA", "False").lower() == "true"
+# detect_decide_verify uses the required benchmark stack: BOCPD + BARO.
+USE_BARO_RCA = os.getenv("USE_BARO_RCA", "True").lower() == "true"
 BARO_TOP_K = int(os.getenv("BARO_TOP_K", "3"))
 
 # RRCF Anomaly Detection Configuration
+# Keep BOCPD as the default/active detector for this stage. Do not fall back to
+# Isolation Forest when env vars are absent.
 USE_RRCF = os.getenv("USE_RRCF", "False").lower() == "true"
-USE_BOCPD = os.getenv("USE_BOCPD", "False").lower() == "true"
+USE_BOCPD = os.getenv("USE_BOCPD", "True").lower() == "true"
 RRCF_NUM_TREES = int(os.getenv("RRCF_NUM_TREES", "100"))
 RRCF_TREE_SIZE = int(os.getenv("RRCF_TREE_SIZE", "256"))
 RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER = float(os.getenv("RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER", "6.0"))
@@ -189,11 +199,12 @@ FAULT_LOG_EVIDENCE_WEIGHT = float(os.getenv("FAULT_LOG_EVIDENCE_WEIGHT", "12.0")
 FAULT_BARO_RANK_WEIGHT = float(os.getenv("FAULT_BARO_RANK_WEIGHT", "1.5"))
 FAULT_SCORE_MIN = float(os.getenv("FAULT_SCORE_MIN", "1.0"))
 
-# Parse lists of services and metric types
-_profile_services = ",".join(PLATFORM_PROFILE.get("services", []))
-_profile_metric_types = ",".join(PLATFORM_PROFILE.get("metric_types", []))
-SERVICES_LIST = [s.strip() for s in os.getenv("SERVICES_LIST", _profile_services or "checkoutservice,currencyservice,emailservice,productcatalogservice,recommendationservice,adservice,cartservice,frontend,paymentservice,redis,shippingservice").split(",") if s.strip()]
-METRIC_TYPES_LIST = [m.strip() for m in os.getenv("METRIC_TYPES_LIST", _profile_metric_types or "cpu,mem,latency,error,socket,diskio").split(",") if m.strip()]
+# Parse service and fault-type catalogs from PLATFORM_PROFILE_PATH JSON.
+# PLATFORM_PROFILE_SCHEMA_PATH documents/validates that JSON shape; the actual
+# values are read from profile fields such as services and metric_types.
+# Do not use env vars for these catalogs: swap PLATFORM_PROFILE_PATH for each CDO team.
+SERVICES_LIST = [s.strip() for s in PLATFORM_PROFILE.get("services", []) if str(s).strip()]
+METRIC_TYPES_LIST = [m.strip() for m in PLATFORM_PROFILE.get("metric_types", []) if str(m).strip()]
 SYSTEM_NAME = os.getenv("SYSTEM_NAME", PLATFORM_PROFILE.get("system", "E-COMMERCE"))
 DEFAULT_NAMESPACE = os.getenv("DEFAULT_NAMESPACE", PLATFORM_PROFILE.get("default_namespace", "production"))
 DEFAULT_DEPLOYMENT_TEMPLATE = os.getenv(
@@ -210,20 +221,10 @@ ALLOWED_NAMESPACES = [
     if ns.strip()
 ]
 
-# Decide — full fault → runbook mapping (aligned with decide/src/config.py)
-FAULT_RUNBOOK_MAPPING = PLATFORM_PROFILE.get("fault_runbook_mapping") or {
-    "cpu": "CPUSaturationRecoveryRunbook",
-    "mem": "MemoryLeakRecoveryRunbook",
-    "delay": "NetworkLatencyRecoveryRunbook",
-    "loss": "PacketLossRecoveryRunbook",
-    "disk": "DiskIORecoveryRunbook",
-    "socket": "SocketExhaustionRecoveryRunbook",
-    "f1": "DefaultRecoveryRunbook",
-    "f2": "DefaultRecoveryRunbook",
-    "f3": "DefaultRecoveryRunbook",
-    "f4": "DefaultRecoveryRunbook",
-    "f5": "DefaultRecoveryRunbook",
-}
+# Decide — fault type → runbook mapping. Fault candidates come from
+# platform_profile.metric_types so each CDO team can define its own catalog.
+FAULT_RUNBOOK_MAPPING = PLATFORM_PROFILE.get("fault_runbook_mapping") or {}
+FAULT_TYPE_CATALOG = [fault for fault in METRIC_TYPES_LIST if fault in FAULT_RUNBOOK_MAPPING]
 DEPENDENCY_GRAPH = PLATFORM_PROFILE.get("dependency_graph", {})
 
 # LLM Configurable Parameters

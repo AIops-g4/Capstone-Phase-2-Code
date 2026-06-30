@@ -386,16 +386,9 @@ class AnomalyDetectionPipeline:
         df_multivariate_features = df_features[multivariate_cols]
         df_multivariate_baseline = df_baseline[multivariate_cols]
         
-        if USE_BOCPD:
-            mif = BOCPDDetector()
-        elif USE_RRCF:
-            mif = RRCFDetector(
-                threshold_multiplier=RRCF_MULTIVARIATE_THRESHOLD_MULTIPLIER,
-                num_trees=RRCF_NUM_TREES,
-                tree_size=RRCF_TREE_SIZE
-            )
-        else:
-            mif = IsolationForestDetector(threshold_multiplier=IFOREST_MULTIVARIATE_THRESHOLD_MULTIPLIER)
+        # detect_decide_verify is benchmarked with BOCPD only.  Do not silently
+        # fall back to Isolation Forest/RRCF in the API server path.
+        mif = BOCPDDetector()
             
         mif.fit(df_multivariate_baseline)
         mif_anomalies, mif_scores = mif.detect(df_multivariate_features)

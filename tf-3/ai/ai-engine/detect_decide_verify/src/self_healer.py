@@ -11,6 +11,7 @@ from .config import (
     DEFAULT_NAMESPACE,
     DEFAULT_SERVICE,
     FAULT_RUNBOOK_MAPPING,
+    FAULT_TYPE_CATALOG,
     METRIC_TYPES_LIST,
     PLATFORM_PROFILE,
     SERVICES_LIST,
@@ -19,9 +20,7 @@ from .config import (
 from .llm import LLMFactory
 
 
-FAULT_TYPE_CANDIDATES = [fault for fault in METRIC_TYPES_LIST if fault in FAULT_RUNBOOK_MAPPING]
-if not FAULT_TYPE_CANDIDATES:
-    FAULT_TYPE_CANDIDATES = list(FAULT_RUNBOOK_MAPPING.keys())
+FAULT_TYPE_CANDIDATES = list(FAULT_TYPE_CATALOG)
 
 
 class LLMDecisionOutputParser:

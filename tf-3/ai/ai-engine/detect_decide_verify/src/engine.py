@@ -32,6 +32,7 @@ class AIOpsEngine:
         self.telemetry_processor = TelemetryProcessor()
         self.detection_pipeline = AnomalyDetectionPipeline()
         self.rca_analyzer = RootCauseAnalyzer()
+        self.rca_analyzer.use_baro = True
         self.incident_manager = IncidentManager()
         self.healing_engine = SelfHealer(RUNBOOKS_PATH)
         self.verifier = VerificationEngine()
@@ -44,10 +45,16 @@ class AIOpsEngine:
         """
         Ingests telemetry, checks for anomalies, runs RCA, and correlates active alerts.
         """
+        print("\n[API][DETECT] =========================================")
+        print(f"[API][DETECT] Correlation ID: {input_correlation_id or 'new'}")
+        print(f"[API][DETECT] Telemetry points received: {len(telemetry_window)}")
+        print("[API][DETECT] Detector stack: BOCPD + EWMA signals | RCA: BARO")
+
         # 1. Ingest and preprocess telemetry
         df_metrics, df_log_ts, temp_info = self.telemetry_processor.process_telemetry_window(telemetry_window)
         
         if df_metrics.empty:
+            print("[API][DETECT] Result: NO_METRICS")
             return {
                 "anomaly_detected": False,
                 "severity": 0.0,
@@ -58,6 +65,7 @@ class AIOpsEngine:
             
         # 2. Run Anomaly Detection Pipeline
         baseline_len = max(10, int(len(df_metrics) * 0.8))
+        print(f"[API][DETECT] Metrics rows={len(df_metrics)} baseline_len={baseline_len}")
         detection_results = self.detection_pipeline.run_pipeline(df_metrics, baseline_len)
         
         mif_anoms = detection_results["multivariate"]["anomalies"]
@@ -80,6 +88,7 @@ class AIOpsEngine:
                 break
                 
         if not anomaly_detected:
+            print("[API][DETECT] Result: NO_ANOMALY")
             return {
                 "anomaly_detected": False,
                 "severity": 0.0,
@@ -134,6 +143,13 @@ class AIOpsEngine:
         top_5_services = self.rca_analyzer.last_top_k[:5]
         if not top_5_services:
             top_5_services = [target_service]
+
+        print(f"[API][DETECT] Anomaly index: {anomaly_idx}")
+        print(f"[API][DETECT] Predicted Service: {target_service}")
+        print(f"[API][DETECT] Predicted Fault:   {suspected_fault_type}")
+        print(f"[API][DETECT] Top-{len(top_5_services)} Candidates: {', '.join(top_5_services)}")
+        print(f"[API][DETECT] Confidence:        {confidence:.3f}")
+        print(f"[API][DETECT] Reasoning:         {reasoning}")
             
         return {
             "anomaly_detected": True,
@@ -147,10 +163,31 @@ class AIOpsEngine:
                 "trigger_metric": trigger_metric,
                 "trigger_value": trigger_val
             },
+            "service_top_k": top_5_services,
             "confidence": confidence,
             "reasoning": reasoning,
             "correlation_id": corr_id
         }
+
+    def rank_fault_types(
+        self,
+        anomaly_context: Dict[str, Any],
+        detect_evidence: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Rank fault types for a fixed service so an external CDO can decide retry order."""
+        target = anomaly_context.get("target_service")
+        current_fault = anomaly_context.get("suspected_fault_type")
+        print("\n[API][FAULT-RANK] =====================================")
+        print(f"[API][FAULT-RANK] Fixed Service:      {target}")
+        print(f"[API][FAULT-RANK] Current Fault:      {current_fault}")
+        result = self.healing_engine.rank_fault_types_with_llm(anomaly_context, detect_evidence or {})
+        ranking = result.get("fault_type_ranking", [])
+        if ranking:
+            order = ", ".join(f"{x.get('suspected_fault_type')}={float(x.get('confidence', 0.0)):.2f}" for x in ranking)
+            print(f"[API][FAULT-RANK] Ranked Faults:      {order}")
+        else:
+            print(f"[API][FAULT-RANK] Ranked Faults:      unavailable ({result.get('error', 'no ranking')})")
+        return result
 
     def decide_healing_action(
         self, 
@@ -165,6 +202,9 @@ class AIOpsEngine:
         """
         target_service = anomaly_context["target_service"]
         suspected_fault_type = anomaly_context["suspected_fault_type"]
+        print("\n[API][DECIDE] =========================================")
+        print(f"[API][DECIDE] Correlation ID:     {correlation_id}")
+        print(f"[API][DECIDE] Input Service/Fault:{target_service} ({suspected_fault_type})")
         
         # Extract top 1 service if it is a list of strings
         top_service = target_service[0] if isinstance(target_service, list) and target_service else target_service
@@ -186,7 +226,7 @@ class AIOpsEngine:
                 suppression_reason = f"correlated downstream symptom of upstream {incident['root_cause_service']}"
                 
         if is_suppressed:
-            print(f"  [DEDUPLICATION] Suppressing healing action plan for {top_service} ({suspected_fault_type}): {suppression_reason}.")
+            print(f"[API][DECIDE] Suppressed:         {suppression_reason}")
             return {
                 "matched_runbook": "CorrelatedSymptomSuppression",
                 "pattern_type": "urgent",
@@ -209,7 +249,32 @@ class AIOpsEngine:
         if not decide_ctx.get("deployment"):
             decide_ctx["deployment"] = _render_deployment(top_service)
         decide_ctx.setdefault("namespace", DEFAULT_NAMESPACE)
-        decision = self.healing_engine.decide(decide_ctx, detect_evidence=detect_evidence)
+        evidence = detect_evidence or {}
+        decision = self.healing_engine.decide(decide_ctx, detect_evidence=evidence)
+        should_rank_faults = bool(evidence.get("rank_fault_catalog_for_topk_service"))
+        fault_type_ranking = {"fault_type_ranking": [], "used": False, "reason": "not_requested"}
+        if should_rank_faults:
+            fault_type_ranking = self.healing_engine.rank_fault_types_with_llm(
+                decide_ctx,
+                evidence,
+            )
+        corrected = decision.get("corrected_anomaly_context") or {}
+        exec_service = corrected.get("target_service", top_service)
+        exec_fault = corrected.get("suspected_fault_type", suspected_fault_type)
+        print(f"[API][DECIDE] Selected Target:    {exec_service} ({exec_fault})")
+        print(f"[API][DECIDE] Matched Runbook:    {decision['matched_runbook']}")
+        print(f"[API][DECIDE] Action Count:       {len(decision['action_plan'])}")
+        ranking_items = fault_type_ranking.get("fault_type_ranking", [])
+        if ranking_items:
+            ranking_log = ", ".join(
+                f"{item.get('suspected_fault_type')}={float(item.get('confidence', 0.0)):.2f}"
+                for item in ranking_items
+            )
+            print(f"[API][DECIDE] Fault Ranking:      {ranking_log}")
+        elif should_rank_faults:
+            print("[API][DECIDE] Fault Ranking:      requested but unavailable")
+        else:
+            print("[API][DECIDE] Fault Ranking:      skipped (not a Top-K ranking request)")
         
         return {
             "matched_runbook": decision["matched_runbook"],
@@ -223,6 +288,8 @@ class AIOpsEngine:
             "cost_cap_exceeded": False,
             "detect_assessment": decision.get("detect_assessment"),
             "corrected_anomaly_context": decision.get("corrected_anomaly_context"),
+            "fault_type_ranking": fault_type_ranking.get("fault_type_ranking", []),
+            "fault_type_ranking_used": fault_type_ranking.get("used", False),
         }
 
     def verify_healing(
@@ -234,10 +301,18 @@ class AIOpsEngine:
         """
         Verifies executed healing action and closes incident if successfully resolved.
         """
+        print("\n[API][VERIFY] =========================================")
+        print(f"[API][VERIFY] Correlation ID:     {correlation_id}")
+        print(f"[API][VERIFY] Action Executed:    {getattr(action_executed, 'action', None)} -> {getattr(action_executed, 'target', None)} status={getattr(action_executed, 'status', None)}")
+        print(f"[API][VERIFY] Post telemetry pts: {len(post_telemetry_window)}")
         success, regression_detected, next_action, reason = self.verifier.verify_action(
             action_executed, 
             post_telemetry_window
         )
+        print(f"[API][VERIFY] Result:             {'OK' if success and next_action == 'DONE' else next_action}")
+        print(f"[API][VERIFY] Regression:         {regression_detected}")
+        if reason:
+            print(f"[API][VERIFY] Reason:             {reason}")
         
         if success and next_action == "DONE":
             # Close the incident in our state engine
