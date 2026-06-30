@@ -1,0 +1,209 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiops-log-replay-script
+  namespace: production
+data:
+  replay.py: |
+    import os, time, datetime, random
+    service = os.getenv("SERVICE_NAME", "checkoutservice")
+    fault = os.getenv("FAULT_TYPE", "cpu")
+    messages = [
+      "starting request handler",
+      f"warning: {service} elevated {fault} signal observed",
+      f"error: {service} synthetic {fault} fault injected by cdo simulator",
+      "timeout while calling downstream dependency",
+      "retry budget exhausted for request",
+    ]
+    i = 0
+    while True:
+      ts = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+      level = "ERROR" if i % 5 in (2, 3) else "INFO"
+      print(f"{ts} level={level} service={service} msg={messages[i % len(messages)]}", flush=True)
+      i += 1
+      time.sleep(float(os.getenv("LOG_INTERVAL_SECONDS", "1")))
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkoutservice
+  namespace: production
+  labels:
+    app.kubernetes.io/part-of: online-boutique
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: checkoutservice
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: online-boutique
+        app.kubernetes.io/name: checkoutservice
+        app: checkoutservice
+    spec:
+      containers:
+        - name: log-replay
+          image: python:3.11-slim
+          command: ["python", "/scripts/replay.py"]
+          env:
+            - name: SERVICE_NAME
+              value: checkoutservice
+            - name: FAULT_TYPE
+              value: cpu
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: aiops-log-replay-script
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: currencyservice
+  namespace: production
+  labels:
+    app.kubernetes.io/part-of: online-boutique
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: currencyservice
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: online-boutique
+        app.kubernetes.io/name: currencyservice
+        app: currencyservice
+    spec:
+      containers:
+        - name: log-replay
+          image: python:3.11-slim
+          command: ["python", "/scripts/replay.py"]
+          env:
+            - name: SERVICE_NAME
+              value: currencyservice
+            - name: FAULT_TYPE
+              value: delay
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: aiops-log-replay-script
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emailservice
+  namespace: production
+  labels:
+    app.kubernetes.io/part-of: online-boutique
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: emailservice
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: online-boutique
+        app.kubernetes.io/name: emailservice
+        app: emailservice
+    spec:
+      containers:
+        - name: log-replay
+          image: python:3.11-slim
+          command: ["python", "/scripts/replay.py"]
+          env:
+            - name: SERVICE_NAME
+              value: emailservice
+            - name: FAULT_TYPE
+              value: delay
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: aiops-log-replay-script
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: productcatalogservice
+  namespace: production
+  labels:
+    app.kubernetes.io/part-of: online-boutique
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: productcatalogservice
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: online-boutique
+        app.kubernetes.io/name: productcatalogservice
+        app: productcatalogservice
+    spec:
+      containers:
+        - name: log-replay
+          image: python:3.11-slim
+          command: ["python", "/scripts/replay.py"]
+          env:
+            - name: SERVICE_NAME
+              value: productcatalogservice
+            - name: FAULT_TYPE
+              value: socket
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: aiops-log-replay-script
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendationservice
+  namespace: production
+  labels:
+    app.kubernetes.io/part-of: online-boutique
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: recommendationservice
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: online-boutique
+        app.kubernetes.io/name: recommendationservice
+        app: recommendationservice
+    spec:
+      containers:
+        - name: log-replay
+          image: python:3.11-slim
+          command: ["python", "/scripts/replay.py"]
+          env:
+            - name: SERVICE_NAME
+              value: recommendationservice
+            - name: FAULT_TYPE
+              value: mem
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: aiops-log-replay-script
