@@ -37,6 +37,7 @@ from src.config import (
     EVAL_BOCPD_WINDOW_BEFORE,
     FAULT_RUNBOOK_MAPPING,
     GROUND_TRUTH_PATH,
+    METRIC_TYPES_LIST,
     RUNBOOKS_PATH,
     USE_LLM_FAULT_TYPE,
 )
@@ -44,6 +45,11 @@ from src.correlation_analyzer import CorrelationAnalyzer
 from src.log_parser import Drain3LogParser
 from src.self_healer import SelfHealer
 from src.verifier import VerificationEngine
+
+
+FAULT_TYPE_CANDIDATES = [fault for fault in METRIC_TYPES_LIST if fault in FAULT_RUNBOOK_MAPPING]
+if not FAULT_TYPE_CANDIDATES:
+    FAULT_TYPE_CANDIDATES = list(FAULT_RUNBOOK_MAPPING.keys())
 
 
 def _sample_run_keys(ground_truth: dict, sample_size: int | None) -> list[str]:
@@ -445,13 +451,35 @@ def _run_fallback_healing_strategy(
         last_reason = None
         last_decision = final_decision
         last_context = final_context
+        ranking_evidence = dict(base_evidence)
+        ranking_evidence.update(
+            {
+                "fallback_mode": "rank_fault_types_before_fallback_attempts",
+                "failed_self_heal_attempts": attempts,
+                "already_tried_faults": sorted(already_tried_faults),
+                "instruction": (
+                    "Rank fault types by confidence for this fixed service. "
+                    "The benchmark will try the current fault first, then use this ranking."
+                ),
+            }
+        )
+        llm_ranking = healer.rank_fault_types_with_llm(base_ctx, ranking_evidence)
+        ranking_items = llm_ranking.get("fault_type_ranking") or []
+        ranked_faults = [item["suspected_fault_type"] for item in ranking_items]
+        fallback_fault_order = ranked_faults + [
+            fault for fault in FAULT_TYPE_CANDIDATES if fault not in ranked_faults
+        ]
 
-        for candidate_fault in FAULT_RUNBOOK_MAPPING:
+        for candidate_fault in fallback_fault_order:
             if candidate_fault in already_tried_faults:
                 continue
             fault_ctx = dict(base_ctx)
             fault_ctx["suspected_fault_type"] = candidate_fault
             fault_ctx["deployment"] = f"deployment/{fault_ctx['target_service']}"
+            rank_info = next(
+                (item for item in ranking_items if item["suspected_fault_type"] == candidate_fault),
+                None,
+            )
             fault_evidence = dict(base_evidence)
             fault_evidence.update(
                 {
@@ -459,6 +487,10 @@ def _run_fallback_healing_strategy(
                     "failed_self_heal_attempts": attempts,
                     "candidate_service": fault_ctx["target_service"],
                     "candidate_fault_type": candidate_fault,
+                    "llm_fault_ranking_used": llm_ranking.get("used", False),
+                    "llm_fault_ranking_order": ranked_faults,
+                    "llm_fault_rank_confidence": rank_info.get("confidence") if rank_info else None,
+                    "llm_fault_rank_reason": rank_info.get("reason") if rank_info else None,
                     "instruction": (
                         "Keep the current service fixed and try another fault/runbook. "
                         "Only move to another service after exhausting fault types."
@@ -478,6 +510,10 @@ def _run_fallback_healing_strategy(
                 fault_decision,
                 phase,
             )
+            attempts[-1]["llm_fault_ranking_used"] = llm_ranking.get("used", False)
+            attempts[-1]["llm_fault_ranking_order"] = ranked_faults
+            attempts[-1]["llm_fault_rank_confidence"] = rank_info.get("confidence") if rank_info else None
+            attempts[-1]["llm_fault_rank_reason"] = rank_info.get("reason") if rank_info else None
             last_decision = fault_decision
             last_context = fault_context
             final_decision = fault_decision

@@ -11,11 +11,17 @@ from .config import (
     DEFAULT_NAMESPACE,
     DEFAULT_SERVICE,
     FAULT_RUNBOOK_MAPPING,
+    METRIC_TYPES_LIST,
     PLATFORM_PROFILE,
     SERVICES_LIST,
     SYSTEM_NAME,
 )
 from .llm import LLMFactory
+
+
+FAULT_TYPE_CANDIDATES = [fault for fault in METRIC_TYPES_LIST if fault in FAULT_RUNBOOK_MAPPING]
+if not FAULT_TYPE_CANDIDATES:
+    FAULT_TYPE_CANDIDATES = list(FAULT_RUNBOOK_MAPPING.keys())
 
 
 class LLMDecisionOutputParser:
@@ -59,7 +65,7 @@ class LLMDecisionOutputParser:
             "detect_assessment must include is_detect_output_plausible(boolean) and assessment_reason(string). "
             "corrected_anomaly_context must include target_service and suspected_fault_type after reviewing the detect output. "
             f"corrected_anomaly_context.target_service must be one of: {SERVICES_LIST}. "
-            f"corrected_anomaly_context.suspected_fault_type must be one of: {sorted(FAULT_RUNBOOK_MAPPING.keys())}. "
+            f"corrected_anomaly_context.suspected_fault_type must be one of metric_types: {sorted(FAULT_TYPE_CANDIDATES)}. "
             f"matched_runbook must be one of: {allowed_runbooks}. "
             "matched_runbook must align with fault_runbook_mapping for the corrected fault type. "
             "pattern_type must be either 'urgent' or 'deferred'. "
@@ -153,8 +159,8 @@ class LLMDecisionOutputParser:
 
         if target_service not in SERVICES_LIST:
             raise ValueError(f"LLM corrected target_service is not in platform profile: {target_service}")
-        if fault_type not in FAULT_RUNBOOK_MAPPING:
-            raise ValueError(f"LLM corrected unsupported fault type: {fault_type}")
+        if fault_type not in FAULT_TYPE_CANDIDATES:
+            raise ValueError(f"LLM corrected unsupported metric/fault type: {fault_type}")
         if namespace not in ALLOWED_NAMESPACES:
             raise ValueError(f"LLM corrected namespace is not allowed: {namespace}")
 
@@ -259,7 +265,7 @@ class LLMFaultTypeOutputParser:
         return (
             "Return exactly one raw JSON object with no markdown, no comments, and no extra text. "
             f"The object must contain only these keys: {sorted(self.REQUIRED_KEYS)}. "
-            f"suspected_fault_type must be one of: {sorted(FAULT_RUNBOOK_MAPPING.keys())}. "
+            f"suspected_fault_type must be one of metric_types: {sorted(FAULT_TYPE_CANDIDATES)}. "
             "confidence must be a number between 0.0 and 1.0. "
             "reason must be a non-empty string explaining metric/log evidence. "
             "Do not include target_service and do not try to change the selected service."
@@ -280,8 +286,8 @@ class LLMFaultTypeOutputParser:
             raise ValueError(f"LLM fault-type response contains unsupported keys: {sorted(extra)}")
 
         fault_type = result.get("suspected_fault_type")
-        if fault_type not in FAULT_RUNBOOK_MAPPING:
-            raise ValueError(f"LLM fault-type response has unsupported fault: {fault_type}")
+        if fault_type not in FAULT_TYPE_CANDIDATES:
+            raise ValueError(f"LLM fault-type response has unsupported metric/fault type: {fault_type}")
 
         try:
             confidence = float(result.get("confidence"))
@@ -299,6 +305,86 @@ class LLMFaultTypeOutputParser:
             "confidence": confidence,
             "reason": reason.strip(),
         }
+
+    def _extract_json_object(self, response_text: str) -> str:
+        clean = response_text.strip()
+        if clean.startswith("```json"):
+            clean = clean.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif clean.startswith("```"):
+            clean = clean.split("```", 1)[1].split("```", 1)[0].strip()
+
+        if clean.startswith("{") and clean.endswith("}"):
+            return clean
+
+        match = re.search(r"\{.*\}", clean, flags=re.DOTALL)
+        if not match:
+            raise ValueError("LLM response does not contain a JSON object")
+        return match.group(0)
+
+
+class LLMFaultTypeRankingOutputParser:
+    """Parser for LLM-ranked fault-type candidates for one fixed service."""
+
+    REQUIRED_KEYS = {"fault_type_ranking"}
+
+    def format_instructions(self) -> str:
+        return (
+            "Return exactly one raw JSON object with no markdown, no comments, and no extra text. "
+            f"The object must contain only this key: {sorted(self.REQUIRED_KEYS)}. "
+            "fault_type_ranking must be a non-empty list sorted by confidence descending. "
+            "Each item must include suspected_fault_type, confidence, and reason. "
+            f"suspected_fault_type must be one of metric_types: {sorted(FAULT_TYPE_CANDIDATES)}. "
+            "confidence must be a number between 0.0 and 1.0. "
+            "Do not include target_service and do not try to change the selected service."
+        )
+
+    def parse(self, response_text: str) -> Dict[str, Any]:
+        raw_json = self._extract_json_object(response_text)
+        result = json.loads(raw_json)
+        if not isinstance(result, dict):
+            raise ValueError("LLM fault-ranking response must be a JSON object")
+        keys = set(result.keys())
+        missing = self.REQUIRED_KEYS - keys
+        extra = keys - self.REQUIRED_KEYS
+        if missing:
+            raise ValueError(f"LLM fault-ranking response missing keys: {sorted(missing)}")
+        if extra:
+            raise ValueError(f"LLM fault-ranking response contains unsupported keys: {sorted(extra)}")
+
+        ranking = result.get("fault_type_ranking")
+        if not isinstance(ranking, list) or not ranking:
+            raise ValueError("fault_type_ranking must be a non-empty list")
+
+        normalized = []
+        seen = set()
+        for idx, item in enumerate(ranking, start=1):
+            if not isinstance(item, dict):
+                raise ValueError(f"fault_type_ranking item {idx} must be an object")
+            fault_type = item.get("suspected_fault_type")
+            if fault_type not in FAULT_TYPE_CANDIDATES:
+                raise ValueError(f"LLM ranked unsupported metric/fault type: {fault_type}")
+            if fault_type in seen:
+                continue
+            try:
+                confidence = float(item.get("confidence"))
+            except (TypeError, ValueError):
+                raise ValueError("LLM ranked confidence must be numeric")
+            if not 0.0 <= confidence <= 1.0:
+                raise ValueError("LLM ranked confidence must be between 0.0 and 1.0")
+            reason = item.get("reason")
+            if not isinstance(reason, str) or not reason.strip():
+                raise ValueError("LLM ranked reason must be a non-empty string")
+            normalized.append(
+                {
+                    "suspected_fault_type": fault_type,
+                    "confidence": confidence,
+                    "reason": reason.strip(),
+                }
+            )
+            seen.add(fault_type)
+
+        normalized.sort(key=lambda item: item["confidence"], reverse=True)
+        return {"fault_type_ranking": normalized}
 
     def _extract_json_object(self, response_text: str) -> str:
         clean = response_text.strip()
@@ -481,6 +567,51 @@ class SelfHealer:
                 "error": str(e),
             }
 
+    def rank_fault_types_with_llm(
+        self,
+        anomaly_context: Dict[str, Any],
+        detect_evidence: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        """
+        Rank fault types by confidence for one fixed service.
+
+        The current suspected_fault_type is not removed by this method; callers
+        can still try it first, then use this ranking for fallback ordering.
+        """
+        selected_service = anomaly_context.get("target_service", DEFAULT_SERVICE)
+        parser = LLMFaultTypeRankingOutputParser()
+        try:
+            client = LLMFactory.get_client()
+            prompt = self._format_fault_type_ranking_prompt(anomaly_context, detect_evidence or {}, parser)
+            response_text = client.generate_decision(prompt)
+            result = parser.parse(response_text)
+            result.update(
+                {
+                    "selected_service": selected_service,
+                    "used": True,
+                }
+            )
+            print(
+                "  [LLM FAULT RANK] Ranked fault types for fixed service "
+                f"{selected_service}: "
+                + ", ".join(
+                    f"{item['suspected_fault_type']}={item['confidence']:.2f}"
+                    for item in result["fault_type_ranking"]
+                )
+            )
+            return result
+        except Exception as e:
+            print(
+                "  [LLM FAULT RANK Warning] Fault-type ranking failed: "
+                f"{e}. Falling back to default fault order."
+            )
+            return {
+                "selected_service": selected_service,
+                "fault_type_ranking": [],
+                "used": False,
+                "error": str(e),
+            }
+
     def _decide_rule_based(
         self,
         ctx: Dict[str, Any],
@@ -561,6 +692,7 @@ Platform profile summary:
 {json.dumps({
     "system": SYSTEM_NAME,
     "services": SERVICES_LIST,
+    "metric_types_as_fault_candidates": FAULT_TYPE_CANDIDATES,
     "fault_runbook_mapping": FAULT_RUNBOOK_MAPPING,
     "dependency_graph": DEPENDENCY_GRAPH,
     "default_namespace": DEFAULT_NAMESPACE,
@@ -648,7 +780,10 @@ Current BARO/rule-based suspected_fault_type:
 Additional evidence focused on the fixed service:
 {json.dumps(detect_evidence, indent=2)}
 
-Allowed fault types and their runbook mapping:
+Allowed metric_types to use as fault-type candidates:
+{json.dumps(FAULT_TYPE_CANDIDATES, indent=2)}
+
+Fault-to-runbook mapping for those metric_types:
 {json.dumps(FAULT_RUNBOOK_MAPPING, indent=2)}
 
 Useful interpretation hints:
@@ -666,9 +801,57 @@ Structured output instructions:
 
 You MUST respond with a single valid JSON object exactly like:
 {{
-  "suspected_fault_type": "fault type from allowed mapping",
+  "suspected_fault_type": "fault type from metric_types",
   "confidence": 0.82,
   "reason": "Short evidence-based explanation for the fixed service only"
+}}
+
+Ensure there is no conversational text, no comments, and no markdown formatting in your response. Just return the raw JSON object.
+"""
+
+    def _format_fault_type_ranking_prompt(
+        self,
+        anomaly_context: Dict[str, Any],
+        detect_evidence: Dict[str, Any],
+        parser: LLMFaultTypeRankingOutputParser,
+    ) -> str:
+        selected_service = anomaly_context.get("target_service", DEFAULT_SERVICE)
+        suspected_fault_type = anomaly_context.get("suspected_fault_type", "unknown")
+        return f"""You are a senior Site Reliability Engineer (SRE) ranking fault-type hypotheses for a fixed service.
+
+The target service is FIXED and must not be changed:
+{selected_service}
+
+Current suspected_fault_type from RCA/previous attempt:
+{suspected_fault_type}
+
+Current anomaly_context:
+{json.dumps(anomaly_context, indent=2)}
+
+Evidence for ranking fault types on this fixed service:
+{json.dumps(detect_evidence, indent=2)}
+
+Allowed metric_types to use as fault-type candidates:
+{json.dumps(FAULT_TYPE_CANDIDATES, indent=2)}
+
+Fault-to-runbook mapping for those metric_types:
+{json.dumps(FAULT_RUNBOOK_MAPPING, indent=2)}
+
+Task:
+- Rank fault types by confidence from highest to lowest for this fixed service.
+- Use metric/log evidence and failed_self_heal_attempts as negative feedback.
+- Do not change or output target_service.
+- Include every plausible allowed fault type you can rank; confidence should reflect evidence strength.
+
+Structured output instructions:
+{parser.format_instructions()}
+
+You MUST respond with a single valid JSON object exactly like:
+{{
+  "fault_type_ranking": [
+    {{"suspected_fault_type": "delay", "confidence": 0.86, "reason": "Latency p95/timeout evidence dominates for the fixed service."}},
+    {{"suspected_fault_type": "loss", "confidence": 0.42, "reason": "Some error/reset symptoms, but weaker than latency."}}
+  ]
 }}
 
 Ensure there is no conversational text, no comments, and no markdown formatting in your response. Just return the raw JSON object.
