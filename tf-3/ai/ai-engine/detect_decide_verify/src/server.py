@@ -97,6 +97,7 @@ class DetectResponse(BaseModel):
     severity: float = Field(..., ge=0.0, le=1.0)
     anomaly_context: Optional[AnomalyContext] = None
     service_top_k: Optional[List[str]] = None
+    llm_fault_rank_evidence: Optional[Dict[str, Any]] = None
     confidence: float = Field(..., ge=0.0, le=1.0)
     reasoning: str = Field(..., max_length=300)
     correlation_id: str

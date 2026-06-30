@@ -23,6 +23,65 @@ from .config import (
 def _render_deployment(target_service: str) -> str:
     return DEFAULT_DEPLOYMENT_TEMPLATE.replace("{{target_service}}", target_service)
 
+
+def _build_llm_fault_rank_evidence(
+    df_metrics: pd.DataFrame,
+    df_log_ts: pd.DataFrame,
+    anomaly_idx: int,
+    target_service: str,
+    baseline_len: int,
+    max_metrics: int = 12,
+    max_logs: int = 8,
+) -> Dict[str, Any]:
+    """Summarize the BOCPD input window for LLM fault-type ranking without sending raw telemetry."""
+    metric_rows = []
+    baseline = df_metrics.iloc[:baseline_len]
+    current = df_metrics.iloc[anomaly_idx]
+    for col in df_metrics.columns:
+        if col == "time":
+            continue
+        if target_service and not str(col).startswith(target_service):
+            continue
+        mean = baseline[col].mean()
+        std = baseline[col].std()
+        val = current[col]
+        z = float(abs(val - mean) / std) if std and std > 0 else 0.0
+        metric_rows.append({
+            "metric": str(col),
+            "current_value": float(val),
+            "baseline_mean": float(mean) if not pd.isna(mean) else None,
+            "baseline_std": float(std) if not pd.isna(std) else None,
+            "abs_zscore": round(z, 4),
+        })
+    metric_rows.sort(key=lambda item: item["abs_zscore"], reverse=True)
+
+    log_rows = []
+    if isinstance(df_log_ts, pd.DataFrame) and not df_log_ts.empty:
+        time_col = "time" if "time" in df_log_ts.columns else None
+        svc_col = "service" if "service" in df_log_ts.columns else None
+        msg_col = "message" if "message" in df_log_ts.columns else None
+        if svc_col or msg_col:
+            logs = df_log_ts
+            if svc_col:
+                logs = logs[logs[svc_col].astype(str).str.contains(target_service, case=False, na=False)]
+            for _, row in logs.head(max_logs).iterrows():
+                log_rows.append({
+                    "time": row.get(time_col) if time_col else None,
+                    "service": row.get(svc_col) if svc_col else target_service,
+                    "message": str(row.get(msg_col, ""))[:300] if msg_col else str(row.to_dict())[:300],
+                })
+
+    return {
+        "bocpd_input_summary": {
+            "anomaly_index": int(anomaly_idx),
+            "anomaly_time": float(df_metrics.iloc[anomaly_idx]["time"]) if "time" in df_metrics.columns else None,
+            "baseline_len": int(baseline_len),
+            "metrics_rows": int(len(df_metrics)),
+            "top_metric_deviations_for_fixed_service": metric_rows[:max_metrics],
+            "log_samples_for_fixed_service": log_rows,
+        }
+    }
+
 class AIOpsEngine:
     """
     Facade class that coordinates the overall AIOps workflow across the modular engines.
@@ -150,6 +209,13 @@ class AIOpsEngine:
         print(f"[API][DETECT] Top-{len(top_5_services)} Candidates: {', '.join(top_5_services)}")
         print(f"[API][DETECT] Confidence:        {confidence:.3f}")
         print(f"[API][DETECT] Reasoning:         {reasoning}")
+        llm_fault_rank_evidence = _build_llm_fault_rank_evidence(
+            df_metrics=df_metrics,
+            df_log_ts=df_log_ts,
+            anomaly_idx=anomaly_idx,
+            target_service=target_service,
+            baseline_len=baseline_len,
+        )
             
         return {
             "anomaly_detected": True,
@@ -164,6 +230,7 @@ class AIOpsEngine:
                 "trigger_value": trigger_val
             },
             "service_top_k": top_5_services,
+            "llm_fault_rank_evidence": llm_fault_rank_evidence,
             "confidence": confidence,
             "reasoning": reasoning,
             "correlation_id": corr_id

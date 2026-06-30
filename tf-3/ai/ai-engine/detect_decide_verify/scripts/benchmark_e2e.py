@@ -230,7 +230,12 @@ def _run_one_cdo_flow(base_url: str, run_key: str, gt: dict, top_k: int) -> dict
     final_context = dict(base_context)
     final_verify = {"success": False, "next_action": "ESCALATE", "regression_detected": False}
 
-    detect_evidence = {"detect_reasoning": detect.get("reasoning"), "detect_confidence": detect.get("confidence"), "service_top_k": services}
+    detect_evidence = {
+        "detect_reasoning": detect.get("reasoning"),
+        "detect_confidence": detect.get("confidence"),
+        "service_top_k": services,
+        **(detect.get("llm_fault_rank_evidence") or {}),
+    }
     first_fault = pred_fault
 
     for service in services:
