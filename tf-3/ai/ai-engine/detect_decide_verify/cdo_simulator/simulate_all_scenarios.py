@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 # Setup paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 AI_ENGINE_DIR = os.path.dirname(SCRIPT_DIR)
-JSON_DIR = os.path.join(SCRIPT_DIR, "test_jsons")
+JSON_DIR = os.path.join(os.path.dirname(os.path.dirname(SCRIPT_DIR)), "dataset", "benchmark_fixtures", "detect_decide_verify")
 os.makedirs(JSON_DIR, exist_ok=True)
 
 # Port configuration

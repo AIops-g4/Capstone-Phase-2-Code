@@ -94,7 +94,7 @@ def main():
             AI_ENGINE_ROOT,
             "dataset",
             "benchmark_reports",
-            "benchmark_decide.json",
+            "benchmark_decide_verify_decide.json",
         ),
         help="Output JSON path",
     )

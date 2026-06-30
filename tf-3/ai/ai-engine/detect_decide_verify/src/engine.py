@@ -8,6 +8,7 @@ from .anomaly_detector import AnomalyDetectionPipeline
 from .correlation_analyzer import RootCauseAnalyzer
 from .incident import IncidentManager
 from .self_healer import SelfHealer
+from .verifier import VerificationEngine
 from .config import (
     RUNBOOKS_PATH,
     BASELINE_LENGTH,
@@ -25,6 +26,7 @@ class AIOpsEngine:
         self.rca_analyzer = RootCauseAnalyzer()
         self.incident_manager = IncidentManager()
         self.healing_engine = SelfHealer(RUNBOOKS_PATH)
+        self.verifier = VerificationEngine()
 
     def detect_anomalies(
         self, 
@@ -211,3 +213,34 @@ class AIOpsEngine:
             "dry_run_mode": dry_run_mode,
             "cost_cap_exceeded": False
         }
+
+    def verify_healing(
+        self, 
+        correlation_id: str, 
+        action_executed: Any, 
+        post_telemetry_window: List[Any]
+    ) -> Dict[str, Any]:
+        """
+        Verifies executed healing action and closes incident if successfully resolved.
+        """
+        success, regression_detected, next_action, reason = self.verifier.verify_action(
+            action_executed, 
+            post_telemetry_window
+        )
+        
+        if success and next_action == "DONE":
+            # Close the incident in our state engine
+            self.incident_manager.close_incident(correlation_id)
+            
+        response = {
+            "success": success,
+            "regression_detected": regression_detected,
+            "next_action": next_action
+        }
+        
+        if not success:
+            response["escalation_bundle"] = {
+                "reason": reason
+            }
+            
+        return response

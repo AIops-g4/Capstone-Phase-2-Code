@@ -1,0 +1,33 @@
+{
+  "matched_runbook": "CPUSaturationRecoveryRunbook",
+  "pattern_type": "urgent",
+  "action_plan": [
+    {
+      "step": 1,
+      "action": "SCALE_REPLICAS",
+      "target": "deployment/checkoutservice",
+      "params": {
+        "namespace": "production",
+        "replicas": 3
+      }
+    }
+  ],
+  "blast_radius_config": {
+    "max_pod_impact_pct": 25,
+    "circuit_breaker_error_rate": 0.2,
+    "allowed_namespaces": [
+      "production",
+      "default"
+    ]
+  },
+  "verify_policy": {
+    "window_seconds": 120,
+    "success_conditions": [
+      "pod_ready == true"
+    ]
+  },
+  "correlation_id": "2b30ddb3-2f16-4934-99a5-ec791342a860",
+  "idempotency_key": "d8cbe8fc-3cbd-41cd-9acf-9d4b1f9d9cb8",
+  "dry_run_mode": false,
+  "cost_cap_exceeded": false
+}

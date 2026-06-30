@@ -17,12 +17,14 @@ import os
 import sys
 import time
 import uuid
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DETECT_DECIDE_DIR = os.path.dirname(SCRIPT_DIR)
+AI_ENGINE_ROOT = os.path.dirname(DETECT_DECIDE_DIR)
 sys.path.insert(0, DETECT_DECIDE_DIR)
 
 from src.anomaly_detector import run_metric_anomaly_detection
@@ -38,6 +40,7 @@ from src.config import (
 from src.correlation_analyzer import CorrelationAnalyzer
 from src.log_parser import Drain3LogParser
 from src.self_healer import SelfHealer
+from src.verifier import VerificationEngine
 
 
 def _sample_run_keys(ground_truth: dict, sample_size: int | None) -> list[str]:
@@ -137,6 +140,7 @@ def run_e2e_benchmark(
     run_keys = _sample_run_keys(ground_truth, sample_size)
     rca = _configure_rca(engine, top_k, use_rrcf, use_bocpd)
     healer = SelfHealer(RUNBOOKS_PATH)
+    verifier = VerificationEngine()
     eval_top_k = rca.baro_top_k
 
     total = 0
@@ -146,8 +150,10 @@ def run_e2e_benchmark(
     fault_correct = 0
     runbook_e2e = 0
     runbook_oracle = 0
+    verify_success = 0
     pipeline_success = 0
     latencies_ms: list[float] = []
+    verify_latencies_ms: list[float] = []
     per_run: list[dict] = []
     y_true: list[str] = []
     y_pred: list[str] = []
@@ -274,7 +280,42 @@ def run_e2e_benchmark(
 
         if runbook_ok:
             runbook_e2e += 1
-        if service_ok and runbook_ok:
+
+        first_action = decide_result["action_plan"][0] if decide_result["action_plan"] else None
+        verify_ok = False
+        verify_next_action = "ESCALATE"
+        verify_regression = False
+
+        if first_action:
+            action_executed = SimpleNamespace(
+                action=first_action["action"],
+                target=first_action["target"],
+                status="COMPLETED",
+                execution_time_seconds=45,
+            )
+            target_service = first_action["target"].split("/")[-1]
+            post_telemetry = [
+                SimpleNamespace(
+                    service=target_service,
+                    signal_name="service_error_rate",
+                    value=0.0,
+                ),
+                SimpleNamespace(
+                    service=target_service,
+                    signal_name="service_latency_p95",
+                    value=0.03,
+                ),
+            ]
+            t_verify = time.perf_counter()
+            verify_ok, verify_regression, verify_next_action, _ = verifier.verify_action(
+                action_executed,
+                post_telemetry,
+            )
+            verify_latencies_ms.append((time.perf_counter() - t_verify) * 1000)
+
+        if verify_ok and verify_next_action == "DONE":
+            verify_success += 1
+        if service_ok and runbook_ok and verify_ok:
             pipeline_success += 1
 
         oracle_ctx = dict(anomaly_context)
@@ -296,9 +337,13 @@ def run_e2e_benchmark(
                 "fault_correct": fault_ok,
                 "runbook_correct_e2e": runbook_ok,
                 "runbook_correct_oracle": oracle_ok,
+                "verify_success": verify_ok,
+                "verify_next_action": verify_next_action,
+                "verify_regression_detected": verify_regression,
                 "pipeline_success": service_ok and runbook_ok,
                 "confidence": round(confidence, 3),
                 "decide_latency_ms": round(latencies_ms[-1], 2),
+                "verify_latency_ms": round(verify_latencies_ms[-1], 2) if verify_latencies_ms else 0,
             }
         )
         per_run.append(row)
@@ -349,9 +394,16 @@ def run_e2e_benchmark(
             "pipeline_success_rate": round(pipeline_success / total, 4) if total else 0,
             "pipeline_success_count": pipeline_success,
         },
+        "verify": {
+            "success_rate_on_detected": round(verify_success / detected, 4) if detected else 0,
+            "success_count": verify_success,
+        },
         "latency_ms": {
             "decide_mean": round(sum(latencies_ms) / len(latencies_ms), 2) if latencies_ms else 0,
             "decide_p99": round(p99, 2),
+            "verify_mean": round(sum(verify_latencies_ms) / len(verify_latencies_ms), 2)
+            if verify_latencies_ms
+            else 0,
         },
         "config": {
             "rca_engine": engine,
@@ -368,6 +420,7 @@ def run_e2e_benchmark(
 def _print_summary(report: dict) -> None:
     d = report["detect"]
     c = report["decide"]
+    v = report["verify"]
     top_k = report["config"]["top_k"]
 
     print("\n=======================================================")
@@ -390,6 +443,8 @@ def _print_summary(report: dict) -> None:
     print(f"Fault type accuracy:         {d['fault_type_accuracy_on_detected'] * 100:.1f}% (on detected)")
     print(f"Runbook accuracy (E2E):      {c['runbook_accuracy_e2e'] * 100:.1f}% ({c['correct_runbook_e2e']}/{d['detected_runs']} detected)")
     print(f"Runbook accuracy (oracle):   {c['runbook_accuracy_oracle_fault'] * 100:.1f}% (GT fault, on detected)")
+    print("--- Verify (mock post-healing telemetry) ---")
+    print(f"Verify success rate:         {v['success_rate_on_detected'] * 100:.1f}% ({v['success_count']}/{d['detected_runs']} detected)")
     print(f"Full pipeline success:       {c['pipeline_success_rate'] * 100:.1f}% (detect+svc+runbook)")
     print(f"Decide latency (mean):       {report['latency_ms']['decide_mean']} ms")
     print("=======================================================\n")
@@ -407,7 +462,12 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true", help="Per-run log lines")
     parser.add_argument(
         "--output",
-        default=os.path.join(DETECT_DECIDE_DIR, "benchmark_report_e2e.json"),
+        default=os.path.join(
+            AI_ENGINE_ROOT,
+            "dataset",
+            "benchmark_reports",
+            "benchmark_e2e.json",
+        ),
     )
     args = parser.parse_args()
 
@@ -422,6 +482,7 @@ def main():
         verbose=args.verbose,
     )
 
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
 

@@ -1,0 +1,20 @@
+{
+  "matched_runbook": "CorrelatedSymptomSuppression",
+  "pattern_type": "urgent",
+  "action_plan": [],
+  "blast_radius_config": {
+    "max_pod_impact_pct": 0,
+    "circuit_breaker_error_rate": 0.0,
+    "allowed_namespaces": [
+      "production"
+    ]
+  },
+  "verify_policy": {
+    "window_seconds": 10,
+    "success_conditions": []
+  },
+  "correlation_id": "374b2ba6-11b7-4be5-846b-042e0ad90095",
+  "idempotency_key": "8018e916-03be-4765-a315-d487490820e0",
+  "dry_run_mode": false,
+  "cost_cap_exceeded": false
+}
