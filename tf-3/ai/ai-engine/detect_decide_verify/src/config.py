@@ -98,7 +98,6 @@ PLATFORM_PROFILE_PATH = _resolve_path(
     ),
     DETECT_DIR,
 )
-PLATFORM_PROFILE = _load_json_file(PLATFORM_PROFILE_PATH)
 PLATFORM_PROFILE_SCHEMA_PATH = _resolve_path(
     os.getenv(
         "PLATFORM_PROFILE_SCHEMA_PATH",
@@ -106,6 +105,12 @@ PLATFORM_PROFILE_SCHEMA_PATH = _resolve_path(
     ),
     DETECT_DIR,
 )
+TELEMETRY_SIGNAL_NAMES_PATH = _resolve_path(
+    os.getenv("TELEMETRY_SIGNAL_NAMES_PATH", os.path.join(DETECT_DIR, "adr", "telemetry_signal_names.json")),
+    DETECT_DIR,
+)
+PLATFORM_PROFILE = _load_json_file(PLATFORM_PROFILE_PATH)
+TELEMETRY_SIGNAL_NAMES_CONFIG = _load_json_file(TELEMETRY_SIGNAL_NAMES_PATH)
 
 # Server Configuration
 API_HOST = os.getenv("API_HOST", "127.0.0.1")
@@ -203,6 +208,12 @@ FAULT_LOG_EVIDENCE_WEIGHT = float(os.getenv("FAULT_LOG_EVIDENCE_WEIGHT", "12.0")
 FAULT_BARO_RANK_WEIGHT = float(os.getenv("FAULT_BARO_RANK_WEIGHT", "1.5"))
 FAULT_SCORE_MIN = float(os.getenv("FAULT_SCORE_MIN", "1.0"))
 
+TELEMETRY_SIGNAL_NAMES = [
+    str(name).strip()
+    for name in TELEMETRY_SIGNAL_NAMES_CONFIG.get("signal_names", [])
+    if str(name).strip()
+]
+
 # Parse service and fault-type catalogs from PLATFORM_PROFILE_PATH JSON.
 # PLATFORM_PROFILE_SCHEMA_PATH documents/validates that JSON shape; the actual
 # values are read from profile fields such as services and metric_types.
@@ -226,18 +237,22 @@ ALLOWED_NAMESPACES = [
 ]
 
 # Server-side telemetry source configuration.
-# - bench keeps deterministic benchmark_fixture datasets.
-# - production reads telemetry from Kubernetes pods and Prometheus/Loki-compatible backends.
+# Telemetry runtime mode and source kinds are configured directly in .env.
+# ADR JSON may still provide auxiliary runtime data for benchmark helpers.
 TELEMETRY_RUNTIME_MODE = os.getenv("TELEMETRY_RUNTIME_MODE", "bench").strip().lower()
 BENCH_TELEMETRY_SOURCE_KIND = os.getenv("BENCH_TELEMETRY_SOURCE_KIND", "benchmark_fixture").strip()
 PRODUCTION_TELEMETRY_SOURCE_KIND = os.getenv("PRODUCTION_TELEMETRY_SOURCE_KIND", "k8s").strip()
+CDO_PUSH_TELEMETRY_SOURCE_KIND = os.getenv("CDO_PUSH_TELEMETRY_SOURCE_KIND", "cdo_push").strip()
 _runtime_default_telemetry_source_kind = (
-    PRODUCTION_TELEMETRY_SOURCE_KIND if TELEMETRY_RUNTIME_MODE == "production" else BENCH_TELEMETRY_SOURCE_KIND
+    PRODUCTION_TELEMETRY_SOURCE_KIND
+    if TELEMETRY_RUNTIME_MODE == "production"
+    else CDO_PUSH_TELEMETRY_SOURCE_KIND
+    if TELEMETRY_RUNTIME_MODE == "cdo_push"
+    else BENCH_TELEMETRY_SOURCE_KIND
 )
 DEFAULT_TELEMETRY_SOURCE_KIND = (
     os.getenv("DEFAULT_TELEMETRY_SOURCE_KIND", "").strip() or _runtime_default_telemetry_source_kind
 )
-
 # Kubernetes telemetry reader settings. AI Engine only reads telemetry; it must not
 # mutate Kubernetes resources. Request telemetry_source fields can override these.
 K8S_NAMESPACE = os.getenv("K8S_NAMESPACE", DEFAULT_NAMESPACE)

@@ -25,28 +25,40 @@ class TelemetryProcessor:
         """
         metrics_records = {}
         log_messages = []
-        
+
+        def _get(point: Any, key: str, default: Any = None) -> Any:
+            # Support both dict telemetry points (from telemetry_source loaders)
+            # and Pydantic TelemetryPoint objects (from direct CDO push).
+            if isinstance(point, dict):
+                return point.get(key, default)
+            return getattr(point, key, default)
+
         # 1. Parse raw telemetry points
         for point in telemetry_window:
-            ts_sec = int(pd.to_datetime(point.ts).timestamp())
-            
-            if point.signal_name == "application_log_event":
+            ts = _get(point, "ts")
+            signal_name = _get(point, "signal_name")
+            service = _get(point, "service")
+            value = _get(point, "value")
+            labels = _get(point, "labels")
+            ts_sec = int(pd.to_datetime(ts).timestamp())
+
+            if signal_name == "application_log_event":
                 log_messages.append({
                     "timestamp": ts_sec * 1000000000,
-                    "container_name": point.service,
-                    "message": str(point.value),
-                    "level": point.labels.get("level", "info") if point.labels else "info"
+                    "container_name": service,
+                    "message": str(value),
+                    "level": labels.get("level", "info") if labels else "info"
                 })
             else:
                 if ts_sec not in metrics_records:
                     metrics_records[ts_sec] = {"time": ts_sec}
-                
+
                 # Format column name matching simple_metrics format (e.g. adservice_cpu)
-                col_name = point.signal_name
-                if not any(point.signal_name.startswith(s) for s in SERVICES_LIST if s != "redis" and s != "frontend"):
-                    col_name = f"{point.service}_{point.signal_name}"
-                    
-                metrics_records[ts_sec][col_name] = float(point.value)
+                col_name = signal_name
+                if not any(str(signal_name).startswith(s) for s in SERVICES_LIST if s != "redis" and s != "frontend"):
+                    col_name = f"{service}_{signal_name}"
+
+                metrics_records[ts_sec][col_name] = float(value)
                 
         if not metrics_records:
             return pd.DataFrame(), pd.DataFrame(), {}

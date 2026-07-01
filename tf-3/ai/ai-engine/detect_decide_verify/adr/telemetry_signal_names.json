@@ -1,0 +1,16 @@
+{
+  "signal_names": [
+    "service_error_rate",
+    "service_latency_p95",
+    "container_resource_usage",
+    "application_log_event",
+    "distributed_trace_error_event",
+    "pod_oom_event",
+    "service_unhealthy",
+    "queue_backlog",
+    "service_throughput_rps",
+    "container_restart_count",
+    "secret_expiry_warning",
+    "db_connection_pool_saturation"
+  ]
+}
