@@ -40,6 +40,8 @@ from .config import (
     METRIC_TYPES_LIST,
     RUNBOOKS_PATH,
     USE_LLM_FAULT_TYPE,
+    SYSTEM_NAME,
+    DEFAULT_NAMESPACE,
 )
 from .correlation_analyzer import CorrelationAnalyzer
 from .log_parser import Drain3LogParser
@@ -847,8 +849,8 @@ def run_e2e_benchmark(
             candidate_context = {
                 "target_service": candidate_service,
                 "suspected_fault_type": candidate_fault,
-                "system": "E-COMMERCE",
-                "namespace": "production",
+                "system": SYSTEM_NAME,
+                "namespace": DEFAULT_NAMESPACE,
                 "deployment": f"deployment/{candidate_service}",
                 "trigger_metric": "",
                 "trigger_value": None,
