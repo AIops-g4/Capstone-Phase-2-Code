@@ -3,14 +3,17 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Literal, Union
 from fastapi import FastAPI, Header, HTTPException, Request, status, Body
 from fastapi.responses import JSONResponse, PlainTextResponse
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 from .engine import AIOpsEngine
 from .config import (
     API_HOST,
     API_PORT,
+    CDO_PUSH_TELEMETRY_SOURCE_KIND,
     DEFAULT_NAMESPACE,
     SYSTEM_NAME,
+    TELEMETRY_RUNTIME_MODE,
+    TELEMETRY_SIGNAL_NAMES,
 )
 from .recovery_orchestrator import run_e2e_benchmark
 from .telemetry_sources import TelemetrySourceError, load_telemetry_from_source
@@ -60,22 +63,72 @@ aiops_engine = AIOpsEngine()
 #                      PYDANTIC REQUEST / RESPONSE SCHEMAS
 # =====================================================================
 
+# Contract-defined signal_name enum loaded from TELEMETRY_SIGNAL_NAMES_PATH (adr/telemetry_signal_names.json).
+# The path is configured in .env (TELEMETRY_SIGNAL_NAMES_PATH).
+_CONTRACT_SIGNAL_NAMES: set[str] = set(TELEMETRY_SIGNAL_NAMES)
+
+
 class TelemetryPoint(BaseModel):
+    """
+    Single telemetry data point per contracts/telemetry-contract.md.
+    extra='forbid' enforces additionalProperties: false.
+    """
     model_config = ConfigDict(extra="forbid")
-    ts: str = Field(..., description="ISO 8601 timestamp")
-    tenant_id: str = Field(..., description="Tenant UUID")
+    ts: str = Field(..., description="ISO 8601 / RFC3339 timestamp")
+    tenant_id: str = Field(..., description="Tenant UUID v4")
     service: str = Field(..., description="Service name")
-    signal_name: str = Field(..., description="Metric or event name")
+    signal_name: str = Field(..., description="Signal name from telemetry contract enum")
     value: Any = Field(..., description="Numerical value or log string message")
-    labels: Optional[Dict[str, Any]] = Field(default=None, description="Optional labels")
+    labels: Optional[Dict[str, Any]] = Field(default=None, description="Optional labels dict; labels.system is required when present")
+
+    @field_validator("ts")
+    @classmethod
+    def ts_must_be_rfc3339(cls, v: str) -> str:
+        try:
+            datetime.fromisoformat(v.replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            raise ValueError("ts must be RFC3339 / ISO 8601 date-time")
+        return v
+
+    @field_validator("tenant_id")
+    @classmethod
+    def tenant_id_must_be_uuid(cls, v: str) -> str:
+        try:
+            uuid.UUID(str(v))
+        except (TypeError, ValueError):
+            raise ValueError("tenant_id must be UUID v4")
+        return v
+
+    @field_validator("signal_name")
+    @classmethod
+    def signal_name_must_be_in_contract(cls, v: str) -> str:
+        if v not in _CONTRACT_SIGNAL_NAMES:
+            raise ValueError(
+                f"signal_name '{v}' is not in telemetry contract enum. "
+                f"Allowed: {sorted(_CONTRACT_SIGNAL_NAMES)}"
+            )
+        return v
+
+    @field_validator("labels")
+    @classmethod
+    def labels_system_required(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if v is not None and "system" not in v:
+            raise ValueError("labels.system is required when labels is present")
+        return v
 
 class DetectRequest(BaseModel):
+    """
+    Request body for POST /v1/detect per contracts/ai-api-contract.md §3.1.
+    additionalProperties: false enforced by extra='forbid'.
+    telemetry_source is a server-side internal extension for bench/production mode only;
+    it is not part of the CDO-facing contract and must not be sent by CDO in push mode.
+    """
     model_config = ConfigDict(extra="forbid")
-    correlation_id: Optional[str] = Field(None, description="UUID v4 tracing correlation ID")
+    correlation_id: Optional[str] = Field(None, description="UUID v4 tracing correlation ID (optional)")
     idempotency_key: str = Field(..., description="UUID v4 idempotency key")
     dry_run_mode: bool = Field(..., description="Dry-run flag")
-    telemetry_window: Optional[List[TelemetryPoint]] = Field(None, description="Telemetry data window")
-    telemetry_source: Optional[Dict[str, Any]] = Field(None, description="Server-side telemetry source selector")
+    telemetry_window: Optional[List[TelemetryPoint]] = Field(None, description="Telemetry data window per telemetry-contract.md")
+    telemetry_source: Optional[Dict[str, Any]] = Field(None, description="[Internal] Server-side telemetry source selector for bench/production mode")
 
 class AnomalyContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -184,21 +237,6 @@ class FaultRankRequest(BaseModel):
 #                          API ENDPOINTS
 # =====================================================================
 
-CONTRACT_SIGNAL_NAMES = {
-    "service_error_rate",
-    "service_latency_p95",
-    "container_resource_usage",
-    "application_log_event",
-    "distributed_trace_error_event",
-    "pod_oom_event",
-    "service_unhealthy",
-    "queue_backlog",
-    "service_throughput_rps",
-    "container_restart_count",
-    "secret_expiry_warning",
-    "db_connection_pool_saturation",
-}
-
 
 def _is_uuid(value: Any) -> bool:
     try:
@@ -208,157 +246,150 @@ def _is_uuid(value: Any) -> bool:
         return False
 
 
-def _is_rfc3339_datetime(value: Any) -> bool:
-    try:
-        datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return True
-    except (TypeError, ValueError):
-        return False
+def _parse_header_bool(value: str, header_name: str) -> bool:
+    lowered = str(value).strip().lower()
+    if lowered not in {"true", "false"}:
+        raise HTTPException(status_code=400, detail=f"{header_name} must be 'true' or 'false'")
+    return lowered == "true"
 
 
-def _validate_contract_telemetry_window(telemetry_window: List[Dict[str, Any]], x_tenant_id: str) -> None:
-    """
-    Strict validation for direct HTTP Push telemetry defined in ai/contracts.
+def _validate_detect_contract_headers_and_body(
+    *,
+    x_tenant_id: str,
+    x_correlation_id: Optional[str],
+    idempotency_key_header: str,
+    x_dry_run_mode: str,
+    idempotency_key: str,
+    dry_run_mode: bool,
+    correlation_id: Optional[str],
+) -> None:
+    if not _is_uuid(x_tenant_id):
+        raise HTTPException(status_code=400, detail="X-Tenant-Id must be UUID")
+    if x_correlation_id and not _is_uuid(x_correlation_id):
+        raise HTTPException(status_code=400, detail="X-Correlation-Id must be UUID when provided")
+    if not _is_uuid(idempotency_key_header):
+        raise HTTPException(status_code=400, detail="Idempotency-Key header must be UUID")
+    if not _is_uuid(idempotency_key):
+        raise HTTPException(status_code=400, detail="idempotency_key body must be UUID")
+    if idempotency_key_header != idempotency_key:
+        raise HTTPException(status_code=400, detail="Idempotency-Key header must match idempotency_key body")
+    dry_run_header = _parse_header_bool(x_dry_run_mode, "X-Dry-Run-Mode")
+    if dry_run_header != dry_run_mode:
+        raise HTTPException(status_code=400, detail="X-Dry-Run-Mode header must match dry_run_mode body")
+    if x_correlation_id and correlation_id and x_correlation_id != correlation_id:
+        raise HTTPException(status_code=400, detail="X-Correlation-Id header must match correlation_id body when both are provided")
 
-    Server-side telemetry_source providers are internal adapters and may use
-    benchmark/profile-specific signal names before they are normalized by the
-    TelemetryProcessor, so this strict contract gate is applied only to direct
-    telemetry_window requests from CDO.
-    """
-    if not isinstance(telemetry_window, list) or not telemetry_window:
-        raise HTTPException(status_code=400, detail="telemetry_window must be a non-empty array")
-    allowed_keys = {"ts", "tenant_id", "service", "signal_name", "value", "labels"}
-    for idx, point in enumerate(telemetry_window):
-        if not isinstance(point, dict):
-            raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}] must be an object")
-        extra = set(point) - allowed_keys
-        if extra:
-            raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}] has unsupported fields: {sorted(extra)}")
-        missing = {"ts", "tenant_id", "service", "signal_name", "value"} - set(point)
-        if missing:
-            raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}] missing required fields: {sorted(missing)}")
-        if not _is_rfc3339_datetime(point.get("ts")):
-            raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}].ts must be RFC3339 date-time")
-        if not _is_uuid(point.get("tenant_id")):
-            raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}].tenant_id must be UUID")
-        if x_tenant_id and point.get("tenant_id") != x_tenant_id:
-            raise HTTPException(status_code=403, detail=f"telemetry_window[{idx}].tenant_id does not match X-Tenant-Id")
-        if point.get("signal_name") not in CONTRACT_SIGNAL_NAMES:
-            raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}].signal_name is not in telemetry contract enum")
-        labels = point.get("labels")
-        if labels is not None:
-            if not isinstance(labels, dict):
-                raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}].labels must be an object")
-            if "system" not in labels:
-                raise HTTPException(status_code=400, detail=f"telemetry_window[{idx}].labels.system is required when labels is present")
 
 @app.post("/v1/detect", response_model=DetectResponse, response_model_exclude_none=True)
 async def detect_anomalies(
+    body: DetectRequest,
     x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
-    authorization: str = Header(None, alias="Authorization"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
     x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-Id"),
     idempotency_key_header: str = Header(..., alias="Idempotency-Key"),
     x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode"),
-    idempotency_key: str = Body(...),
-    dry_run_mode: bool = Body(...),
-    telemetry_window: Optional[List[Dict[str, Any]]] = Body(None),
-    telemetry_source: Optional[Dict[str, Any]] = Body(None),
-    correlation_id: Optional[str] = Body(None)
 ):
     """
-    Endpoint: POST /v1/detect
-    Ingests telemetry, runs dual-track anomaly detection, diagnoses root causes (RCA), and correlates alerts.
+    POST /v1/detect — per contracts/ai-api-contract.md §3.1.
+
+    CDO pushes telemetry_window directly. telemetry_source is an internal server
+    extension for bench/production mode only and must not be sent in CDO push mode.
+    FastAPI automatically validates the request body against DetectRequest Pydantic schema
+    (additionalProperties: false, required fields, TelemetryPoint enum constraints).
     """
     print("\n[API][SERVER] POST /v1/detect received")
+    _validate_detect_contract_headers_and_body(
+        x_tenant_id=x_tenant_id,
+        x_correlation_id=x_correlation_id,
+        idempotency_key_header=idempotency_key_header,
+        x_dry_run_mode=x_dry_run_mode,
+        idempotency_key=body.idempotency_key,
+        dry_run_mode=body.dry_run_mode,
+        correlation_id=body.correlation_id,
+    )
+
+    source_kind = (body.telemetry_source or {}).get("kind") if body.telemetry_source else None
+    is_cdo_push_mode = TELEMETRY_RUNTIME_MODE == "cdo_push" or source_kind == CDO_PUSH_TELEMETRY_SOURCE_KIND
+
+    if is_cdo_push_mode and not body.telemetry_window:
+        raise HTTPException(status_code=400, detail="CDO push mode requires telemetry_window in request body")
+    if is_cdo_push_mode and body.telemetry_source:
+        raise HTTPException(status_code=400, detail="CDO push mode does not accept telemetry_source; push telemetry_window directly")
+
+    # Cross-check tenant_id in each telemetry point against X-Tenant-Id header.
+    if body.telemetry_window and not body.telemetry_source:
+        for idx, point in enumerate(body.telemetry_window):
+            if point.tenant_id != x_tenant_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"telemetry_window[{idx}].tenant_id does not match X-Tenant-Id",
+                )
+
+    telemetry_window = body.telemetry_window
     if not telemetry_window:
         try:
-            telemetry_window = load_telemetry_from_source(telemetry_source)
+            telemetry_window = load_telemetry_from_source(body.telemetry_source)
         except TelemetrySourceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-    elif not telemetry_source:
-        _validate_contract_telemetry_window(telemetry_window, x_tenant_id)
 
-    request = DetectRequest(
-        correlation_id=correlation_id,
-        idempotency_key=idempotency_key,
-        dry_run_mode=dry_run_mode,
-        telemetry_window=telemetry_window,
-        telemetry_source=telemetry_source,
-    )
-    if not request.telemetry_window:
+    if not telemetry_window:
         raise HTTPException(status_code=400, detail="Provide telemetry_source or telemetry_window")
-    res = aiops_engine.detect_anomalies(request.telemetry_window, request.correlation_id)
+
+    res = aiops_engine.detect_anomalies(telemetry_window, body.correlation_id)
     print(f"[API][SERVER] POST /v1/detect completed anomaly_detected={res.get('anomaly_detected')}")
-    if telemetry_source:
+    if body.telemetry_source:
         return JSONResponse(content=res)
     return DetectResponse(**{k: v for k, v in res.items() if k in DetectResponse.model_fields})
 
 @app.post("/v1/decide", response_model=DecideResponse, response_model_exclude_none=True)
 async def decide_action_plan(
+    body: DecideRequest,
     x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
-    authorization: str = Header(None, alias="Authorization"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
     x_correlation_id: str = Header(..., alias="X-Correlation-Id"),
     idempotency_key_header: str = Header(..., alias="Idempotency-Key"),
     x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode"),
-    idempotency_key: str = Body(...),
-    correlation_id: str = Body(...),
-    anomaly_context: Dict[str, Any] = Body(...),
-    dry_run_mode: bool = Body(...),
-    detect_evidence: Optional[Dict[str, Any]] = Body(None)
 ):
     """
-    Endpoint: POST /v1/decide
-    Matches diagnosed anomalies to runbooks and templates self-healing action plans.
+    POST /v1/decide — per contracts/ai-api-contract.md §3.2.
+
+    FastAPI automatically validates the request body against DecideRequest Pydantic schema
+    (additionalProperties: false, required fields, AnomalyContext constraints).
     """
     print("\n[API][SERVER] POST /v1/decide received")
-    request = DecideRequest(
-        correlation_id=correlation_id,
-        idempotency_key=idempotency_key,
-        dry_run_mode=dry_run_mode,
-        anomaly_context=anomaly_context,
-        detect_evidence=detect_evidence,
-    )
     res = aiops_engine.decide_healing_action(
-        correlation_id=request.correlation_id,
-        idempotency_key=request.idempotency_key,
-        dry_run_mode=request.dry_run_mode,
-        anomaly_context=request.anomaly_context.model_dump(),
-        detect_evidence=request.detect_evidence,
+        correlation_id=body.correlation_id,
+        idempotency_key=body.idempotency_key,
+        dry_run_mode=body.dry_run_mode,
+        anomaly_context=body.anomaly_context.model_dump(),
+        detect_evidence=body.detect_evidence,
     )
     print(f"[API][SERVER] POST /v1/decide completed runbook={res.get('matched_runbook')}")
-    if request.detect_evidence:
+    if body.detect_evidence:
         return JSONResponse(content=res)
     return DecideResponse(**{k: v for k, v in res.items() if k in DecideResponse.model_fields})
 
 @app.post("/v1/verify", response_model=VerifyResponse, response_model_exclude_none=True)
 async def verify_healing(
+    body: VerifyRequest,
     x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
-    authorization: str = Header(None, alias="Authorization"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
     x_correlation_id: str = Header(..., alias="X-Correlation-Id"),
     idempotency_key_header: str = Header(..., alias="Idempotency-Key"),
     x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode"),
-    idempotency_key: str = Body(...),
-    correlation_id: str = Body(...),
-    dry_run_mode: bool = Body(...),
-    action_executed: Dict[str, Any] = Body(...),
-    post_telemetry_window: List[Dict[str, Any]] = Body(...)
 ):
     """
-    Endpoint: POST /v1/verify
-    Verifies execution status and post-healing telemetry, closing the incident if successfully resolved.
+    POST /v1/verify — per contracts/ai-api-contract.md §3.3.
+
+    FastAPI automatically validates the request body against VerifyRequest Pydantic schema
+    (additionalProperties: false, required fields, TelemetryPoint constraints for
+    post_telemetry_window).
     """
     print("\n[API][SERVER] POST /v1/verify received")
-    request = VerifyRequest(
-        correlation_id=correlation_id,
-        idempotency_key=idempotency_key,
-        dry_run_mode=dry_run_mode,
-        action_executed=action_executed,
-        post_telemetry_window=post_telemetry_window
-    )
     res = aiops_engine.verify_healing(
-        correlation_id=request.correlation_id,
-        action_executed=request.action_executed,
-        post_telemetry_window=request.post_telemetry_window
+        correlation_id=body.correlation_id,
+        action_executed=body.action_executed,
+        post_telemetry_window=body.post_telemetry_window,
     )
     print(f"[API][SERVER] POST /v1/verify completed next_action={res.get('next_action')}")
     return VerifyResponse(**res)
@@ -366,32 +397,22 @@ async def verify_healing(
 
 @app.post("/v1/fault-rank")
 async def rank_fault_types(
+    body: FaultRankRequest,
     x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
-    authorization: str = Header(None, alias="Authorization"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
     x_correlation_id: str = Header(..., alias="X-Correlation-Id"),
     idempotency_key_header: str = Header(..., alias="Idempotency-Key"),
     x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode"),
-    idempotency_key: str = Body(...),
-    correlation_id: str = Body(...),
-    dry_run_mode: bool = Body(...),
-    anomaly_context: Dict[str, Any] = Body(...),
-    detect_evidence: Optional[Dict[str, Any]] = Body(None),
 ):
     """
-    Endpoint for CDO/orchestrator fallback ordering.
+    POST /v1/fault-rank — CDO/orchestrator fallback ordering.
     Keeps service fixed and ranks fault types by confidence.
+    FastAPI validates body against FaultRankRequest Pydantic schema.
     """
     print("\n[API][SERVER] POST /v1/fault-rank received")
-    request = FaultRankRequest(
-        correlation_id=correlation_id,
-        idempotency_key=idempotency_key,
-        dry_run_mode=dry_run_mode,
-        anomaly_context=anomaly_context,
-        detect_evidence=detect_evidence,
-    )
     res = aiops_engine.rank_fault_types(
-        anomaly_context=request.anomaly_context.model_dump(),
-        detect_evidence=request.detect_evidence,
+        anomaly_context=body.anomaly_context.model_dump(),
+        detect_evidence=body.detect_evidence,
     )
     print(f"[API][SERVER] POST /v1/fault-rank completed used={res.get('used')}")
     return res
