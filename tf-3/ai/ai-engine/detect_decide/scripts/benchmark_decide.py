@@ -9,6 +9,7 @@ import time
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DETECT_DIR = os.path.dirname(SCRIPT_DIR)
+AI_ENGINE_ROOT = os.path.dirname(DETECT_DIR)
 sys.path.insert(0, DETECT_DIR)
 
 from src.config import GROUND_TRUTH_PATH, RUNBOOKS_PATH
@@ -89,12 +90,18 @@ def main():
     parser.add_argument("--sample-size", type=int, default=None, help="Limit number of runs")
     parser.add_argument(
         "--output",
-        default=os.path.join(DETECT_DIR, "benchmark_report_re2.json"),
+        default=os.path.join(
+            AI_ENGINE_ROOT,
+            "dataset",
+            "benchmark_reports",
+            "benchmark_decide.json",
+        ),
         help="Output JSON path",
     )
     args = parser.parse_args()
 
     report = run_benchmark(sample_size=args.sample_size)
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
 

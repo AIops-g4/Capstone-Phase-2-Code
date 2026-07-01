@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiops-g4.local/schemas/dependency.schema.json",
+  "title": "AIOps AI Engine Service Dependency Graph",
+  "description": "Shared service dependency graph used by incident correlation and RCA symptom suppression. Each object key is a service and each value lists related upstream/downstream services according to the stage correlation implementation.",
+  "type": "object",
+  "minProperties": 1,
+  "propertyNames": {
+    "$ref": "#/$defs/service_name"
+  },
+  "additionalProperties": {
+    "type": "array",
+    "uniqueItems": true,
+    "items": {"$ref": "#/$defs/service_name"},
+    "description": "Services connected to the key service in the dependency graph."
+  },
+  "$defs": {
+    "service_name": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+      "description": "Logical service name from the benchmark platform, e.g. frontend or checkoutservice."
+    }
+  }
+}

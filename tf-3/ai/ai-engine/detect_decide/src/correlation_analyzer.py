@@ -23,7 +23,12 @@ from .config import (
     RCA_STD_REG_MULTIPLIER,
     RCA_STD_REG_ADDITIVE,
     SERVICES_LIST,
-    METRIC_TYPES_LIST
+    METRIC_TYPES_LIST,
+    FAULT_SIGNAL_PATTERNS,
+    FAULT_SIGNAL_WEIGHTS,
+    FAULT_LOG_EVIDENCE_WEIGHT,
+    FAULT_BARO_RANK_WEIGHT,
+    FAULT_SCORE_MIN,
 )
 
 
@@ -83,11 +88,16 @@ class RootCauseAnalyzer:
                         
                 if self.last_top_k:
                     best_service = self.last_top_k[0]
-                    # 1B: prefer highest Z-score metric on best_service for fault type
-                    z_fault, z_metric, z_val = self._infer_fault_for_service(
-                        df_metrics, anomaly_idx, best_service
+                    # Infer fault type by aggregating generic signal evidence for
+                    # the selected service instead of trusting one strongest symptom.
+                    z_fault, z_metric, z_val, fault_scores = self._infer_fault_for_service(
+                        df_metrics,
+                        anomaly_idx,
+                        best_service,
+                        ranked_metrics=ranks,
+                        template_info=template_info,
                     )
-                    if z_metric and z_val > RCA_ZSCORE_THRESHOLD:
+                    if z_metric and max(fault_scores.values(), default=0.0) >= FAULT_SCORE_MIN:
                         suspected_fault_type = z_fault
                         top_metric = z_metric
                     else:
@@ -107,7 +117,8 @@ class RootCauseAnalyzer:
                     confidence = BARO_RCA_CONFIDENCE
                     reasoning = (
                         f"[BARO RCA] Diagnosed {best_service} ({suspected_fault_type}) as root cause "
-                        f"from metric '{top_metric}' (z={z_val:.1f}). "
+                        f"from aggregated fault evidence led by '{top_metric}' (z={z_val:.1f}, "
+                        f"scores={self._format_fault_scores(fault_scores)}). "
                         f"Top candidates: {', '.join(ranks[:self.baro_top_k])}."
                     )
                     if len(reasoning) > 300:
@@ -150,7 +161,7 @@ class RootCauseAnalyzer:
         
         # Aggregate diagnostic scores per service and fault type
         service_scores = {s: 0.0 for s in SERVICES_LIST}
-        service_fault_scores = {s: {t: 0.0 for t in METRIC_TYPES_LIST} for s in SERVICES_LIST}
+        service_fault_scores = {s: {t: 0.0 for t in FAULT_SIGNAL_PATTERNS} for s in SERVICES_LIST}
         high_corr_evidence = []
         
         for m_col in metric_cols:
@@ -162,10 +173,8 @@ class RootCauseAnalyzer:
                     col_service = s
                     break
             
-            for t in METRIC_TYPES_LIST:
-                if t in m_col:
-                    col_type = t
-                    break
+            _, mapped_fault = self._map_metric_to_service_fault(m_col)
+            col_type = mapped_fault if mapped_fault in service_fault_scores.get(col_service, {}) else None
                     
             if not col_service or not col_type:
                 continue
@@ -241,9 +250,17 @@ class RootCauseAnalyzer:
                 max_z_val = z_val
                 max_z_col = m
 
-        # 1B: infer fault from strongest deviating metric on best_service
-        if max_z_col:
-            _, suspected_fault_type = self._map_metric_to_service_fault(max_z_col)
+        fault_type, evidence_metric, evidence_z, fault_scores = self._infer_fault_for_service(
+            df_metrics,
+            anomaly_idx,
+            best_service,
+            template_info=template_info,
+        )
+        if max(fault_scores.values(), default=0.0) >= FAULT_SCORE_MIN:
+            suspected_fault_type = fault_type
+            if evidence_metric:
+                max_z_col = evidence_metric
+                max_z_val = evidence_z
         else:
             fault_scores = service_fault_scores.get(best_service, {})
             if fault_scores:
@@ -271,40 +288,114 @@ class RootCauseAnalyzer:
         self, df_metrics: pd.DataFrame, anomaly_idx: int
     ) -> pd.Series:
         """Max absolute Z-score per metric column around the anomaly index."""
-        baseline_df = df_metrics.iloc[: self.baseline_len].drop(columns=["time"], errors="ignore")
-        baseline_means = baseline_df.mean()
-        baseline_stds = baseline_df.std()
+        baseline_df = (
+            df_metrics.iloc[: self.baseline_len]
+            .drop(columns=["time"], errors="ignore")
+            .replace([np.inf, -np.inf], np.nan)
+            .fillna(0)
+        )
+        baseline_means = baseline_df.mean().fillna(0)
+        baseline_stds = baseline_df.std().fillna(0)
         regularized_stds = np.maximum(
             baseline_stds,
             RCA_STD_REG_MULTIPLIER * baseline_means.abs() + RCA_STD_REG_ADDITIVE,
         )
         end_dev_idx = min(len(df_metrics) - 1, anomaly_idx + RCA_DEVIATION_WINDOW)
-        window_metrics_dev = df_metrics.iloc[anomaly_idx : end_dev_idx + 1].drop(
-            columns=["time"], errors="ignore"
+        window_metrics_dev = (
+            df_metrics.iloc[anomaly_idx : end_dev_idx + 1]
+            .drop(columns=["time"], errors="ignore")
+            .replace([np.inf, -np.inf], np.nan)
+            .fillna(0)
         )
-        return ((window_metrics_dev - baseline_means).abs() / regularized_stds).max()
+        return ((window_metrics_dev - baseline_means).abs() / regularized_stds).max().fillna(0)
 
     def _infer_fault_for_service(
-        self, df_metrics: pd.DataFrame, anomaly_idx: int, best_service: str
-    ) -> Tuple[str, str, float]:
+        self,
+        df_metrics: pd.DataFrame,
+        anomaly_idx: int,
+        best_service: str,
+        ranked_metrics: List[str] | None = None,
+        template_info: Dict[str, Any] | None = None,
+    ) -> Tuple[str, str, float, Dict[str, float]]:
         """
-        1B: Pick fault type from the metric column with highest Z-score on best_service.
-        Returns (fault_type, metric_column, z_score).
+        Infer fault type by aggregating configurable signal-family evidence.
+
+        This is intentionally generic: it uses metric/log signal names, BARO rank
+        position, and configurable weights. It does not inspect service names,
+        tenant/team IDs, dataset folder names, or ground-truth labels.
+
+        Returns (fault_type, lead_metric_or_signal, z_score, fault_scores).
         """
         z_scores = self._z_scores_at_anomaly(df_metrics, anomaly_idx)
-        best_metric = ""
-        best_z = 0.0
+        fault_scores = {fault: 0.0 for fault in FAULT_SIGNAL_PATTERNS}
+        lead_metric_by_fault = {fault: "" for fault in FAULT_SIGNAL_PATTERNS}
+        lead_z_by_fault = {fault: 0.0 for fault in FAULT_SIGNAL_PATTERNS}
+
         for col in z_scores.index:
             if col == "time" or not str(col).startswith(best_service):
                 continue
             z_val = float(z_scores.get(col, 0.0))
-            if z_val > best_z:
-                best_z = z_val
-                best_metric = col
-        if not best_metric:
-            return "cpu", "", 0.0
-        _, fault = self._map_metric_to_service_fault(best_metric)
-        return fault, best_metric, best_z
+            if not np.isfinite(z_val) or z_val <= 0:
+                continue
+            evidence_strength = min(RCA_ZSCORE_MAX_CONTRIBUTION, z_val)
+            signal_groups = self._fault_groups_for_text(self._metric_suffix(col, best_service))
+            for fault in signal_groups:
+                weight = FAULT_SIGNAL_WEIGHTS.get(fault, 1.0)
+                fault_scores[fault] = fault_scores.get(fault, 0.0) + evidence_strength * weight
+                if z_val > lead_z_by_fault.get(fault, 0.0):
+                    lead_z_by_fault[fault] = z_val
+                    lead_metric_by_fault[fault] = str(col)
+
+        for rank_idx, ranked_metric in enumerate(ranked_metrics or []):
+            svc, _ = self._map_metric_to_service_fault(str(ranked_metric))
+            if svc != best_service:
+                continue
+            rank_strength = FAULT_BARO_RANK_WEIGHT / max(1, rank_idx + 1)
+            for fault in self._fault_groups_for_text(self._metric_suffix(str(ranked_metric), best_service)):
+                fault_scores[fault] = fault_scores.get(fault, 0.0) + rank_strength
+                if not lead_metric_by_fault.get(fault):
+                    lead_metric_by_fault[fault] = str(ranked_metric)
+
+        for info in (template_info or {}).values():
+            if info.get("container") != best_service or not info.get("is_error", False):
+                continue
+            pattern = str(info.get("pattern", ""))
+            for fault in self._fault_groups_for_text(pattern):
+                weight = FAULT_SIGNAL_WEIGHTS.get(fault, 1.0)
+                fault_scores[fault] = fault_scores.get(fault, 0.0) + (FAULT_LOG_EVIDENCE_WEIGHT * weight)
+                if not lead_metric_by_fault.get(fault):
+                    lead_metric_by_fault[fault] = f"log:{pattern[:80]}"
+
+        if not fault_scores:
+            return "cpu", "", 0.0, {}
+        best_fault, best_score = max(fault_scores.items(), key=lambda item: item[1])
+        if best_score <= 0:
+            return "cpu", "", 0.0, fault_scores
+        return (
+            best_fault,
+            lead_metric_by_fault.get(best_fault, ""),
+            lead_z_by_fault.get(best_fault, 0.0),
+            fault_scores,
+        )
+
+    def _fault_groups_for_text(self, text: str) -> List[str]:
+        text_lower = str(text).lower()
+        matches = []
+        for fault, tokens in FAULT_SIGNAL_PATTERNS.items():
+            if any(token in text_lower for token in tokens):
+                matches.append(fault)
+        return matches
+
+    def _metric_suffix(self, metric_name: str, service: str) -> str:
+        metric_lower = str(metric_name).lower()
+        service_lower = str(service).lower()
+        if metric_lower.startswith(service_lower + "_"):
+            return metric_lower[len(service_lower) + 1 :]
+        return metric_lower
+
+    def _format_fault_scores(self, fault_scores: Dict[str, float]) -> str:
+        top_scores = sorted(fault_scores.items(), key=lambda item: item[1], reverse=True)[:3]
+        return ",".join(f"{fault}:{score:.1f}" for fault, score in top_scores)
 
     def _map_metric_to_service_fault(self, metric_name: str) -> Tuple[str, str]:
         """1A: Map RE2 metric column names to (service, fault_type)."""
@@ -322,20 +413,8 @@ class RootCauseAnalyzer:
             else metric_lower
         )
 
-        if "socket" in metric_suffix:
-            fault_type = "socket"
-        elif "diskio" in metric_suffix or "disk_io" in metric_suffix or metric_suffix.startswith("disk"):
-            fault_type = "disk"
-        elif "mem" in metric_suffix:
-            fault_type = "mem"
-        elif "latency" in metric_suffix or "delay" in metric_suffix:
-            fault_type = "delay"
-        elif "error" in metric_suffix or "loss" in metric_suffix or "packet" in metric_suffix:
-            fault_type = "loss"
-        elif "cpu" in metric_suffix:
-            fault_type = "cpu"
-        else:
-            fault_type = "cpu"
+        groups = self._fault_groups_for_text(metric_suffix)
+        fault_type = groups[0] if groups else "cpu"
         return service, fault_type
 
 

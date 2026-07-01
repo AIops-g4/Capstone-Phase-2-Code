@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiops-g4.local/schemas/runbook.schema.json",
+  "title": "AIOps AI Engine Runbook Catalog",
+  "description": "Shared runbook catalog used by detect_decide and detect_decide_verify to generate self-healing action plans. Object keys are runbook identifiers referenced by fault-to-runbook mappings.",
+  "type": "object",
+  "minProperties": 1,
+  "additionalProperties": {"$ref": "#/$defs/runbook"},
+  "propertyNames": {
+    "type": "string",
+    "minLength": 1
+  },
+  "$defs": {
+    "runbook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description",
+        "pattern_type",
+        "action_plan",
+        "blast_radius_config",
+        "verify_policy"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable runbook name. Usually equals the runbook catalog object key."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short explanation of the fault pattern and recovery intent."
+        },
+        "pattern_type": {
+          "type": "string",
+          "enum": ["urgent", "deferred"],
+          "description": "Execution urgency class used by decision logic."
+        },
+        "action_plan": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/action_step"},
+          "description": "Ordered remediation steps returned by /v1/decide."
+        },
+        "blast_radius_config": {"$ref": "#/$defs/blast_radius_config"},
+        "verify_policy": {"$ref": "#/$defs/verify_policy"}
+      }
+    },
+    "action_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step", "action", "target", "params"],
+      "properties": {
+        "step": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based execution order for the action step."
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "RESTART_DEPLOYMENT",
+            "PATCH_MEMORY_LIMIT",
+            "SCALE_REPLICAS",
+            "ROLLOUT_UNDO",
+            "ROTATE_SECRET"
+          ],
+          "description": "Allowed CDO/executor action. The AI Engine returns plans only and does not mutate Kubernetes resources directly."
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Target resource template. Prefer deployment/{{target_service}} so the decision stage can render the diagnosed service."
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["namespace"],
+          "properties": {
+            "namespace": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Kubernetes namespace where the executor may apply the action."
+            },
+            "grace_period_seconds": {"type": "integer", "minimum": 0},
+            "replicas": {"type": "integer", "minimum": 1},
+            "container": {"type": "string", "minLength": 1},
+            "memory_request_mb": {"type": "integer", "minimum": 1},
+            "memory_limit_mb": {"type": "integer", "minimum": 1},
+            "secret_name": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "blast_radius_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_pod_impact_pct",
+        "circuit_breaker_error_rate",
+        "allowed_namespaces"
+      ],
+      "properties": {
+        "max_pod_impact_pct": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Maximum percentage of pods that may be impacted by the plan."
+        },
+        "circuit_breaker_error_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Error-rate threshold that should stop or reject unsafe execution."
+        },
+        "allowed_namespaces": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1},
+          "description": "Namespaces where this runbook is allowed to operate."
+        }
+      }
+    },
+    "verify_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["window_seconds"],
+      "properties": {
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Observation window used by /v1/verify after action execution."
+        },
+        "success_conditions": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "description": "Human-readable or rule-like conditions that indicate recovery success."
+        }
+      }
+    }
+  }
+}

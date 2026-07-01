@@ -3,6 +3,7 @@ import sys
 import json
 import argparse
 import time
+from collections import defaultdict
 import pandas as pd
 import numpy as np
 
@@ -23,7 +24,16 @@ from src.config import (
     EVAL_BOCPD_BASELINE_LENGTH
 )
 
-def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False, use_bocpd=False):
+
+AI_ENGINE_ROOT = os.path.dirname(AI_ENGINE_DIR)
+DEFAULT_REPORT_PATH = os.path.join(
+    AI_ENGINE_ROOT,
+    "dataset",
+    "benchmark_reports",
+    "benchmark_detect.json",
+)
+
+def run_evaluation(sample_size=None, top_k=None, output_path=None):
     if not os.path.exists(GROUND_TRUTH_PATH):
         print(f"Error: Ground truth file not found at {GROUND_TRUTH_PATH}. Please run validate_dataset.py first.")
         return
@@ -54,23 +64,9 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
     # Initialize modules
     correlation_analyzer = CorrelationAnalyzer(correlation_threshold=0.5)
     
-    # Apply overrides for evaluation
-    if use_rrcf:
-        import src.anomaly_detector
-        src.anomaly_detector.USE_RRCF = True
-        print("  [EVAL CONFIG] Forcing Robust Random Cut Forest (RRCF) anomaly detection engine.")
-    if use_bocpd:
-        import src.anomaly_detector
-        src.anomaly_detector.USE_BOCPD = True
-        print("  [EVAL CONFIG] Forcing Bayesian Online Change Point Detection (BOCPD) anomaly detection engine.")
-    if engine == "baro":
-        correlation_analyzer.use_baro = True
-        print("  [EVAL CONFIG] Forcing BARO RCA engine.")
-    elif engine == "default":
-        correlation_analyzer.use_baro = False
-        print("  [EVAL CONFIG] Forcing Default (Pearson + Z-Score) RCA engine.")
-    else:
-        print(f"  [EVAL CONFIG] Using RCA engine from config (USE_BARO_RCA={correlation_analyzer.use_baro}).")
+    # Detect-only benchmark always uses BOCPD + BARO.
+    correlation_analyzer.use_baro = True
+    print("  [EVAL CONFIG] Detect stage uses BOCPD for detection and BARO for RCA.")
         
     if top_k is not None:
         correlation_analyzer.baro_top_k = top_k
@@ -92,6 +88,9 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
     
     y_true = []
     y_pred = []
+    fault_confusion = defaultdict(lambda: defaultdict(int))
+    fault_totals = defaultdict(int)
+    fault_correct_by_type = defaultdict(int)
     
     start_eval_time = time.time()
     
@@ -104,6 +103,7 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         service_fault = gt_info["service_fault"]
         run_id = gt_info["run_id"]
         true_service = gt_info["target_service"]
+        true_fault = gt_info.get("suspected_fault_type", "unknown")
         inject_time = gt_info["inject_time"]
         
         print(f"[{idx+1}/{len(run_keys)}] Evaluating Run: {run_key}")
@@ -127,48 +127,31 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         if pd.isna(inject_row_idx):
             inject_row_idx = len(df_metrics) - 100 # Fallback
             
-        # Slice time window if using BOCPD to accelerate evaluation
-        if use_bocpd:
-            start_idx = max(0, inject_row_idx - EVAL_BOCPD_WINDOW_BEFORE)
-            end_idx = min(len(df_metrics) - 1, inject_row_idx + EVAL_BOCPD_WINDOW_AFTER)
-            df_metrics_sliced = df_metrics.iloc[start_idx:end_idx+1].reset_index(drop=True)
-            # Re-determine injection row index in the sliced DataFrame
-            inject_row_idx_sliced = df_metrics_sliced[df_metrics_sliced["time"] >= inject_time].index.min()
-            if pd.isna(inject_row_idx_sliced):
-                inject_row_idx_sliced = len(df_metrics_sliced) - 1
-            baseline_len_sliced = min(EVAL_BOCPD_BASELINE_LENGTH, inject_row_idx_sliced)
-            detection_results = run_metric_anomaly_detection(df_metrics_sliced, baseline_len_sliced)
-        else:
-            detection_results = run_metric_anomaly_detection(df_metrics, BASELINE_LENGTH)
+        # Slice time window for BOCPD to accelerate detect-only evaluation.
+        start_idx = max(0, inject_row_idx - EVAL_BOCPD_WINDOW_BEFORE)
+        end_idx = min(len(df_metrics) - 1, inject_row_idx + EVAL_BOCPD_WINDOW_AFTER)
+        df_metrics_sliced = df_metrics.iloc[start_idx:end_idx+1].reset_index(drop=True)
+        inject_row_idx_sliced = df_metrics_sliced[df_metrics_sliced["time"] >= inject_time].index.min()
+        if pd.isna(inject_row_idx_sliced):
+            inject_row_idx_sliced = len(df_metrics_sliced) - 1
+        baseline_len_sliced = min(EVAL_BOCPD_BASELINE_LENGTH, inject_row_idx_sliced)
+        detection_results = run_metric_anomaly_detection(df_metrics_sliced, baseline_len_sliced)
             
         mif_anoms = detection_results["multivariate"]["anomalies"]
         
-        # Search for detection point starting from the injection time
+        # Search for detection point starting from the injection time.
         detection_idx = -1
-        # We also check EWMA anomalies for latency and error columns
-        ewma_all_anoms = np.zeros(len(mif_anoms), dtype=bool)
-        for col, res in detection_results["ewma"].items():
-            ewma_all_anoms = ewma_all_anoms | res["anomalies"]
-            
-        # Combined anomaly signal (Multivariate Isolation Forest OR EWMA SLIs)
-        combined_anoms = mif_anoms | ewma_all_anoms
+        combined_anoms = mif_anoms
         num_anomaly_points = int(np.sum(combined_anoms))
         anomaly_points_list.append(num_anomaly_points)
         
         # Search for the first anomaly after or near the injection point
         # Allow up to 30 seconds before injection (in case of clock skew) up to end of timeseries
-        if use_bocpd:
-            search_start = max(0, inject_row_idx_sliced - 30)
-            for i in range(search_start, len(df_metrics_sliced)):
-                if combined_anoms[i]:
-                    detection_idx = i
-                    break
-        else:
-            search_start = max(0, inject_row_idx - 30)
-            for i in range(search_start, len(df_metrics)):
-                if combined_anoms[i]:
-                    detection_idx = i
-                    break
+        search_start = max(0, inject_row_idx_sliced - 30)
+        for i in range(search_start, len(df_metrics_sliced)):
+            if combined_anoms[i]:
+                detection_idx = i
+                break
                 
         if detection_idx == -1:
             print(f"  [RESULT] Anomaly Detection FAILED (False Negative). Anomaly points flagged: {num_anomaly_points}")
@@ -186,11 +169,10 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         # Anomaly detected successfully!
         correct_detection += 1
         
-        # Map back to full unsliced metrics if we used sliced detection
-        if use_bocpd:
-            detect_time = df_metrics_sliced.iloc[detection_idx]["time"]
-            detection_idx = df_metrics[df_metrics["time"] == detect_time].index[0]
-            
+        # Map sliced BOCPD detection index back to full metrics.
+        detect_time = df_metrics_sliced.iloc[detection_idx]["time"]
+        detection_idx = df_metrics[df_metrics["time"] == detect_time].index[0]
+        
         detect_time = df_metrics.iloc[detection_idx]["time"]
         rto = int(detect_time - inject_time)
         rto_list.append(rto)
@@ -215,6 +197,12 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
         
         # Check correctness
         service_ok = (pred_service == true_service)
+        fault_ok = (pred_fault == true_fault)
+        fault_confusion[true_fault][pred_fault] += 1
+        fault_totals[true_fault] += 1
+        if fault_ok:
+            correct_fault += 1
+            fault_correct_by_type[true_fault] += 1
         
         if service_ok:
             correct_service += 1
@@ -230,6 +218,7 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
             
         confidence_list.append(confidence)
         print(f"  [DIAGNOSIS] Predicted Service: {pred_service} [{'OK' if service_ok else 'WRONG'}]")
+        print(f"  [DIAGNOSIS] Predicted Fault:   {pred_fault} [{'OK' if fault_ok else 'WRONG'}]")
         print(f"  [DIAGNOSIS] Top-{eval_top_k} Candidates: {', '.join(top_k_candidates)} [{'OK' if in_top_k else 'WRONG'}]")
         print(f"  [DIAGNOSIS] Confidence Score:  {confidence:.2f}")
         print(f"  [REASONING] {reasoning}\n")
@@ -238,6 +227,9 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
             "run_key": run_key,
             "detected": True,
             "service_correct": service_ok,
+            "true_fault": true_fault,
+            "pred_fault": pred_fault,
+            "fault_correct": fault_ok,
             "rto": rto
         })
         total_eval += 1
@@ -256,6 +248,16 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
     # Top-1 and Top-K accuracy (out of all evaluated runs)
     top1_accuracy = correct_service / total_eval if total_eval > 0 else 0
     topk_accuracy = correct_top_k / total_eval if total_eval > 0 else 0
+    fault_accuracy = correct_fault / correct_detection if correct_detection > 0 else 0
+    fault_confusion_matrix = {
+        true_fault: dict(sorted(pred_counts.items()))
+        for true_fault, pred_counts in sorted(fault_confusion.items())
+    }
+    fault_accuracy_by_type = {
+        fault: round(fault_correct_by_type.get(fault, 0) / total_count, 4)
+        for fault, total_count in sorted(fault_totals.items())
+        if total_count
+    }
     
     # Calculate Macro-Averaged Precision, Recall, F1 for root cause service localization
     from sklearn.metrics import precision_recall_fscore_support
@@ -278,6 +280,7 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
     print(f"Service Localization Accuracy (Top-1, Detections): {service_accuracy * 100:.1f}% ({correct_service}/{correct_detection})")
     print(f"Service Localization Accuracy (Top-1, Total):      {top1_accuracy * 100:.1f}% ({correct_service}/{total_eval})")
     print(f"Service Localization Accuracy (Top-{eval_top_k}, Total):      {topk_accuracy * 100:.1f}% ({correct_top_k}/{total_eval})")
+    print(f"Fault Type Accuracy (Detections): {fault_accuracy * 100:.1f}% ({correct_fault}/{correct_detection})")
     print(f"Average Recovery Time (RTO):       {avg_rto:.1f} seconds")
     print(f"Average Confidence Score:          {avg_confidence:.2f}")
     print(f"Total Anomaly Points Detected:     {total_anomaly_points}")
@@ -293,19 +296,40 @@ def run_evaluation(sample_size=None, engine="config", top_k=None, use_rrcf=False
     else:
         print("[WARNING] F1-Score is below the target threshold. Consider tuning thresholds.")
 
+    if output_path:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        report = {
+            "benchmark": "detect",
+            "total_runs": total_eval,
+            "detected_runs": correct_detection,
+            "detection_rate": round(detection_rate, 4),
+            "service_top1_accuracy_on_detected": round(service_accuracy, 4),
+            "service_top1_accuracy_total": round(top1_accuracy, 4),
+            f"service_top{eval_top_k}_accuracy_total": round(topk_accuracy, 4),
+            "fault_type_accuracy_on_detected": round(fault_accuracy, 4),
+            "fault_accuracy_by_type": fault_accuracy_by_type,
+            "fault_confusion_matrix": fault_confusion_matrix,
+            "average_rto_seconds": round(float(avg_rto), 2),
+            "average_confidence": round(float(avg_confidence), 4),
+            "macro_precision": round(float(precision), 4),
+            "macro_recall": round(float(recall), 4),
+            "macro_f1": round(float(f1_score), 4),
+            "duration_seconds": round(float(eval_duration), 2),
+            "per_run": results,
+        }
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+        print(f"Report saved: {output_path}")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate AIOps AI Engine Offline")
     parser.add_argument("--sample-size", type=int, default=10, help="Number of runs to sample (default: 10, use 90 for full eval)")
-    parser.add_argument("--engine", choices=["config", "default", "baro"], default="config", help="RCA engine to use (default: config, which reads from .env)")
     parser.add_argument("--top-k", type=int, default=None, help="Number of top-K candidates to retrieve and check for accuracy (defaults to .env value)")
-    parser.add_argument("--use-rrcf", action="store_true", help="Force using the Robust Random Cut Forest (RRCF) anomaly detection engine instead of Isolation Forest")
-    parser.add_argument("--use-bocpd", action="store_true", help="Force using Bayesian Online Change Point Detection (BOCPD) for anomaly detection")
+    parser.add_argument("--output", default=DEFAULT_REPORT_PATH, help="Output JSON path")
     args = parser.parse_args()
     
     run_evaluation(
-        sample_size=args.sample_size, 
-        engine=args.engine, 
+        sample_size=args.sample_size,
         top_k=args.top_k,
-        use_rrcf=args.use_rrcf,
-        use_bocpd=args.use_bocpd
+        output_path=args.output,
     )

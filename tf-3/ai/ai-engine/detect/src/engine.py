@@ -7,12 +7,7 @@ from .telemetry import TelemetryProcessor
 from .anomaly_detector import AnomalyDetectionPipeline
 from .correlation_analyzer import RootCauseAnalyzer
 from .incident import IncidentManager
-from .self_healer import SelfHealer
-from .config import (
-    RUNBOOKS_PATH,
-    BASELINE_LENGTH,
-    ANALYSIS_WINDOW_SIZE
-)
+from .config import ANALYSIS_WINDOW_SIZE
 
 class AIOpsEngine:
     """
@@ -24,7 +19,6 @@ class AIOpsEngine:
         self.detection_pipeline = AnomalyDetectionPipeline()
         self.rca_analyzer = RootCauseAnalyzer()
         self.incident_manager = IncidentManager()
-        self.healing_engine = SelfHealer(RUNBOOKS_PATH)
 
     def detect_anomalies(
         self, 
@@ -56,14 +50,9 @@ class AIOpsEngine:
         anomaly_detected = False
         anomaly_idx = -1
         
-        # Scan the active window for first flagged anomaly (Multivariate or EWMA)
+        # Scan the active window for the first BOCPD change point
         for i in range(baseline_len, len(df_metrics)):
             is_anom = mif_anoms[i]
-            if not is_anom:
-                for col, results in detection_results["ewma"].items():
-                    if results["anomalies"][i]:
-                        is_anom = True
-                        break
             if is_anom:
                 anomaly_detected = True
                 anomaly_idx = i
@@ -140,74 +129,4 @@ class AIOpsEngine:
             "confidence": confidence,
             "reasoning": reasoning,
             "correlation_id": corr_id
-        }
-
-    def decide_healing_action(
-        self, 
-        correlation_id: str, 
-        idempotency_key: str, 
-        dry_run_mode: bool, 
-        anomaly_context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Determines and templates healing action plans, suppressing duplicate/symptom alerts.
-        """
-        target_service = anomaly_context["target_service"]
-        suspected_fault_type = anomaly_context["suspected_fault_type"]
-        
-        # Extract top 1 service if it is a list of strings
-        top_service = target_service[0] if isinstance(target_service, list) and target_service else target_service
-        
-        # 1. Incident suppression check (symptom or duplicate)
-        is_suppressed = False
-        suppression_reason = ""
-        
-        if correlation_id in self.incident_manager.active_incidents:
-            incident = self.incident_manager.active_incidents[correlation_id]
-            if top_service == incident["root_cause_service"]:
-                if incident.get("decided", False):
-                    is_suppressed = True
-                    suppression_reason = "duplicate alert for root-cause (already decided)"
-                else:
-                    incident["decided"] = True
-            else:
-                is_suppressed = True
-                suppression_reason = f"correlated downstream symptom of upstream {incident['root_cause_service']}"
-                
-        if is_suppressed:
-            print(f"  [DEDUPLICATION] Suppressing healing action plan for {top_service} ({suspected_fault_type}): {suppression_reason}.")
-            return {
-                "matched_runbook": "CorrelatedSymptomSuppression",
-                "pattern_type": "urgent",
-                "action_plan": [],  # Empty action plan = do nothing!
-                "blast_radius_config": {
-                    "max_pod_impact_pct": 0,
-                    "circuit_breaker_error_rate": 0.0,
-                    "allowed_namespaces": ["production"]
-                },
-                "verify_policy": {"window_seconds": 10, "success_conditions": []},
-                "correlation_id": correlation_id,
-                "idempotency_key": idempotency_key,
-                "dry_run_mode": dry_run_mode,
-                "cost_cap_exceeded": False
-            }
-            
-        # 2. Decide healing action for primary root cause (full decide/ rule-based mapping)
-        decide_ctx = dict(anomaly_context)
-        decide_ctx["target_service"] = top_service
-        if not decide_ctx.get("deployment"):
-            decide_ctx["deployment"] = f"deployment/{top_service}"
-        decide_ctx.setdefault("namespace", "production")
-        decision = self.healing_engine.decide(decide_ctx)
-        
-        return {
-            "matched_runbook": decision["matched_runbook"],
-            "pattern_type": decision["pattern_type"],
-            "action_plan": decision["action_plan"],
-            "blast_radius_config": decision["blast_radius_config"],
-            "verify_policy": decision["verify_policy"],
-            "correlation_id": correlation_id,
-            "idempotency_key": idempotency_key,
-            "dry_run_mode": dry_run_mode,
-            "cost_cap_exceeded": False
         }

@@ -39,7 +39,6 @@ def metrics():
 # TYPE ai_engine_requests_total counter
 ai_engine_requests_total{endpoint="/v1/detect"} 42
 ai_engine_requests_total{endpoint="/v1/decide"} 12
-ai_engine_requests_total{endpoint="/v1/verify"} 8
 # HELP ai_engine_cpu_usage CPU usage
 # TYPE ai_engine_cpu_usage gauge
 ai_engine_cpu_usage 0.15
@@ -125,33 +124,6 @@ class DecideResponse(BaseModel):
     dry_run_mode: bool
     cost_cap_exceeded: bool = False
 
-class ActionExecuted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    action: str
-    target: str
-    status: Literal["COMPLETED", "FAILED"]
-    execution_time_seconds: Optional[int] = None
-
-class VerifyRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    correlation_id: str
-    idempotency_key: str
-    dry_run_mode: bool
-    action_executed: ActionExecuted
-    post_telemetry_window: List[TelemetryPoint]
-
-class EscalationBundle(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    reason: Optional[str] = None
-    logs: Optional[List[str]] = None
-    metrics: Optional[Dict[str, Any]] = None
-
-class VerifyResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    success: bool
-    regression_detected: bool
-    next_action: Literal["DONE", "RETRY", "ROLLBACK", "ESCALATE"]
-    escalation_bundle: Optional[EscalationBundle] = None
 
 
 # =====================================================================
@@ -213,36 +185,6 @@ async def decide_action_plan(
     )
     return DecideResponse(**res)
 
-@app.post("/v1/verify", response_model=VerifyResponse, response_model_exclude_none=True)
-async def verify_healing(
-    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
-    authorization: str = Header(None, alias="Authorization"),
-    x_correlation_id: str = Header(..., alias="X-Correlation-Id"),
-    idempotency_key_header: str = Header(..., alias="Idempotency-Key"),
-    x_dry_run_mode: str = Header(..., alias="X-Dry-Run-Mode"),
-    idempotency_key: str = Body(...),
-    correlation_id: str = Body(...),
-    dry_run_mode: bool = Body(...),
-    action_executed: Dict[str, Any] = Body(...),
-    post_telemetry_window: List[Dict[str, Any]] = Body(...)
-):
-    """
-    Endpoint: POST /v1/verify
-    Verifies execution status and post-healing telemetry, closing the incident if successfully resolved.
-    """
-    request = VerifyRequest(
-        correlation_id=correlation_id,
-        idempotency_key=idempotency_key,
-        dry_run_mode=dry_run_mode,
-        action_executed=action_executed,
-        post_telemetry_window=post_telemetry_window
-    )
-    res = aiops_engine.verify_healing(
-        correlation_id=request.correlation_id,
-        action_executed=request.action_executed,
-        post_telemetry_window=request.post_telemetry_window
-    )
-    return VerifyResponse(**res)
 
 
 # =====================================================================

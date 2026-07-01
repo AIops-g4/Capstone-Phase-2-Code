@@ -87,56 +87,6 @@ def test_decide(anomaly_context):
     print(f"Response: {json.dumps(response.json(), indent=2)}")
     return response.json()
 
-def test_verify():
-    print("\n--- Testing POST /v1/verify ---")
-    url = f"{BASE_URL}/v1/verify"
-    
-    # Mock post-healing telemetry window showing normal values
-    ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    post_telemetry = [
-        {
-            "ts": ts,
-            "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
-            "service": "checkoutservice",
-            "signal_name": "service_error_rate",
-            "value": 0.00,  # Restored!
-            "labels": {"namespace": "production"}
-        },
-        {
-            "ts": ts,
-            "tenant_id": "d3b07384-d113-495f-9f58-20d18d357d75",
-            "service": "checkoutservice",
-            "signal_name": "latency",
-            "value": 0.05,  # Restored!
-            "labels": {"namespace": "production"}
-        }
-    ]
-    
-    payload = {
-        "correlation_id": str(uuid.uuid4()),
-        "idempotency_key": str(uuid.uuid4()),
-        "dry_run_mode": False,
-        "action_executed": {
-            "action": "SCALE_REPLICAS",
-            "target": "deployment/checkoutservice",
-            "status": "COMPLETED",
-            "execution_time_seconds": 45
-        },
-        "post_telemetry_window": post_telemetry
-    }
-    
-    headers = {
-        "X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75",
-        "Idempotency-Key": payload["idempotency_key"],
-        "X-Dry-Run-Mode": "false",
-        "X-Correlation-Id": payload["correlation_id"]
-    }
-    
-    response = requests.post(url, json=payload, headers=headers)
-    print(f"Status Code: {response.status_code}")
-    print(f"Response: {json.dumps(response.json(), indent=2)}")
-    return response.json()
-
 if __name__ == "__main__":
     try:
         detect_res = test_detect()
@@ -152,7 +102,5 @@ if __name__ == "__main__":
                 "deployment": "checkoutservice"
             }
             test_decide(mock_context)
-            
-        test_verify()
     except Exception as e:
         print(f"Error connecting to server: {e}. Make sure the FastAPI server is running on port 8050.")
