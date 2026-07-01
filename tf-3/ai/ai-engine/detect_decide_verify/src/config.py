@@ -121,11 +121,11 @@ IFOREST_MULTIVARIATE_THRESHOLD_MULTIPLIER = float(os.getenv("IFOREST_MULTIVARIAT
 IFOREST_UNIVARIATE_THRESHOLD_MULTIPLIER = float(os.getenv("IFOREST_UNIVARIATE_THRESHOLD_MULTIPLIER", "5.0"))
 EWMA_ALPHA = float(os.getenv("EWMA_ALPHA", "0.1"))
 EWMA_THRESHOLD = float(os.getenv("EWMA_THRESHOLD", "5.0"))
-BASELINE_LENGTH = int(os.getenv("BASELINE_LENGTH", "600"))
+BASELINE_LENGTH = int(os.getenv("BASELINE_LENGTH", "100"))
 
 # Correlation & Diagnostics Hyperparameters
 CORRELATION_THRESHOLD = float(os.getenv("CORRELATION_THRESHOLD", "0.4"))
-ANALYSIS_WINDOW_SIZE = int(os.getenv("ANALYSIS_WINDOW_SIZE", "120"))
+ANALYSIS_WINDOW_SIZE = int(os.getenv("ANALYSIS_WINDOW_SIZE", "30"))
 
 # BARO RCA Configuration
 # detect_decide_verify uses the required benchmark stack: BOCPD + BARO.
