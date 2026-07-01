@@ -3,7 +3,7 @@
 import json
 import os
 
-from .config import FAULT_RUNBOOK_MAPPING, RUNBOOKS_PATH
+from .config import FAULT_RUNBOOK_MAPPING, RUNBOOKS_PATH, DEFAULT_NAMESPACE, ALLOWED_NAMESPACES
 
 
 def get_runbooks() -> dict:
@@ -17,13 +17,13 @@ def get_runbooks() -> dict:
                     "step": 1,
                     "action": "SCALE_REPLICAS",
                     "target": "deployment/{{target_service}}",
-                    "params": {"namespace": "production", "replicas": 3},
+                    "params": {"namespace": DEFAULT_NAMESPACE, "replicas": 3},
                 }
             ],
             "blast_radius_config": {
                 "max_pod_impact_pct": 25,
                 "circuit_breaker_error_rate": 0.20,
-                "allowed_namespaces": ["production", "default"],
+                "allowed_namespaces": ALLOWED_NAMESPACES,
             },
             "verify_policy": {
                 "window_seconds": 120,
@@ -40,7 +40,7 @@ def get_runbooks() -> dict:
                     "action": "PATCH_MEMORY_LIMIT",
                     "target": "deployment/{{target_service}}",
                     "params": {
-                        "namespace": "production",
+                        "namespace": DEFAULT_NAMESPACE,
                         "container": "main",
                         "memory_request_mb": 512,
                         "memory_limit_mb": 1024,
@@ -50,7 +50,7 @@ def get_runbooks() -> dict:
             "blast_radius_config": {
                 "max_pod_impact_pct": 25,
                 "circuit_breaker_error_rate": 0.20,
-                "allowed_namespaces": ["production", "default"],
+                "allowed_namespaces": ALLOWED_NAMESPACES,
             },
             "verify_policy": {
                 "window_seconds": 120,
@@ -66,13 +66,13 @@ def get_runbooks() -> dict:
                     "step": 1,
                     "action": "RESTART_DEPLOYMENT",
                     "target": "deployment/{{target_service}}",
-                    "params": {"namespace": "production", "grace_period_seconds": 30},
+                    "params": {"namespace": DEFAULT_NAMESPACE, "grace_period_seconds": 30},
                 }
             ],
             "blast_radius_config": {
                 "max_pod_impact_pct": 25,
                 "circuit_breaker_error_rate": 0.20,
-                "allowed_namespaces": ["production", "default"],
+                "allowed_namespaces": ALLOWED_NAMESPACES,
             },
             "verify_policy": {
                 "window_seconds": 120,
@@ -88,13 +88,13 @@ def get_runbooks() -> dict:
                     "step": 1,
                     "action": "RESTART_DEPLOYMENT",
                     "target": "deployment/{{target_service}}",
-                    "params": {"namespace": "production", "grace_period_seconds": 30},
+                    "params": {"namespace": DEFAULT_NAMESPACE, "grace_period_seconds": 30},
                 }
             ],
             "blast_radius_config": {
                 "max_pod_impact_pct": 25,
                 "circuit_breaker_error_rate": 0.20,
-                "allowed_namespaces": ["production", "default"],
+                "allowed_namespaces": ALLOWED_NAMESPACES,
             },
             "verify_policy": {
                 "window_seconds": 120,
@@ -110,13 +110,13 @@ def get_runbooks() -> dict:
                     "step": 1,
                     "action": "RESTART_DEPLOYMENT",
                     "target": "deployment/{{target_service}}",
-                    "params": {"namespace": "production", "grace_period_seconds": 30},
+                    "params": {"namespace": DEFAULT_NAMESPACE, "grace_period_seconds": 30},
                 }
             ],
             "blast_radius_config": {
                 "max_pod_impact_pct": 25,
                 "circuit_breaker_error_rate": 0.20,
-                "allowed_namespaces": ["production", "default"],
+                "allowed_namespaces": ALLOWED_NAMESPACES,
             },
             "verify_policy": {
                 "window_seconds": 120,
@@ -132,13 +132,13 @@ def get_runbooks() -> dict:
                     "step": 1,
                     "action": "SCALE_REPLICAS",
                     "target": "deployment/{{target_service}}",
-                    "params": {"namespace": "production", "replicas": 3},
+                    "params": {"namespace": DEFAULT_NAMESPACE, "replicas": 3},
                 }
             ],
             "blast_radius_config": {
                 "max_pod_impact_pct": 25,
                 "circuit_breaker_error_rate": 0.20,
-                "allowed_namespaces": ["production", "default"],
+                "allowed_namespaces": ALLOWED_NAMESPACES,
             },
             "verify_policy": {
                 "window_seconds": 120,
@@ -154,13 +154,13 @@ def get_runbooks() -> dict:
                     "step": 1,
                     "action": "RESTART_DEPLOYMENT",
                     "target": "deployment/{{target_service}}",
-                    "params": {"namespace": "production", "grace_period_seconds": 30},
+                    "params": {"namespace": DEFAULT_NAMESPACE, "grace_period_seconds": 30},
                 }
             ],
             "blast_radius_config": {
                 "max_pod_impact_pct": 25,
                 "circuit_breaker_error_rate": 0.20,
-                "allowed_namespaces": ["production", "default"],
+                "allowed_namespaces": ALLOWED_NAMESPACES,
             },
             "verify_policy": {
                 "window_seconds": 120,

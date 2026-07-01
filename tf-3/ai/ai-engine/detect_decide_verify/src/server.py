@@ -27,7 +27,7 @@ app = FastAPI(
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "timestamp": "2026-06-25T10:00:00Z"}
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat() + "Z"}
 
 @app.get("/ready")
 def readiness_check():

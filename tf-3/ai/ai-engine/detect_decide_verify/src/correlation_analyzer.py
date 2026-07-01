@@ -29,6 +29,7 @@ from .config import (
     FAULT_LOG_EVIDENCE_WEIGHT,
     FAULT_BARO_RANK_WEIGHT,
     FAULT_SCORE_MIN,
+    DEFAULT_SERVICE,
 )
 
 
@@ -228,10 +229,10 @@ class RootCauseAnalyzer:
             max_service_score = sorted_services[0][1]
                 
         if not best_service or max_service_score <= 0.0:
-            best_service = "checkoutservice"
+            best_service = DEFAULT_SERVICE
             suspected_fault_type = "cpu"
             confidence = 0.50
-            reasoning = "No strong metric deviation or log correlation found. Defaulting to checkoutservice cpu."
+            reasoning = f"No strong metric deviation or log correlation found. Defaulting to {best_service} cpu."
             return best_service, suspected_fault_type, reasoning, confidence
             
         suspected_fault_type = "cpu"
