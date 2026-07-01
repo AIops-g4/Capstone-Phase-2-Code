@@ -48,6 +48,12 @@ flowchart TD
     Executor -- "Execute Action" --> K8sAPI
 ```
 
+**Hình 1**: Sơ đồ kiến trúc mức cao biểu diễn phân tách trách nhiệm (Brain vs Hands) giữa AI Engine và CDOps Platform.
+* *CDOps Platform (Hands) thu thập telemetry, gửi phát hiện bất thường và nhận kế hoạch tự chữa lành để thực thi lên cụm Kubernetes API.*
+* *AI Engine (Brain) xử lý telemetry, chẩn đoán sự cố, lập kế hoạch hành động an toàn và xác thực kết quả hồi phục.*
+* *Các tài nguyên AWS (DynamoDB, S3, STS) được tích hợp ở mức API Gateway hoặc platform để cách ly đa thuê bao và lưu audit trail bất biến.*
+
+
 ## 2. Component breakdown
 
 | Component | Responsibility | Tech choice | Why |

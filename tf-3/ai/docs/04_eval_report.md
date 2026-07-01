@@ -14,6 +14,8 @@ We evaluated the anomaly detection and root cause localization engine across **9
 | 6 | Socket Exhaustion | socket | checkoutservice | SCALE_REPLICAS |
 | 7 | Application Crash (f1) | f1 | emailservice | RESTART_DEPLOYMENT (Default) |
 | 8 | Undefined Fault | unknown | currencyservice | RESTART_DEPLOYMENT (Fallback) |
+| 9 | Secret Expiry Warning (f2) | f2 | adservice | ROTATE_SECRET (Default) |
+| 10 | DB Pool Saturation (f3) | f3 | paymentservice | SCALE_REPLICAS (Default) |
 
 ---
 
@@ -80,6 +82,14 @@ Since all 90 runs are fault-injected scenarios and the detector triggered alerts
 | **Actual Anomaly** | 90 (True Positive) | 0 (False Negative) |
 | **Actual Normal** | 0 (False Positive) | 0 (True Negative) |
 
+### 3.3 Cost vs Forecast
+
+| Phase | Forecast | Actual | Delta |
+|---|---|---|---|
+| Dev (W11) | $50.00 | $12.50 | -75% |
+| Testing (Offline) | $0.00 | $0.00 | 0% (Local compute) |
+| Demo Run (LLM Call Cache) | $15.00 | $3.20 | -78.6% (Cached Bedrock) |
+
 ---
 
 ## 4. Failure Analysis
@@ -103,19 +113,11 @@ While the best model achieved 83.3% Top-1 accuracy, 15 out of 90 runs misclassif
 
 ---
 
-## 6. Cost vs Forecast
-
-| Phase | Forecast | Actual | Delta |
-|---|---|---|---|
-| Dev (W11) | $50.00 | $12.50 | -75% |
-| Testing (Offline) | $0.00 | $0.00 | 0% (Local compute) |
-| Demo Run (LLM Call Cache) | $15.00 | $3.20 | -78.6% (Cached Bedrock) |
-
----
-
-## 7. Improvement next iteration
+## 6. Improvement next iteration
 
 1. **Gap**: Downstream cascading errors can occasionally override the Top-1 prediction in high-concurrency scenarios.
    - **Plan**: Incorporate network trace topology (Istio service mesh traces) to perform path-based root cause analysis.
 2. **Gap**: Fine-tuning BOCPD hyper-parameters manually is time-consuming.
    - **Plan**: Build an auto-hyperparameter tuning job (using Optuna) to periodically optimize hazard rates and thresholds.
+3. **Gap**: Lack of automated runbook validation in the offline sandbox environment prior to deployment.
+   - **Plan**: Build a synthetic runbook validator inside the CI/CD pipeline to verify JSON Schema compliance of platform profiles and runbooks prior to release.

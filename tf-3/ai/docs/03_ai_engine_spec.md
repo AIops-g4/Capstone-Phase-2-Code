@@ -262,6 +262,12 @@ Luồng xử lý bảo mật của AI Engine:
 8. Nếu không khớp hoặc LLM gọi lỗi: Kích hoạt Rule-Based Fallback, ghi log, trả về kế hoạch an toàn tĩnh từ Platform Profile.
 ```
 
+**Hình 2**: Sơ đồ tuần tự các chốt chặn bảo mật (AI Agent Security Flow) xuyên suốt quá trình xử lý request của AI Engine.
+* *API Gateway kiểm tra xác thực, rate limit và validate contract của request trước khi chuyển tiếp.*
+* *AWS Bedrock Guardrails đóng vai trò bộ lọc nội dung (Prompt Injection, Jailbreaking) và ẩn danh thông tin nhạy cảm (PII) hai chiều.*
+* *Schema validator trong mã nguồn AI Engine đảm bảo cấu trúc JSON đầu ra chuẩn xác trước khi ghi log kiểm toán.*
+
+
 ### 6.5 AI-specific Audit Trail
 
 Mỗi lượt gọi AI Engine thành công sẽ sinh ra một bản ghi kiểm toán lưu trữ dưới định dạng JSON mẫu sau đây:
