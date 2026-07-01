@@ -1,0 +1,34 @@
+# Dockerignore file for AIOps AI Engine Service (detect_decide_verify)
+
+# Exclude virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Exclude local configuration files and environment secrets
+.env
+.env.example
+.aws/
+.kube/
+
+# Exclude Python bytecodes and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Exclude logs and test/benchmark datasets
+*.log
+dataset/
+cdo_simulator/
+k8s_simulator/
+scripts/
+
+# Exclude git directories
+.git/
+.github/
+.gitignore
