@@ -43,7 +43,7 @@ Dự án tự chữa lành AIOps TF3 phải tuân thủ các ràng buộc kỹ t
 * Tooling: Triển khai hoàn toàn trên hạ tầng đám mây AWS (EKS, DynamoDB, S3, Secrets Manager, Bedrock), không sử dụng các giải pháp multi-cloud hoặc các dịch vụ LLM bên ngoài AWS trong môi trường sản xuất.
 * Compliance (SOC2 Type II):
   * Dữ liệu telemetry gửi sang AI Engine tuyệt đối không được chứa thông tin nhận dạng cá nhân (PII) như email, số điện thoại, mật khẩu, hoặc connection string.
-  * Nhật ký kiểm toán hoạt động (Audit Trail) phải được lưu trữ bất biến (WORM) trên S3 với thời gian giữ tối thiểu 90 ngày.
+  * Nhật ký kiểm toán hoạt động (Audit Trail) phải được lưu trữ bất biến (WORM) trên S3 với thời gian giữ tối thiểu 90 ngày (CDOps Platform hoặc API Gateway chịu trách nhiệm lưu trữ thực tế; AI Engine hỗ trợ xuất dữ liệu kiểm toán qua API, đồng thời trả về mock status "connected" ở check readiness).
   * Phân tách quyền hạn chặt chẽ (Least Privilege) ở mức IAM Roles thông qua IRSA (IAM Roles for Service Accounts) trên EKS.
 
 ## 5. Out of scope
@@ -62,13 +62,13 @@ Các hạng mục sau đây nằm ngoài phạm vi thực hiện của dự án 
 * Security Baseline:
   * Toàn bộ kết nối API nội bộ trong cụm EKS sử dụng Local Trust (mTLS tùy chọn) kết hợp Kubernetes Network Policies.
   * Mọi secret, credential và API key phải được lưu trữ trong AWS Secrets Manager và cấu hình chính sách xoay vòng tự động (rotation policy).
-  * Sử dụng DynamoDB conditional writes để thiết lập khóa chống trùng lặp (Idempotency Lock) với thời gian sống (TTL) là 5 phút cho mỗi Idempotency-Key.
-  * Ghi nhật ký kiểm toán bất biến lên S3 Object Lock ở Compliance Mode trong vòng 90 ngày.
-* Cost Target: Thiết lập hạn mức chi phí (Cost Cap) tối đa cho dịch vụ Bedrock LLM là $50/ngày trên mỗi Tenant để tránh rủi ro phát sinh chi phí đột biến khi hệ thống rơi vào vòng lặp lỗi vô hạn.
+  * Hỗ trợ xác thực khóa chống trùng lặp (Idempotency Lock) dựa trên `Idempotency-Key` (AI Engine parse, validate đầu vào và tích hợp mock status; việc thực thi khóa nguyên tử trên DynamoDB với TTL 5 phút do platform layer đảm nhận).
+  * Nhật ký kiểm toán bất biến (Audit Trail) được tích hợp sẵn sàng để lưu lên S3 Object Lock ở Compliance Mode trong vòng 90 ngày (với mock status ở layer AI Engine).
+* Cost Target: Thiết lập hạn mức chi phí (Cost Cap) tối đa cho dịch vụ Bedrock LLM là $50/ngày trên mỗi Tenant để tránh rủi ro phát sinh chi phí đột biến khi hệ thống rơi vào vòng lặp lỗi vô hạn (AI Engine trả về flag `cost_cap_exceeded: False` mặc định và việc kiểm soát ngân sách thực tế do platform layer hoặc API Gateway quản lý).
 
 ## 7. Open questions
 
 * Q1: Trách nhiệm lọc dữ liệu nhạy cảm (PII scrubbing) trong telemetry và stack trace thuộc về bên nào?
   * Resolved: Trách nhiệm lọc thuộc về CDO Platform ở lớp thu thập dữ liệu (Ingestion Layer) trước khi đẩy telemetry sang AI Engine qua API. AI Engine sẽ kiểm tra và từ chối (HTTP 400 Bad Request) các payload không vượt qua schema validation.
 * Q2: Cơ chế xử lý khi LLM Bedrock bị quá tải tần suất gọi (Rate Limiting - HTTP 429) hoặc gặp sự cố dịch vụ (HTTP 5xx)?
-  * Resolved: AI Engine sẽ tự động kích hoạt cơ chế ngắt mạch (Circuit Breaker) và chuyển sang chế độ dự phòng Rule-Based (chạy cây quyết định tĩnh nội bộ) để đảm bảo trả về kế hoạch hành động an toàn cho CDO Platform với độ trễ phản hồi dưới 500ms.
+  * Resolved: AI Engine sẽ tự động chuyển đổi sang chế độ dự phòng Rule-Based (chạy cây quyết định tĩnh nội bộ) bằng cách bẫy các ngoại lệ (try-catch) khi gọi API LLM để đảm bảo trả về kế hoạch hành động an toàn cho CDO Platform với độ trễ phản hồi dưới 500ms.

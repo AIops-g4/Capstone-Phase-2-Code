@@ -11,33 +11,45 @@ Note: Tài liệu này tuân thủ khung quản trị và an toàn mô hình AI 
 Hệ thống sử dụng mô hình Single-shot LLM kết hợp ép cấu trúc dữ liệu đầu ra (Structured Output) thông qua việc kiểm tra JSON Schema nghiêm ngặt ngay sau khi nhận phản hồi từ LLM.
 
 * Pattern chọn: Single-shot LLM với Structured JSON Output.
-* Lý do: Trong bài toán tự chữa lành hệ thống, thời gian phục hồi dịch vụ (RTO) là chỉ số quan trọng hàng đầu. Sử dụng mô hình Single-shot giúp giảm số lượng yêu cầu gọi LLM xuống còn duy nhất 1 lần cho mỗi API call (POST /v1/detect, POST /v1/decide, POST /v1/verify). Điều này giúp kiểm soát độ trễ phản hồi dưới 3 giây cho bước lập kế hoạch, giảm thiểu chi phí sử dụng token và mang lại tính nhất quán cao cho các hành động của CDOps Executor nhờ cấu trúc JSON được định nghĩa cứng.
+* Lý do: Trong bài toán tự chữa lành hệ thống, thời gian phục hồi dịch vụ (RTO) là chỉ số quan trọng hàng đầu. Sử dụng mô hình Single-shot giúp giảm số lượng yêu cầu gọi LLM xuống còn duy nhất 1 lần và chỉ gọi cho bước lập kế hoạch/phân loại sâu (POST /v1/decide và POST /v1/fault-rank). Còn các bước phát hiện bất thường (POST /v1/detect) và xác thực (POST /v1/verify) hoàn toàn chạy bằng các thuật toán phân tích chuỗi thời gian (BOCPD + EWMA) và bộ kiểm tra verifier tĩnh cục bộ, giúp tối ưu độ trễ và triệt tiêu chi phí LLM. Điều này giúp kiểm soát độ trễ phản hồi dưới 3 giây cho bước lập kế hoạch, giảm thiểu chi phí sử dụng token và mang lại tính nhất quán cao cho các hành động của CDOps Executor nhờ cấu trúc JSON được định nghĩa cứng.
 * Alternatives rejected:
   * Multi-agentic pattern: Bị từ chối vì độ trễ phản hồi quá lớn (thường lớn hơn 15 giây do phải thực hiện nhiều lượt gọi LLM tuần tự), chi phí token tăng gấp 5 đến 10 lần và có nguy cơ cao xảy ra hiện tượng lặp vô hạn (infinite loop) hoặc mất kiểm soát hành vi của các agent.
   * RAG (Retrieval-Augmented Generation): Bị từ chối trong giai đoạn này vì số lượng Runbook cần đối chiếu là hữu hạn và có kích thước nhỏ. Việc nhúng trực tiếp danh mục Runbook vào Prompt (Prompt Grounding) mang lại độ chính xác cao hơn, tránh được sai số của bước truy xuất vector (retrieval error) và giảm thiểu độ trễ cũng như chi phí duy trì cơ sở dữ liệu vector.
 
 ## 2. Model selection
 
-Mô hình Claude 3 Haiku được lựa chọn làm công cụ suy luận chính nhờ sự cân bằng tối ưu giữa khả năng hiểu ngữ cảnh log hệ thống, tốc độ phản hồi cực nhanh và chi phí token thấp nhất trong các dòng mô hình của Anthropic trên AWS Bedrock.
+Hệ thống hỗ trợ cấu hình linh hoạt LLM Provider và Model thông qua các biến môi trường (`LLM_PROVIDER` và `LLM_MODEL`). 
+* Nhà cung cấp chính thức trên môi trường sản xuất (baseline): Amazon Bedrock với mô hình Claude 3 Haiku (`anthropic.claude-3-haiku-20240307-v1:0`) nhờ sự cân bằng tối ưu giữa khả năng hiểu ngữ cảnh log hệ thống, tốc độ phản hồi cực nhanh và chi phí token thấp nhất trong các dòng mô hình của Anthropic trên AWS Bedrock.
+* Ngoài ra, trong môi trường dev/test, codebase hỗ trợ cấu hình sang OpenAI (`openai` - mặc định `gpt-4o`), Anthropic direct API (`anthropic` - mặc định `claude-3-5-sonnet-20241022`), hoặc AWS Bedrock client (mặc định cấu hình client là `us.anthropic.claude-3-5-sonnet-20241022-v2:0`).
 
-| Field | Value |
+| Field | Value (Production Baseline) |
 |---|---|
 | Provider | Amazon Bedrock (Managed Service) |
-| Model ID | `anthropic.claude-3-haiku-20240307-v1:0` |
-| Region | us-east-1 |
+| Model ID | `anthropic.claude-3-haiku-20240307-v1:0` (Hoặc configurable) |
+| Region | us-east-1 (Hoặc configurable) |
 | Context window | 200k tokens |
 | Cost/1k input tokens | $0.00025 |
 | Cost/1k output tokens | $0.00125 |
 | Estimated per-call cost | $0.0015 (Dựa trên trung bình 4000 input tokens và 500 output tokens) |
 
-## 3. Multi-tenant routing
+## 3. Multi-tenant routing & API endpoints
+
+### 3.1 Multi-tenant routing
 
 Hệ thống được thiết kế để phục vụ đồng thời nhiều khách hàng (Tenants) một cách an toàn và độc lập tuyệt đối ở mức dữ liệu và quyền truy cập tài nguyên:
 
 * Tenant identification: Hệ thống nhận diện Tenant dựa trên HTTP Header `X-Tenant-Id` bắt buộc trong mỗi cuộc gọi API (ví dụ: `d3b07384-d113-495f-9f58-20d18d357d75` cho `cdo-1`).
 * Context isolation: Toàn bộ quá trình xử lý prompt và dữ liệu của mỗi request được thực hiện hoàn toàn trong bộ nhớ làm việc tạm thời (in-memory) của container. Không có bất kỳ dữ liệu ngữ cảnh nào được lưu giữ hoặc chia sẻ chéo giữa các Tenants sau khi yêu cầu kết thúc.
-* State storage: Mọi thông tin trạng thái cần lưu trữ (như khóa chống trùng lặp Idempotency Lock trên DynamoDB hoặc Audit Trail trên S3) bắt buộc phải sử dụng mã `tenant_id` làm khóa phân vùng (Partition Key) hoặc làm tiền tố đường dẫn thư mục (S3 Prefix).
-* AWS STS AssumeRole: AI Engine thực hiện cuộc gọi `AssumeRole` đến IAM Role dành riêng cho từng tenant (`arn:aws:iam::*:role/tf-3-tenant-[tenant_id]-role`) kết hợp với Session Tags `"TenantID": "[tenant_id]"` để kích hoạt cơ chế kiểm soát truy cập dựa trên thuộc tính (ABAC). Điều này đảm bảo container chỉ có thể đọc/ghi các tài nguyên đám mây thuộc sở hữu của chính tenant đó.
+* State storage & AWS STS AssumeRole (Mocked/Platform-managed): Mọi thông tin trạng thái (như Idempotency Lock trên DynamoDB hoặc Audit Trail trên S3) được cách ly logic qua `tenant_id` trong header/body. Việc AssumeRole IAM riêng cho từng tenant (`arn:aws:iam::*:role/tf-3-tenant-[tenant_id]-role`) và cơ chế ABAC do API Gateway/Platform đảm nhận; container AI Engine thực thi cục bộ và trả về mock status "connected" khi tự kiểm tra dependency.
+
+### 3.2 API Endpoints
+
+Hệ thống cung cấp các endpoint HTTP REST chính phục vụ chu trình tự chữa lành khép kín:
+
+1. `POST /v1/detect`: Tiếp nhận dòng dữ liệu telemetry (metrics, logs). Sử dụng thuật toán phân tích chuỗi thời gian BOCPD + EWMA để phát hiện bất thường và BARO RCA để xác định dịch vụ lỗi (target_service) cùng loại lỗi (suspected_fault_type). Endpoint này không sử dụng LLM.
+2. `POST /v1/decide`: Tiếp nhận ngữ cảnh lỗi từ CDOps, thực thi LLM suy luận (hoặc Fallback Rule-Based tĩnh) để sinh kế hoạch hành động chữa lành chi tiết (`action_plan`), vùng ảnh hưởng (`blast_radius_config`), và chính sách xác thực (`verify_policy`).
+3. `POST /v1/verify`: Nhận telemetry sau khi CDO Controller thực thi hành động chữa lành để xác thực sức khoẻ dịch vụ theo Success Conditions (sử dụng verifier tĩnh, không dùng LLM). Trả về next_action (`DONE`, `RETRY`, `ROLLBACK`, `ESCALATE`).
+4. `POST /v1/fault-rank`: API hỗ trợ CDO Platform lập thứ tự ưu tiên các loại lỗi có thể xảy ra trên một dịch vụ cố định (fixed service) dựa trên độ tin cậy được xếp hạng từ LLM. Giúp điều phối thứ tự chạy thử lại runbook tương ứng một cách tối ưu.
 
 ## 4. Prompt engineering / RAG strategy
 
@@ -104,31 +116,31 @@ Nằm ngoài phạm vi thực hiện (Out of scope) cho giai đoạn này. Các 
 | Principle | Rationale | Enforcement |
 |---|---|---|
 | Explainability | Đảm bảo con người hiểu được quyết định của AI | Phản hồi API chứa trường `reasoning` giải thích lý do (tối đa 300 ký tự) |
-| Auditability | Phục vụ thanh tra và khắc phục sự cố | Ghi bắt buộc 100% dữ liệu vào S3 Object Lock bất biến trong 90 ngày |
-| Confidence-gated action | Ngăn chặn các quyết định thiếu chắc chắn | Kiểm tra độ tin cậy trong code: nếu `confidence < 0.6`, chuyển trạng thái sang `ESCALATE` và gửi cảnh báo cho con người |
+| Auditability | Phục vụ thanh tra và khắc phục sự cố | Lưu nhật ký kiểm toán trong log; việc lưu trữ WORM 90 ngày trên S3 do platform layer / API Gateway quản trị thực tế (AI Engine cung cấp mock status) |
+| Confidence-gated action | Ngăn chặn các quyết định thiếu chắc chắn | AI Engine trả về confidence của RCA/LLM để platform làm chốt chặn. Escalation thực tế được kích hoạt ở bước `/v1/verify` khi phát hiện các SLIs vượt quá ngưỡng lỗi/độ trễ. |
 | Reversibility | Bảo vệ hệ thống khi hành động chữa lành thất bại | Mỗi quyết định quyết định hành động phải cấu hình kèm hành động rollback tương ứng |
-| Tenant isolation | Ngăn rò rỉ dữ liệu chéo giữa các khách hàng | Sử dụng HTTP header Tenant ID và cơ chế AWS STS AssumeRole ABAC |
-| Cost guard | Tránh bùng nổ chi phí do vòng lặp vô hạn | Giới hạn cứng ngân sách Bedrock $50/ngày/tenant; vượt quá tự động ngắt Bedrock và chuyển sang Rule-Based |
+| Tenant isolation | Ngăn rò rỉ dữ liệu chéo giữa các khách hàng | Sử dụng HTTP header Tenant ID; cơ chế AWS STS AssumeRole ABAC được quản lý và thực thi ở platform layer/router bên ngoài. |
+| Cost guard | Tránh bùng nổ chi phí do vòng lặp vô hạn | AI Engine trả về flag `cost_cap_exceeded: False` mặc định; việc kiểm tra hạn mức LLM $50/ngày được quản lý tại platform layer/API Gateway. |
 | Drift detection | Phát hiện sự suy giảm chất lượng của mô hình | Thực hiện chạy lại định kỳ hàng tuần tập dữ liệu đánh giá tiêu chuẩn và đối chiếu kết quả với baseline |
 
 ### 5.4 Enforcement Mechanisms (Architectural)
 
 * Input sanitization: Sử dụng AWS Bedrock Guardrails Content Filter ở mức cấu hình cao nhất để loại bỏ các ký tự đặc biệt và các mẫu prompt injection (như "ignore previous instructions") trước khi gửi tới LLM.
 * Output schema validation: Sử dụng thư viện `jsonschema` của Python để validate phản hồi của LLM với JSON Schema chính thức của `DecideResponse`. Nếu không khớp, hệ thống từ chối và tự động kích hoạt cơ chế fallback rule-based.
-* Confidence threshold: Trong logic ứng dụng, nếu trường `confidence` do LLM trả về nhỏ hơn 0.6, hệ thống lập tức hủy bỏ kế hoạch tự động và chuyển sang hướng dẫn `ESCALATE` để bàn giao cho kỹ sư trực ban.
-* Audit log mandatory: Thiết kế luồng xử lý API sao cho việc ghi nhật ký thành công vào S3 là điều kiện bắt buộc trước khi trả về phản hồi cho CDOps Platform. Nếu ghi log thất bại, API sẽ trả về lỗi HTTP 500.
-* Circuit breaker: Thiết lập bộ đếm lỗi gọi Bedrock trong bộ nhớ của container. Nếu tỷ lệ lỗi Bedrock vượt quá 60% hoặc nhận lỗi HTTP 429 liên tục, hệ thống sẽ ngắt kết nối tới Bedrock và chuyển toàn bộ yêu cầu lập kế hoạch sang Rule-Based Engine tĩnh (sử dụng cây quyết định định sẵn với độ trễ phản hồi dưới 500ms).
+* Confidence threshold & Escalation: Điểm tin cậy (confidence) của chẩn đoán lỗi được trả về trong kết quả API. AI Engine không ngắt ngang luồng ra quyết định. Việc leo thang (`ESCALATE`) do verifier tĩnh đảm nhận ở bước `/v1/verify` nếu telemetry sau chữa lành vượt quá ngưỡng lỗi hoặc độ trễ cho phép.
+* Audit log mandatory: Hệ thống ghi nhận log hoạt động chi tiết trong container. Việc đảm bảo lưu trữ bất biến (WORM) trên S3 do API Gateway/Platform layer đảm nhận.
+* Circuit breaker: Triển khai bộ bẫy lỗi ngoại lệ trực tiếp (try-catch) xung quanh các cuộc gọi LLM trong code. Nếu xảy ra bất kỳ sự cố kết nối, rate limit, hoặc lỗi LLM nào, hệ thống lập tức chuyển đổi sang Rule-Based Engine tĩnh (sử dụng cây quyết định định sẵn với độ trễ phản hồi dưới 500ms).
 
 ### 5.5 Model NFR Control Matrix
 
 | NFR ID | Category | Requirement | Control | Evidence | Owner |
 |---|---|---|---|---|---|
 | MG-01 | Governance | Quyết định phải giải thích được | Đầu ra API bắt buộc chứa trường `reasoning` giải thích lý do không quá 300 ký tự | Payload phản hồi thực tế của API | Nhóm AI |
-| MG-02 | Governance | Ghi nhật ký kiểm toán đầy đủ | 100% cuộc gọi API được ghi nhận đầy đủ thông tin vào S3 Object Lock | Truy vấn nhật ký kiểm toán từ S3 | Nhóm AI |
-| MG-03 | Governance | Chốt chặn độ tin cậy | Hành động tự động chỉ thực hiện khi độ tin cậy đạt từ 0.6 trở lên | Mã nguồn xử lý logic và kết quả kiểm thử đơn vị | Nhóm AI |
+| MG-02 | Governance | Ghi nhật ký kiểm toán đầy đủ | 100% cuộc gọi API được ghi nhận đầy đủ thông tin (chuyển tiếp lên S3 Object Lock bởi platform) | Log container và query log trên S3 của platform | Nhóm AI |
+| MG-03 | Governance | Chốt chặn độ tin cậy | Điểm tin cậy của RCA/LLM được trả về rõ ràng trong response payload | Payload phản hồi thực tế của API | Nhóm AI |
 | MG-04 | Performance | Độ trễ phản hồi thấp | Độ trễ p99 của API detect < 300ms, decide < 3000ms (LLM) và verify < 500ms | Biểu đồ giám sát CloudWatch Metrics | Nhóm AI |
-| MG-05 | Cost | Quản trị chi phí LLM | Giới hạn cứng chi phí gọi Bedrock ở mức $50/ngày cho mỗi Tenant | Cấu hình hạn mức trên DynamoDB và log cảnh báo chi phí | Nhóm AI |
-| MG-06 | Reliability | Dự phòng khi dịch vụ Bedrock lỗi | Tự động chuyển sang chế độ Rule-Based khi Bedrock bị lỗi hoặc quá tải | Nhật ký hệ thống khi chạy thử nghiệm mô phỏng lỗi Bedrock | Nhóm AI |
+| MG-05 | Cost | Quản trị chi phí LLM | Trả về flag cost cap; việc giới hạn chi phí gọi Bedrock $50/ngày/tenant do platform kiểm soát | Cấu hình hạn mức trên API Gateway/Platform và log cảnh báo | Nhóm AI |
+| MG-06 | Reliability | Dự phòng khi dịch vụ Bedrock lỗi | Tự động chuyển sang chế độ Rule-Based khi Bedrock bị lỗi hoặc quá tải bằng cơ chế try-catch | Nhật ký hệ thống ghi nhận luồng fallback rule-based thành công | Nhóm AI |
 | MG-07 | Compliance | Bảo vệ thông tin nhạy cảm | Tuyệt đối không chứa dữ liệu PII hoặc secrets trong prompt gửi đi | Kết quả rà soát nhật ký kiểm toán không phát hiện PII | Nhóm AI |
 | MG-08 | Drift | Giám sát chất lượng mô hình | Chạy đánh giá định kỳ hàng tuần tập dữ liệu tiêu chuẩn để phát hiện suy giảm chất lượng | Lịch sử chạy và kết quả của CI/CD eval job | Nhóm AI |
 | MG-09 | Safety | Khép kín chu trình tự chữa lành | Yêu cầu xác thực sau khi chữa lành và tự động rollback nếu kết quả thất bại | Nhật ký hoạt động của CDOps ghi nhận luồng rollback thành công | Nhóm AI |
@@ -210,6 +222,7 @@ audit:
 
 #### 6.2.2 Prompt Input Controls
 
+* Strict API Contract Gate: API detect thực thi kiểm tra chặt chẽ cấu trúc dòng telemetry (`_validate_contract_telemetry_window`) để ngăn payload giả mạo/chèn mã độc. Hệ thống xác thực danh sách trường cho phép (`ts`, `tenant_id`, `service`, `signal_name`, `value`, `labels`), định dạng thời gian RFC3339, UUID tenant hợp lệ khớp với header `X-Tenant-Id`, tín hiệu phải thuộc danh sách `CONTRACT_SIGNAL_NAMES` và labels phải khai báo `system`.
 * Input Sanitization: CDOps Platform chạy bộ lọc regex để xóa bỏ hoàn toàn các ký tự đặc biệt nguy hiểm và các từ khóa tấn công trước khi gửi dữ liệu sang AI Engine.
 * Prompt Template: Sử dụng prompt mẫu cố định được biên dịch trước trong mã nguồn. Dữ liệu đầu vào chỉ được điền vào các tham số (placeholders) định sẵn, tuyệt đối không nối chuỗi văn bản tự do trực tiếp vào code.
 * Length Limiting: Giới hạn số lượng điểm dữ liệu telemetry gửi lên trong cửa sổ giám sát (`telemetry_window`), đảm bảo tổng kích thước prompt đầu vào không vượt quá 4000 tokens.
@@ -217,8 +230,8 @@ audit:
 
 #### 6.2.3 Output Validation Controls
 
-* Schema validation: Mọi phản hồi trả về từ LLM phải đi qua bộ kiểm tra schema của Python (`jsonschema.validate`). Nếu phản hồi không tuân thủ định dạng JSON quy định của `DecideResponse`, hệ thống lập tức từ chối và kích hoạt luồng fallback rule-based.
-* Confidence threshold: Kiểm tra giá trị trường `confidence` trong phản hồi. Nếu giá trị nhỏ hơn 0.6, hệ thống tự động chuyển hướng xử lý sang `ESCALATE` để chuyển giao cho kỹ sư.
+* Schema validation: Mọi phản hồi trả về từ LLM phải đi qua bộ kiểm tra schema của Python (`jsonschema.validate` hoặc Pydantic class parsing). Nếu phản hồi không tuân thủ định dạng JSON quy định của `DecideResponse` hay chứa runbook/target/namespace không nằm trong Platform Profile, hệ thống lập tức từ chối và kích hoạt luồng fallback rule-based.
+* Confidence reporting: Trả về trường `confidence` của quá trình RCA và LLM quyết định trong payload phản hồi để platform audit. AI Engine không tự ngắt luồng decide nếu điểm tin cậy thấp. Thay vào đó, chốt chặn leo thang (`ESCALATE`) được verifier thực hiện ở bước `/v1/verify` khi xác thực telemetry không đạt yêu cầu phục hồi.
 * Length cap: Giới hạn độ dài tối đa của trường giải thích `reasoning` ở mức 300 ký tự để tránh mô hình sinh văn bản thừa thãi gây tăng độ trễ và chi phí.
 
 ### 6.3 System Prompt Management
@@ -239,14 +252,14 @@ Hệ thống cấu hình AWS Bedrock Guardrails trực tiếp trên tài khoản
 
 ```text
 Luồng xử lý bảo mật của AI Engine:
-1. CDOps gửi request -> Đi qua API Gateway (Kiểm tra Rate Limit).
-2. Yêu cầu được gửi tới Bedrock Guardrails (Pre-LLM check: lọc Prompt Attack, PII, Content Filter).
-3. Nếu Guardrails chặn: Trả về lỗi HTTP 400 và thông báo an toàn.
-4. Nếu Guardrails thông qua: Gửi prompt đã làm sạch tới LLM Claude Haiku.
-5. LLM trả về kết quả thô -> Đi qua Bedrock Guardrails (Post-LLM check: ẩn danh PII phát sinh, Grounding Check).
-6. Kết quả thô đi qua bộ kiểm tra Schema trong code của AI Engine.
-7. Nếu khớp Schema và Confidence >= 0.6: Ghi log kiểm toán lên S3 và trả về thành công cho CDOps.
-8. Nếu không khớp hoặc Confidence < 0.6: Kích hoạt Rule-Based Fallback, ghi log, trả về kế hoạch an toàn tĩnh.
+1. CDOps gửi request -> Đi qua API Gateway (Kiểm tra Rate Limit và thực hiện xác thực).
+2. Yêu cầu được gửi tới Bedrock Guardrails (Pre-LLM check: lọc Prompt Attack, PII, Content Filter nếu dùng Bedrock).
+3. Nếu Guardrails hoặc validation API Gateway chặn: Trả về lỗi HTTP 400/403.
+4. Nếu thông qua: Gửi prompt đã làm sạch tới LLM được cấu hình.
+5. LLM trả về kết quả thô -> Đi qua Bedrock Guardrails (Post-LLM check: ẩn danh PII phát sinh, Grounding Check nếu dùng Bedrock).
+6. Kết quả thô đi qua bộ kiểm tra Schema và Platform Profile trong code của AI Engine.
+7. Nếu khớp Schema: Ghi log kiểm toán cục bộ (platform chịu trách nhiệm đẩy S3) và trả về kế hoạch thành công cho CDOps.
+8. Nếu không khớp hoặc LLM gọi lỗi: Kích hoạt Rule-Based Fallback, ghi log, trả về kế hoạch an toàn tĩnh từ Platform Profile.
 ```
 
 ### 6.5 AI-specific Audit Trail
@@ -281,10 +294,8 @@ Mỗi lượt gọi AI Engine thành công sẽ sinh ra một bản ghi kiểm t
 
 Hệ thống đánh giá hiệu năng mô hình (Evaluation Pipeline) được thực hiện ngoại tuyến bằng cách sử dụng tập dữ liệu tĩnh trích xuất từ lịch sử chạy thử nghiệm của cụm ứng dụng Online Boutique:
 
-* Thành phần tập đánh giá: Tổng cộng 10 ca lỗi tiêu chuẩn (runs) được chạy trên môi trường sandbox, bao gồm:
-  * 6 ca lỗi thuộc bộ dữ liệu RE2-OB (lỗi tài nguyên CPU quá tải, rò rỉ bộ nhớ, nghẽn I/O đĩa cứng, lỗi mạng chậm, mất gói tin).
-  * 4 ca lỗi thuộc bộ dữ liệu RE3-OB (lỗi ném exception trong log, vòng lặp vô hạn gây treo dịch vụ, lỗi crash container).
-* Quy trình đánh giá: Sử dụng tập lệnh `evaluate.py` để chạy đồng loạt các ca lỗi qua API của AI Engine, so sánh kết quả dự đoán (dịch vụ bị lỗi và hành động đề xuất) với nhãn thực tế (Ground Truth) được cấu hình tại file `private_test_gt.json`.
+* Thành phần tập đánh giá: Tổng cộng 90 ca lỗi tiêu chuẩn (runs) được chạy trên môi trường sandbox, đại diện cho 10 kịch bản sự cố khác nhau bao gồm các lỗi về tài nguyên CPU, rò rỉ bộ nhớ (OOM), nghẽn I/O đĩa cứng, lỗi mạng chậm, mất gói tin, lỗi ném exception trong log, vòng lặp vô hạn và crash container.
+* Quy trình đánh giá: Sử dụng tập lệnh `evaluate.py` để chạy đồng loạt các ca lỗi qua API của AI Engine, so sánh kết quả dự đoán (dịch vụ bị lỗi và hành động đề xuất) với nhãn thực tế (Ground Truth) được cấu hình tại file `ground_truth.json`.
 * Ngưỡng chấp nhận (Acceptance Thresholds):
   * Precision (Độ chính xác) phải đạt từ 0.85 trở lên.
   * Recall (Độ phủ) phải đạt từ 0.80 trở lên.

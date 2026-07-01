@@ -53,11 +53,11 @@ flowchart TD
 | Component | Responsibility | Tech choice | Why |
 |---|---|---|---|
 | **API Gateway / Router** | Tiếp nhận request từ CDO Platform, định tuyến, phân lập tenant | AWS API Gateway hoặc FastAPI (Container) | Cung cấp điểm truy cập duy nhất, dễ dàng tích hợp xác thực và rate-limit. |
-| **Tenant Isolation Layer** | Đảm bảo cách ly dữ liệu giữa các tenant | AWS STS (AssumeRole) | Sử dụng ABAC với Session Tags giúp ngăn chặn rò rỉ dữ liệu chéo từ cấp độ IAM, thay vì chỉ dựa vào logic code. |
-| **Decision Engine** | Đọc hiểu telemetry, đối chiếu runbook và sinh ra JSON kế hoạch hành động | AWS Bedrock (Claude 3 Haiku) | Độ trễ cực thấp (p99 < 3s), chi phí token rẻ, hỗ trợ tốt tác vụ đọc logs và format output JSON. |
-| **Fallback System** | Hệ thống dự phòng tĩnh khi LLM sập hoặc vượt quá cost cap | Rule-based Python Scripts | Độ trễ < 500ms, đảm bảo tính sẵn sàng cao (High Availability) cho nền tảng. |
-| **Idempotency Lock** | Khóa chống trùng lặp xử lý hành động sửa đổi hạ tầng | Amazon DynamoDB | Hỗ trợ conditional writes nguyên tử (atomic), độ trễ thấp (single-digit ms) và TTL tự động dọn dẹp. |
-| **Audit Trail Storage** | Lưu vết toàn bộ quyết định, chống giả mạo (tamper-evident) | Amazon S3 Object Lock | Đáp ứng tiêu chuẩn WORM (Write Once Read Many) của SOC2 Type II compliance. |
+| **Tenant Isolation Layer** | Đảm bảo cách ly dữ liệu giữa các tenant | AWS STS (AssumeRole) - Mocked/Platform-managed | Sử dụng Session Tags ngăn rò rỉ dữ liệu. AI Engine validate header/môi trường chạy; việc AssumeRole và cấp quyền ABAC được quản lý ở API Gateway / Platform. |
+| **Decision Engine** | Đọc hiểu telemetry, đối chiếu runbook và sinh ra JSON kế hoạch hành động | AWS Bedrock / OpenAI / Anthropic (Configurable) | Hỗ trợ nhiều provider LLM (`LLM_PROVIDER`, `LLM_MODEL`). AWS Bedrock (Claude 3.5 Sonnet mặc định trong client; Claude 3 Haiku làm baseline sản xuất) đảm bảo hiệu năng và chi phí. |
+| **Fallback System** | Hệ thống dự phòng tĩnh khi LLM sập hoặc lỗi | Rule-based Python Scripts | Độ trễ < 500ms, tự động fallback qua try-except block khi LLM client gặp sự cố. |
+| **Idempotency Lock** | Khóa chống trùng lặp xử lý hành động sửa đổi hạ tầng | Amazon DynamoDB - Mocked/Platform-managed | AI Engine parse và validate header `Idempotency-Key` (đáp ứng mock status); việc khoá Conditional Write thực tế do platform layer thực hiện. |
+| **Audit Trail Storage** | Lưu vết toàn bộ quyết định, chống giả mạo | Amazon S3 Object Lock - Mocked/Platform-managed | Ghi audit log tĩnh; AI Engine xuất kết quả qua API và log hệ thống, việc đẩy log WORM lên S3 do platform layer thực hiện. |
 
 ## 3. Data flow
 
@@ -65,23 +65,20 @@ Quy trình tự chữa lành tiêu chuẩn diễn ra qua 3 bước (endpoints):
 
 1. **Phát hiện (POST /v1/detect)**
    - CDO Platform đẩy dữ liệu telemetry (metrics, logs, events) vào endpoint.
-   - AI Engine trích xuất thông tin, đánh giá có lỗi hay không (Anomaly = True/False) thông qua rule-based hoặc LLM nhanh.
+   - AI Engine chạy bộ kiểm tra tĩnh trên telemetry cục bộ (BOCPD + EWMA anomaly detector, và BARO RCA engine), hoàn toàn không gọi LLM để tối ưu chi phí và tốc độ phản hồi.
    - Output: `DetectResponse` chứa thông tin tóm tắt lỗi (`anomaly_context`).
 
 2. **Lập kế hoạch (POST /v1/decide)**
-   - CDO Platform gửi `anomaly_context` kèm theo `Idempotency-Key` để yêu cầu kế hoạch sửa đổi.
-   - Hệ thống cố gắng ghi `Idempotency-Key` vào DynamoDB (Conditional Write). Nếu ghi lỗi (đã tồn tại), trả về `409 Conflict`.
-   - AI Engine giả lập quyền của Tenant qua AWS STS.
-   - Kiểm tra hạn mức chi phí LLM. Nếu vượt ngưỡng hoặc Bedrock lỗi, chuyển sang Fallback System.
-   - Gửi prompt chứa ngữ cảnh lỗi và thư viện Runbooks tới Claude 3 Haiku để lựa chọn giải pháp tối ưu.
-   - Claude 3 trả về danh sách các bước hành động (`action_plan`), cấu hình vùng ảnh hưởng (`blast_radius_config`) và chính sách xác thực (`verify_policy`).
-   - Ghi bản snapshot của kế hoạch vào S3 Object Lock làm Audit Trail.
+   - CDO Platform gửi `anomaly_context` kèm theo `Idempotency-Key` và `detect_evidence` để yêu cầu kế hoạch sửa đổi.
+   - Hệ thống kiểm tra trùng lặp logic, bẫy lỗi LLM và thực hiện gọi LLM được cấu hình (ví dụ: Claude 3.5 Sonnet hoặc Claude 3 Haiku trên AWS Bedrock / OpenAI / Anthropic).
+   - LLM phân tích và trả về đối tượng JSON kế hoạch hành động (`action_plan`), cấu hình vùng ảnh hưởng (`blast_radius_config`) và chính sách xác thực (`verify_policy`).
+   - Nếu LLM gọi lỗi hoặc không tuân thủ schema validation, hệ thống tự động fallback sang Rule-Based Engine tĩnh.
    - Output: `DecideResponse` chứa kế hoạch hành động định dạng JSON.
 
 3. **Xác thực (POST /v1/verify)**
    - Sau khi CDO Controller thực thi xong `action_plan` và chờ qua khoảng thời gian `window_seconds`, nó gửi dữ liệu telemetry mới nhất lên AI Engine.
-   - AI Engine đối chiếu trạng thái hiện tại với `success_conditions`.
-   - Output: Trả về trạng thái `SUCCESS`, `REGRESSION` (kèm theo next_action là ROLLBACK) hoặc `ESCALATE` (nếu không thể giải quyết).
+   - AI Engine (thông qua code verifier tĩnh) đối chiếu trạng thái hiện tại với các Success Conditions (không gọi LLM).
+   - Output: Trả về trạng thái `success: true` và `next_action: DONE` nếu đạt yêu cầu; nếu có suy thoái trả về `ROLLBACK`; nếu không phục hồi được trả về `ESCALATE` để báo kỹ sư.
 
 ## 4. Alternatives considered (KEY section)
 
@@ -103,7 +100,7 @@ Quy trình tự chữa lành tiêu chuẩn diễn ra qua 3 bước (endpoints):
   - *Pros*: Không cần maintain server (Serverless), ghi nguyên tử (atomic write), cấu hình được TTL tự động xóa.
   - *Cons*: Chậm hơn Redis khoảng vài ms (nhưng hoàn toàn chấp nhận được).
 - **Chosen: Option B**.
-  - *Reason*: Tính bền vững dữ liệu và không phát sinh chi phí duy trì Redis Cluster. (Ref: ADR-005)
+  - *Reason*: Tính bền vững dữ liệu và không phát sinh chi phí duy trì Redis Cluster (tích hợp mock status trong container, xử lý thật ở gateway/platform). (Ref: ADR-005)
 
 ### C. Chọn LLM Foundation Model
 - **Option A (Claude 3.5 Sonnet)**:
