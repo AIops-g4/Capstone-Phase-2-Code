@@ -36,7 +36,7 @@ sys.path.insert(0, DETECT_DECIDE_DIR)
 from src.config import API_HOST, API_PORT, DATASET_DIR, FAULT_TYPE_CATALOG, GROUND_TRUTH_PATH
 
 FAULT_TYPE_CANDIDATES = list(FAULT_TYPE_CATALOG)
-TENANT_ID = "benchmark-cdo"
+TENANT_ID = "d3b07384-d113-495f-9f58-20d18d357d75"
 
 
 def _sample_run_keys(ground_truth: dict, sample_size: int | None) -> list[str]:
@@ -124,7 +124,7 @@ def _load_telemetry_window(run_dir: str) -> list[dict[str, Any]]:
 def _simulate_post_telemetry(target_service: str, true_service: str, true_fault: str, attempted_fault: str) -> list[dict[str, Any]]:
     now = _iso(time.time())
     def point(service: str, signal: str, value: float) -> dict[str, Any]:
-        return {"ts": now, "tenant_id": TENANT_ID, "service": service, "signal_name": signal, "value": value, "labels": {}}
+        return {"ts": now, "tenant_id": TENANT_ID, "service": service, "signal_name": signal, "value": value, "labels": {"system": "E-COMMERCE", "namespace": "production", "deployment": service}}
 
     if target_service == true_service and attempted_fault == true_fault:
         return [point(target_service, "service_error_rate", 0.0), point(target_service, "service_latency_p95", 0.03)]

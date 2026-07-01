@@ -19,6 +19,7 @@ import json
 import math
 import os
 import sys
+import time
 import uuid
 import urllib.error
 import urllib.request
@@ -50,7 +51,7 @@ CONTRACT_SIGNAL_MAP: dict[str, str] = {
     "disk": "container_resource_usage",
 }
 
-DEFAULT_RUN_KEYS = ["checkoutservice_cpu_1", "checkoutservice_mem_1"]
+DEFAULT_RUN_KEYS: list[str] = []
 DEFAULT_OUTPUT = os.path.normpath(
     os.path.join(
         os.path.dirname(DETECT_DECIDE_DIR),
@@ -370,11 +371,28 @@ def _run_one(
         dry_run,
     )
 
+    true_service = run_info.get("target_service")
+    true_fault = run_info.get("suspected_fault_type")
+    expected_runbook = run_info.get("matched_runbook")
+    detected = bool(detect_resp.get("anomaly_detected"))
+    ctx = detect_resp.get("anomaly_context") or {}
+    pred_service = ctx.get("target_service")
+    pred_fault = ctx.get("suspected_fault_type")
+
     row: dict[str, Any] = {
         "run_key": run_key,
         "service_fault": run_info["service_fault"],
         "run_id": run_info["run_id"],
-        "target_service": run_info.get("target_service"),
+        "target_service": true_service,
+        "true_service": true_service,
+        "true_fault": true_fault,
+        "expected_runbook": expected_runbook,
+        "detected": detected,
+        "pred_service": pred_service,
+        "pred_fault": pred_fault,
+        "service_correct": pred_service == true_service,
+        "fault_correct": pred_service == true_service and pred_fault == true_fault,
+        "confidence": detect_resp.get("confidence", 0.0),
         "detect_request_summary": {
             "correlation_id": detect_payload["correlation_id"],
             "idempotency_key": detect_payload["idempotency_key"],
@@ -385,9 +403,14 @@ def _run_one(
         "detect_response": detect_resp,
     }
 
-    if not detect_resp.get("anomaly_detected") or not detect_resp.get("anomaly_context"):
+    if not detected or not ctx:
         row["loop_completed"] = False
         row["skip_reason"] = "detect_response did not contain anomaly_context"
+        row["runbook_correct_e2e"] = False
+        row["verify_success"] = False
+        row["verify_next_action"] = "ESCALATE"
+        row["selected_prediction_correct"] = False
+        row["selected_failure_reason"] = "not_detected"
         return row
 
     decide_resp, decide_payload = _call_decide(
@@ -425,54 +448,133 @@ def _run_one(
     }
     row["verify_response"] = verify_resp
     row["loop_completed"] = True
+
+    pred_runbook = decide_resp.get("matched_runbook")
+    verify_success = bool(verify_resp.get("success") and verify_resp.get("next_action") == "DONE")
+    service_ok = pred_service == true_service
+    fault_ok = service_ok and pred_fault == true_fault
+    runbook_ok = service_ok and pred_runbook == expected_runbook
+    selected_ok = service_ok and fault_ok and runbook_ok and verify_success
+
+    reasons = []
+    if not service_ok:
+        reasons.append("service_wrong")
+    if service_ok and not fault_ok:
+        reasons.append("fault_type_wrong")
+    if service_ok and fault_ok and not runbook_ok:
+        reasons.append("runbook_wrong")
+    if not verify_success:
+        reasons.append("verify_failed")
+
+    row["selected_predicted_runbook"] = pred_runbook
+    row["runbook_correct_e2e"] = runbook_ok
+    row["verify_success"] = verify_success
+    row["verify_next_action"] = verify_resp.get("next_action")
+    row["verify_regression_detected"] = verify_resp.get("regression_detected", False)
+    row["selected_prediction_correct"] = bool(selected_ok)
+    row["selected_failure_reason"] = "+".join(reasons) if reasons else "none"
     return row
 
 
+def _print_per_run(row: dict[str, Any], idx: int, total: int) -> None:
+    print(f"[{idx}/{total}] Run: {row.get('run_key')}")
+    print(f"  [TRUE]      Service/Fault:     {row.get('true_service')} ({row.get('true_fault')})")
+    print(f"  [TRUE]      Expected Runbook:  {row.get('expected_runbook')}")
+    if not row.get("detected"):
+        print("  [RESULT]    Anomaly Detection: FALSE NEGATIVE")
+        print("  [CONCLUSION] Final selected result is WRONG\n")
+        return
+    print(f"  [DIAGNOSIS] Predicted Service: {row.get('pred_service')} [{'OK' if row.get('service_correct') else 'WRONG'}]")
+    print(f"  [DIAGNOSIS] Predicted Fault:   {row.get('pred_fault')} [{'OK' if row.get('fault_correct') else 'WRONG'}]")
+    print(f"  [DECIDE]    Matched Runbook:   {row.get('selected_predicted_runbook')} [{'OK' if row.get('runbook_correct_e2e') else 'WRONG'}]")
+    print(f"  [VERIFY]    Result:            {'OK' if row.get('verify_success') else row.get('verify_next_action')}")
+    print(f"  [CONCLUSION] Final selected result is {'TRUE' if row.get('selected_prediction_correct') else 'WRONG'}\n")
+
+
+def _summary(rows: list[dict[str, Any]], duration: float) -> dict[str, Any]:
+    total = len(rows)
+    detected = sum(bool(r.get("detected")) for r in rows)
+    svc = sum(bool(r.get("service_correct")) for r in rows)
+    fault = sum(bool(r.get("fault_correct")) for r in rows)
+    runbook = sum(bool(r.get("runbook_correct_e2e")) for r in rows)
+    verify = sum(bool(r.get("verify_success")) for r in rows)
+    pipeline = sum(bool(r.get("selected_prediction_correct")) for r in rows)
+    return {
+        "benchmark": "detect_decide_verify_cdo_push_full_api_loop",
+        "total_runs": total,
+        "detect": {
+            "detected_runs": detected,
+            "detection_rate": round(detected / total, 4) if total else 0,
+            "service_top1_accuracy": round(svc / total, 4) if total else 0,
+            "fault_type_accuracy_on_detected": round(fault / detected, 4) if detected else 0,
+        },
+        "decide": {
+            "runbook_accuracy_e2e": round(runbook / detected, 4) if detected else 0,
+            "correct_runbook_e2e": runbook,
+            "pipeline_success_rate": round(pipeline / total, 4) if total else 0,
+            "pipeline_success_count": pipeline,
+        },
+        "verify": {
+            "success_rate_on_detected": round(verify / detected, 4) if detected else 0,
+            "success_count": verify,
+        },
+        "duration_seconds": round(duration, 2),
+    }
+
+
+def _print_summary(report: dict[str, Any]) -> None:
+    d, c, v = report["detect"], report["decide"], report["verify"]
+    print("\n=======================================================")
+    print("       CDO PUSH E2E SUMMARY REPORT                     ")
+    print("=======================================================")
+    print(f"Total Runs Evaluated:          {report['total_runs']}")
+    print(f"Anomaly Detection Rate:        {d['detection_rate'] * 100:.1f}% ({d['detected_runs']}/{report['total_runs']})")
+    print(f"Service Accuracy:              {d['service_top1_accuracy'] * 100:.1f}%")
+    print(f"Fault Type Accuracy:           {d['fault_type_accuracy_on_detected'] * 100:.1f}% (on detected)")
+    print(f"Runbook Accuracy (E2E):        {c['runbook_accuracy_e2e'] * 100:.1f}% ({c['correct_runbook_e2e']}/{d['detected_runs']} detected)")
+    print(f"Verify Success Rate:           {v['success_rate_on_detected'] * 100:.1f}% ({v['success_count']}/{d['detected_runs']} detected)")
+    print(f"Full Pipeline Success:         {c['pipeline_success_rate'] * 100:.1f}%")
+    print(f"Duration:                      {report['duration_seconds']}s")
+    print("=======================================================\n")
+
+
 def main() -> None:
-    run_keys = _csv_env("CDO_PUSH_SAMPLE_RUN_KEYS", DEFAULT_RUN_KEYS)
     gt = _load_ground_truth()
+    # Default behavior matches benchmark_e2e.py: run all samples from ground_truth.json.
+    # Use CDO_PUSH_SAMPLE_RUN_KEYS only when you want to limit the benchmark to a subset.
+    run_keys = _csv_env("CDO_PUSH_SAMPLE_RUN_KEYS", list(gt.keys()))
     base_url = _api_url()
     tenant_id = _tenant_id()
     authorization = _authorization()
     dry_run = _dry_run_mode()
     output = _output_path()
 
-    print(f"[CDO_PUSH] API: {base_url}  tenant: {tenant_id}  dry_run: {dry_run}")
-    print(f"[CDO_PUSH] Run keys: {run_keys}")
+    print(f"Calling AI Engine APIs at: {base_url}  tenant: {tenant_id}  dry_run: {dry_run}")
 
     rows: list[dict[str, Any]] = []
-    for run_key in run_keys:
+    start = time.perf_counter()
+    total = len(run_keys)
+    for idx, run_key in enumerate(run_keys, 1):
         if run_key not in gt:
             raise RuntimeError(f"run_key not found in ground_truth.json: {run_key}")
 
         row = _run_one(base_url, run_key, gt[run_key], tenant_id, authorization, dry_run)
         rows.append(row)
+        _print_per_run(row, idx, total)
 
-        detect = row.get("detect_response", {})
-        decide = row.get("decide_response", {})
-        verify = row.get("verify_response", {})
-        print(
-            f"[CDO_PUSH] {run_key}: "
-            f"detect={detect.get('anomaly_detected')} "
-            f"service={detect.get('anomaly_context', {}).get('target_service')} "
-            f"runbook={decide.get('matched_runbook')} "
-            f"verify_next={verify.get('next_action')} "
-            f"completed={row.get('loop_completed')}"
-        )
-
-    report = {
-        "benchmark": "detect_decide_verify_cdo_push_full_api_loop",
-        "api_url": base_url,
-        "samples_requested": len(run_keys),
-        "samples_completed": len(rows),
-        "per_run": rows,
-    }
+    duration = time.perf_counter() - start
+    report = _summary(rows, duration)
+    report["api_url"] = base_url
+    report["samples_requested"] = total
+    report["samples_completed"] = len(rows)
+    report["per_run"] = rows
 
     os.makedirs(os.path.dirname(output), exist_ok=True)
     with open(output, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
 
-    print(f"[CDO_PUSH] Report saved: {output}")
+    _print_summary(report)
+    print(f"Report saved: {output}")
 
 
 if __name__ == "__main__":
