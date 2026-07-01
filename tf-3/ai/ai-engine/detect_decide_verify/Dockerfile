@@ -17,12 +17,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 
 # Expose the API port
-EXPOSE 8080
+EXPOSE 8050
 
 # Set default environment variables
 # Note: API_HOST must be 0.0.0.0 to receive traffic outside the container.
 ENV API_HOST=0.0.0.0
-ENV API_PORT=8080
+ENV API_PORT=8050
 ENV PYTHONUNBUFFERED=1
 
 # Command to run the FastAPI server
