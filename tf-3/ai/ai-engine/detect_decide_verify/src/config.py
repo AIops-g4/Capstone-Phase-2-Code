@@ -194,7 +194,7 @@ RCA_STD_REG_ADDITIVE = float(os.getenv("RCA_STD_REG_ADDITIVE", "0.05"))
 FAULT_SIGNAL_PATTERNS = _parse_pattern_map(os.getenv(
     "FAULT_SIGNAL_PATTERNS",
     "cpu:cpu|processor|core;"
-    "mem:mem|memory|oom|rss|heap;"
+    "mem:mem|memory|oom|rss|heap|container_resource_usage;"
     "disk:disk|diskio|disk_io|io|iops|fs|filesystem;"
     "socket:socket|connection|conn|fd|file_descriptor|tcp;"
     "loss:loss|packet|error|error_rate|unavailable|reset|refused|deadline|no healthy|dropped;"

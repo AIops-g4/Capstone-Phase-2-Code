@@ -11,6 +11,15 @@
     "service_throughput_rps",
     "container_restart_count",
     "secret_expiry_warning",
-    "db_connection_pool_saturation"
+    "db_connection_pool_saturation",
+    "cpu",
+    "latency",
+    "mem",
+    "diskio",
+    "socket",
+    "workload",
+    "error",
+    "latency-50",
+    "latency-90"
   ]
 }

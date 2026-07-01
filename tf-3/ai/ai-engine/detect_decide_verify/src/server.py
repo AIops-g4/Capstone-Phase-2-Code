@@ -69,7 +69,7 @@ _CONTRACT_SIGNAL_NAMES: set[str] = set(TELEMETRY_SIGNAL_NAMES)
 
 
 # Signal names whose value must be a log/event string (per contracts/telemetry-contract.md §4)
-_LOG_SIGNAL_NAMES: set[str] = {"application_log_event", "distributed_trace_error_event"}
+_LOG_SIGNAL_NAMES: set[str] = {"application_log_event"}
 
 
 class TelemetryPoint(BaseModel):
@@ -171,7 +171,7 @@ class DetectRequest(BaseModel):
 
 class AnomalyContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    target_service: Union[str, List[str]] = Field(..., description="Identified faulty service")
+    target_service: str = Field(..., description="Identified faulty service")
     suspected_fault_type: str = Field(..., description="Identified fault type")
     system: str = Field(default=SYSTEM_NAME, description="System name")
     namespace: Optional[str] = Field(default=DEFAULT_NAMESPACE, description="Kubernetes namespace")

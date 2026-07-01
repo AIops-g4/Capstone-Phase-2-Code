@@ -340,7 +340,7 @@ def load_telemetry_data(run_key):
                 "service": service_name,
                 "signal_name": metric_name,
                 "value": val,
-                "labels": {"namespace": "production"}
+                "labels": {"namespace": "production", "system": "E-COMMERCE"}
             })
             
     # Logs
@@ -353,7 +353,7 @@ def load_telemetry_data(run_key):
             "service": str(row["container_name"]),
             "signal_name": "application_log_event",
             "value": str(row["message"]),
-            "labels": {"level": str(row["level"]), "namespace": "production"}
+            "labels": {"level": str(row["level"]), "namespace": "production", "system": "E-COMMERCE"}
         })
         
     return telemetry_payload
@@ -386,7 +386,7 @@ def generate_healthy_telemetry():
             "service": "checkoutservice",
             "signal_name": "cpu",
             "value": 0.15 + (i * 0.01),
-            "labels": {"namespace": "production"}
+            "labels": {"namespace": "production", "system": "E-COMMERCE"}
         })
         # Normal info log
         telemetry_payload.append({
@@ -395,7 +395,7 @@ def generate_healthy_telemetry():
             "service": "checkoutservice",
             "signal_name": "application_log_event",
             "value": "Checkout completed successfully.",
-            "labels": {"level": "info", "namespace": "production"}
+            "labels": {"level": "info", "namespace": "production", "system": "E-COMMERCE"}
         })
     return telemetry_payload
 
@@ -411,7 +411,7 @@ def generate_post_healing_telemetry(service_name):
             "service": service_name,
             "signal_name": "service_error_rate",
             "value": 0.0,
-            "labels": {"namespace": "production"}
+            "labels": {"namespace": "production", "system": "E-COMMERCE"}
         })
         telemetry_payload.append({
             "ts": ts_iso,
@@ -419,7 +419,7 @@ def generate_post_healing_telemetry(service_name):
             "service": service_name,
             "signal_name": "latency",
             "value": 0.03,
-            "labels": {"namespace": "production"}
+            "labels": {"namespace": "production", "system": "E-COMMERCE"}
         })
     return telemetry_payload
 
@@ -427,18 +427,27 @@ def generate_post_healing_telemetry(service_name):
 #                          VERIFICATION SUITE
 # =====================================================================
 
+def _post_with_headers(url, data):
+    headers = {
+        "X-Tenant-Id": "d3b07384-d113-495f-9f58-20d18d357d75",
+        "Idempotency-Key": data.get("idempotency_key") or str(uuid.uuid4()),
+        "X-Dry-Run-Mode": str(data.get("dry_run_mode", False)).lower(),
+        "X-Correlation-Id": data.get("correlation_id") or str(uuid.uuid4())
+    }
+    return requests.post(url, json=data, headers=headers)
+
 def run_contract_verification():
     print("=====================================================================")
     print("           AI ENGINE API CONTRACT COMPLIANCE TEST SUITE             ")
     print("=====================================================================\n")
     
     # 1. Start FastAPI Server in the background
-    print("[SERVER] Starting FastAPI server on port 8050...")
+    print(f"[SERVER] Starting FastAPI server on port {API_PORT}...")
     server_process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "src.server:app", "--host", "127.0.0.1", "--port", "8050"],
+        [sys.executable, "-m", "uvicorn", "src.server:app", "--host", "127.0.0.1", "--port", str(API_PORT)],
         cwd=AI_ENGINE_DIR,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
     )
     
     # Wait for server to start up
@@ -448,7 +457,7 @@ def run_contract_verification():
     try:
         health_check = requests.get(f"{BASE_URL}/docs")
         if health_check.status_code == 200:
-            print("[SERVER] Server started successfully and is responsive on port 8050.\n")
+            print(f"[SERVER] Server started successfully and is responsive on port {API_PORT}.\n")
         else:
             print(f"[SERVER ERROR] Server returned status code {health_check.status_code}.\n")
             server_process.terminate()
@@ -493,7 +502,7 @@ def run_contract_verification():
         req_valid = validate_json(detect_req, DETECT_REQUEST_SCHEMA, "DetectRequest (Healthy)")
         
         # Send Request
-        res = requests.post(f"{BASE_URL}/v1/detect", json=detect_req)
+        res = _post_with_headers(f"{BASE_URL}/v1/detect", detect_req)
         print(f"  Response Status: {res.status_code}")
         
         # Validate Response Schema
@@ -535,7 +544,7 @@ def run_contract_verification():
         req_valid_detect = validate_json(detect_req, DETECT_REQUEST_SCHEMA, "DetectRequest (Anomaly)")
         
         # Send /v1/detect
-        res_detect = requests.post(f"{BASE_URL}/v1/detect", json=detect_req)
+        res_detect = _post_with_headers(f"{BASE_URL}/v1/detect", detect_req)
         print(f"  Detect Response Status: {res_detect.status_code}")
         
         # Validate Response Schema
@@ -582,7 +591,7 @@ def run_contract_verification():
         req_valid_decide = validate_json(decide_req, DECIDE_REQUEST_SCHEMA, "DecideRequest (Primary)")
         
         # Send /v1/decide
-        res_decide = requests.post(f"{BASE_URL}/v1/decide", json=decide_req)
+        res_decide = _post_with_headers(f"{BASE_URL}/v1/decide", decide_req)
         print(f"  Decide Response Status: {res_decide.status_code}")
         
         # Validate Response Schema
@@ -623,7 +632,7 @@ def run_contract_verification():
         }
         
         # Send /v1/detect
-        res_detect_dup = requests.post(f"{BASE_URL}/v1/detect", json=detect_req_dup)
+        res_detect_dup = _post_with_headers(f"{BASE_URL}/v1/detect", detect_req_dup)
         print(f"  Detect Duplicate Status: {res_detect_dup.status_code}")
         
         # Validate Response Schema
@@ -650,7 +659,7 @@ def run_contract_verification():
         req_valid_decide_dup = validate_json(decide_req_dup, DECIDE_REQUEST_SCHEMA, "DecideRequest (Duplicate)")
         
         # Send /v1/decide
-        res_decide_dup = requests.post(f"{BASE_URL}/v1/decide", json=decide_req_dup)
+        res_decide_dup = _post_with_headers(f"{BASE_URL}/v1/decide", decide_req_dup)
         print(f"  Decide Duplicate Status: {res_decide_dup.status_code}")
         
         # Validate Response Schema
@@ -688,7 +697,7 @@ def run_contract_verification():
         }
         
         # Send /v1/detect
-        res_detect_sym = requests.post(f"{BASE_URL}/v1/detect", json=detect_req_sym)
+        res_detect_sym = _post_with_headers(f"{BASE_URL}/v1/detect", detect_req_sym)
         print(f"  Detect Symptom Status: {res_detect_sym.status_code}")
         
         # Validate Response Schema
@@ -723,7 +732,7 @@ def run_contract_verification():
         req_valid_decide_sym = validate_json(decide_req_sym, DECIDE_REQUEST_SCHEMA, "DecideRequest (Symptom)")
         
         # Send /v1/decide
-        res_decide_sym = requests.post(f"{BASE_URL}/v1/decide", json=decide_req_sym)
+        res_decide_sym = _post_with_headers(f"{BASE_URL}/v1/decide", decide_req_sym)
         print(f"  Decide Symptom Status: {res_decide_sym.status_code}")
         
         # Validate Response Schema
@@ -768,7 +777,7 @@ def run_contract_verification():
         req_valid_verify = validate_json(verify_req, VERIFY_REQUEST_SCHEMA, "VerifyRequest (Verification)")
         
         # Send /v1/verify
-        res_verify = requests.post(f"{BASE_URL}/v1/verify", json=verify_req)
+        res_verify = _post_with_headers(f"{BASE_URL}/v1/verify", verify_req)
         print(f"  Verify Response Status: {res_verify.status_code}")
         
         # Validate Response Schema
@@ -802,7 +811,7 @@ def run_contract_verification():
             "telemetry_window": []
         }  # Missing idempotency_key
         
-        res_bad_missing = requests.post(f"{BASE_URL}/v1/detect", json=bad_req_missing)
+        res_bad_missing = _post_with_headers(f"{BASE_URL}/v1/detect", bad_req_missing)
         print(f"  Missing required field: Status Code = {res_bad_missing.status_code} (Expected: 422)")
         missing_passed = res_bad_missing.status_code == 422
         
@@ -814,7 +823,7 @@ def run_contract_verification():
             "unknown_extra_field": "some_value"  # Forbidden!
         }
         
-        res_bad_extra = requests.post(f"{BASE_URL}/v1/detect", json=bad_req_extra)
+        res_bad_extra = _post_with_headers(f"{BASE_URL}/v1/detect", bad_req_extra)
         print(f"  Forbidden extra field:  Status Code = {res_bad_extra.status_code} (Expected: 422)")
         extra_passed = res_bad_extra.status_code == 422
         
@@ -832,7 +841,7 @@ def run_contract_verification():
             "post_telemetry_window": []
         }
         
-        res_bad_enum = requests.post(f"{BASE_URL}/v1/verify", json=bad_req_enum)
+        res_bad_enum = _post_with_headers(f"{BASE_URL}/v1/verify", bad_req_enum)
         print(f"  Invalid enum value:     Status Code = {res_bad_enum.status_code} (Expected: 422)")
         enum_passed = res_bad_enum.status_code == 422
         
