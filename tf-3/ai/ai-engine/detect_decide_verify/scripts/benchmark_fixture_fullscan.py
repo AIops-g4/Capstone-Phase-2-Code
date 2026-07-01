@@ -454,8 +454,6 @@ def benchmark_service(
 
         # Convert point-based tolerance to seconds using this run's own dt.
         dt = _median_dt(rows)
-
-
         lead_tolerance = run_lead_points * dt
         late_tolerance = run_late_points * dt
         regions = _ground_truth_regions(rows)
@@ -523,9 +521,13 @@ def benchmark_service(
             f"regions={len(regions)} detections={len(detection_times)} "
             f"TP={r_tp} FP={r_fp} FN={r_fn} (calls={calls})"
         )
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
 
+    metrics = {
+        "service": service,
         "runs": len(per_run) - errors,
         "errors": errors,
         "detect_calls": total_calls,
