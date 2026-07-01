@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiops-g4.local/schemas/platform_profile.schema.json",
+  "title": "AIOps AI Engine Platform Profile",
+  "description": "Architecture, topology, fault-to-runbook mapping, and runbook catalog used by detect_decide_verify. Create one profile per CDO team/environment and point PLATFORM_PROFILE_PATH to it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile_name",
+    "system",
+    "default_namespace",
+    "default_deployment_template",
+    "default_service",
+    "allowed_namespaces",
+    "services",
+    "metric_types",
+    "fault_runbook_mapping",
+    "dependency_graph",
+    "runbooks"
+  ],
+  "properties": {
+    "profile_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique profile name, e.g. cdo-team-a-prod."
+    },
+    "system": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Logical system/application name returned in anomaly_context.system."
+    },
+    "default_namespace": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Default execution namespace for generated actions."
+    },
+    "default_deployment_template": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\{\\{target_service\\}\\}",
+      "description": "Deployment target template. Must contain {{target_service}}, e.g. deployment/{{target_service}}."
+    },
+    "default_service": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Safe fallback service when telemetry/service inference is empty."
+    },
+    "allowed_namespaces": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1},
+      "description": "Namespaces where generated action plans are allowed to operate."
+    },
+    "services": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1},
+      "description": "Known service names for this CDO architecture."
+    },
+    "metric_types": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1},
+      "description": "Metric suffix groups expected in telemetry, e.g. cpu, mem, latency."
+    },
+    "fault_runbook_mapping": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Map fault type labels from RCA to runbook keys in runbooks."
+    },
+    "dependency_graph": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {"type": "string", "minLength": 1}
+      },
+      "description": "Service dependency graph used for symptom suppression. Key service depends on listed downstream/upstream services according to the correlation implementation."
+    },
+    "runbooks": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/runbook"},
+      "description": "Runbook catalog. Keys should match fault_runbook_mapping values."
+    }
+  },
+  "$defs": {
+    "runbook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description",
+        "pattern_type",
+        "action_plan",
+        "blast_radius_config",
+        "verify_policy"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable runbook name. Usually equals the runbooks object key."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pattern_type": {
+          "type": "string",
+          "enum": ["urgent", "deferred"]
+        },
+        "action_plan": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/action_step"}
+        },
+        "blast_radius_config": {"$ref": "#/$defs/blast_radius_config"},
+        "verify_policy": {"$ref": "#/$defs/verify_policy"}
+      }
+    },
+    "action_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step", "action", "target", "params"],
+      "properties": {
+        "step": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "RESTART_DEPLOYMENT",
+            "PATCH_MEMORY_LIMIT",
+            "SCALE_REPLICAS",
+            "ROLLOUT_UNDO",
+            "ROTATE_SECRET"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Target resource. Prefer deployment/{{target_service}}."
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["namespace"],
+          "properties": {
+            "namespace": {"type": "string", "minLength": 1},
+            "grace_period_seconds": {"type": "integer", "minimum": 0},
+            "replicas": {"type": "integer", "minimum": 1},
+            "container": {"type": "string", "minLength": 1},
+            "memory_request_mb": {"type": "integer", "minimum": 1},
+            "memory_limit_mb": {"type": "integer", "minimum": 1},
+            "secret_name": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "blast_radius_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_pod_impact_pct",
+        "circuit_breaker_error_rate",
+        "allowed_namespaces"
+      ],
+      "properties": {
+        "max_pod_impact_pct": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "circuit_breaker_error_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "allowed_namespaces": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "verify_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["window_seconds"],
+      "properties": {
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "success_conditions": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

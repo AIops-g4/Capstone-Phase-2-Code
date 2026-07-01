@@ -1,0 +1,12 @@
+{
+  "correlation_id": "374b2ba6-11b7-4be5-846b-042e0ad90095",
+  "idempotency_key": "119ec6a2-0325-4a95-b084-464d50cf1826",
+  "dry_run_mode": false,
+  "action_executed": {
+    "action": "RESTART_DEPLOYMENT",
+    "target": "deployment/checkoutservice",
+    "status": "FAILED",
+    "execution_time_seconds": 2
+  },
+  "post_telemetry_window": []
+}
