@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code and default configuration profile assets
 COPY src/ ./src/
+COPY adr/ ./adr/
 
 # Expose the API port
 EXPOSE 8050
