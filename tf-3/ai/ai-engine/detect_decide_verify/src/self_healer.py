@@ -475,11 +475,15 @@ class SelfHealer:
         anomaly_context: Union[Dict[str, Any], str],
         suspected_fault_type: str = None,
         detect_evidence: Dict[str, Any] | None = None,
+        tenant_id: str = "default-tenant",
     ) -> Dict[str, Any]:
         """
         Select runbook and render action plan.
         Accepts full anomaly_context dict (preferred) or legacy (target_service, fault_type) args.
         """
+        from .llm import CostTracker
+        cost_cap_exceeded = CostTracker.get_cost(tenant_id) >= 50.0
+
         if isinstance(anomaly_context, dict):
             ctx = anomaly_context
             target_service = ctx.get("target_service")
@@ -500,14 +504,15 @@ class SelfHealer:
                 "deployment": deployment,
             }
 
-        use_llm = os.getenv("USE_LLM_DECISION", "False").lower() == "true"
+        use_llm = os.getenv("USE_LLM_DECISION", "False").lower() == "true" and not cost_cap_exceeded
         if use_llm:
             try:
                 client = LLMFactory.get_client()
                 parser = LLMDecisionOutputParser(self.runbooks)
                 prompt = self._format_prompt(ctx, detect_evidence or {}, parser)
-                response_text = client.generate_decision(prompt)
+                response_text = client.generate_decision(prompt, tenant_id=tenant_id)
                 decision = parser.parse(response_text, target_service, namespace, deployment)
+                decision["cost_cap_exceeded"] = cost_cap_exceeded
                 print(
                     f"  [LLM DECISION] Successfully generated validated action plan using LLM provider: {os.getenv('LLM_PROVIDER')}"
                 )
@@ -515,7 +520,7 @@ class SelfHealer:
             except Exception as e:
                 print(f"  [LLM DECISION Warning] LLM decide validation failed: {e}. Falling back to rule-based.")
 
-        return self._decide_rule_based(ctx, target_service, fault_type, namespace, deployment)
+        return self._decide_rule_based(ctx, target_service, fault_type, namespace, deployment, cost_cap_exceeded=cost_cap_exceeded)
 
     def detect_fault_type_with_llm(
         self,
@@ -618,6 +623,7 @@ class SelfHealer:
         fault_type: str,
         namespace: str,
         deployment: str,
+        cost_cap_exceeded: bool = False,
     ) -> Dict[str, Any]:
         runbook_key = FAULT_RUNBOOK_MAPPING.get(fault_type, "DefaultRecoveryRunbook")
         runbook = self.runbooks.get(runbook_key) or self.runbooks.get("DefaultRecoveryRunbook")
@@ -664,6 +670,7 @@ class SelfHealer:
             "verify_policy": copy.deepcopy(
                 runbook.get("verify_policy", {"window_seconds": 120})
             ),
+            "cost_cap_exceeded": cost_cap_exceeded,
         }
 
     def _render_deployment(self, target_service: str) -> str:

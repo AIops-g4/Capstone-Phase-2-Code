@@ -171,7 +171,7 @@ class DetectRequest(BaseModel):
 
 class AnomalyContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    target_service: str = Field(..., description="Identified faulty service")
+    target_service: Union[str, List[str]] = Field(..., description="Identified faulty service")
     suspected_fault_type: str = Field(..., description="Identified fault type")
     system: str = Field(default=SYSTEM_NAME, description="System name")
     namespace: Optional[str] = Field(default=DEFAULT_NAMESPACE, description="Kubernetes namespace")
@@ -319,6 +319,33 @@ def _validate_detect_contract_headers_and_body(
         raise HTTPException(status_code=400, detail="X-Correlation-Id header must match correlation_id body when both are provided")
 
 
+def _validate_header_and_body_uuid_cross_check(
+    *,
+    x_tenant_id: str,
+    x_correlation_id: str,
+    idempotency_key_header: str,
+    x_dry_run_mode: str,
+    idempotency_key: str,
+    dry_run_mode: bool,
+    correlation_id: str,
+) -> None:
+    if not _is_uuid(x_tenant_id):
+        raise HTTPException(status_code=400, detail="X-Tenant-Id must be UUID")
+    if not _is_uuid(x_correlation_id):
+        raise HTTPException(status_code=400, detail="X-Correlation-Id must be UUID")
+    if not _is_uuid(idempotency_key_header):
+        raise HTTPException(status_code=400, detail="Idempotency-Key header must be UUID")
+    if not _is_uuid(idempotency_key):
+        raise HTTPException(status_code=400, detail="idempotency_key body must be UUID")
+    if idempotency_key_header != idempotency_key:
+        raise HTTPException(status_code=400, detail="Idempotency-Key header must match idempotency_key body")
+    dry_run_header = _parse_header_bool(x_dry_run_mode, "X-Dry-Run-Mode")
+    if dry_run_header != dry_run_mode:
+        raise HTTPException(status_code=400, detail="X-Dry-Run-Mode header must match dry_run_mode body")
+    if x_correlation_id != correlation_id:
+        raise HTTPException(status_code=400, detail="X-Correlation-Id header must match correlation_id body")
+
+
 @app.post("/v1/detect", response_model=DetectResponse, response_model_exclude_none=True)
 async def detect_anomalies(
     body: DetectRequest,
@@ -396,12 +423,22 @@ async def decide_action_plan(
     (additionalProperties: false, required fields, AnomalyContext constraints).
     """
     print("\n[API][SERVER] POST /v1/decide received")
+    _validate_header_and_body_uuid_cross_check(
+        x_tenant_id=x_tenant_id,
+        x_correlation_id=x_correlation_id,
+        idempotency_key_header=idempotency_key_header,
+        x_dry_run_mode=x_dry_run_mode,
+        idempotency_key=body.idempotency_key,
+        dry_run_mode=body.dry_run_mode,
+        correlation_id=body.correlation_id,
+    )
     res = aiops_engine.decide_healing_action(
         correlation_id=body.correlation_id,
         idempotency_key=body.idempotency_key,
         dry_run_mode=body.dry_run_mode,
         anomaly_context=body.anomaly_context.model_dump(),
         detect_evidence=body.detect_evidence,
+        tenant_id=x_tenant_id,
     )
     print(f"[API][SERVER] POST /v1/decide completed runbook={res.get('matched_runbook')}")
     if body.detect_evidence:
@@ -425,6 +462,21 @@ async def verify_healing(
     post_telemetry_window).
     """
     print("\n[API][SERVER] POST /v1/verify received")
+    _validate_header_and_body_uuid_cross_check(
+        x_tenant_id=x_tenant_id,
+        x_correlation_id=x_correlation_id,
+        idempotency_key_header=idempotency_key_header,
+        x_dry_run_mode=x_dry_run_mode,
+        idempotency_key=body.idempotency_key,
+        dry_run_mode=body.dry_run_mode,
+        correlation_id=body.correlation_id,
+    )
+    for idx, point in enumerate(body.post_telemetry_window):
+        if point.tenant_id != x_tenant_id:
+            raise HTTPException(
+                status_code=403,
+                detail=f"post_telemetry_window[{idx}].tenant_id does not match X-Tenant-Id",
+            )
     res = aiops_engine.verify_healing(
         correlation_id=body.correlation_id,
         action_executed=body.action_executed,
@@ -449,6 +501,15 @@ async def rank_fault_types(
     FastAPI validates body against FaultRankRequest Pydantic schema.
     """
     print("\n[API][SERVER] POST /v1/fault-rank received")
+    _validate_header_and_body_uuid_cross_check(
+        x_tenant_id=x_tenant_id,
+        x_correlation_id=x_correlation_id,
+        idempotency_key_header=idempotency_key_header,
+        x_dry_run_mode=x_dry_run_mode,
+        idempotency_key=body.idempotency_key,
+        dry_run_mode=body.dry_run_mode,
+        correlation_id=body.correlation_id,
+    )
     res = aiops_engine.rank_fault_types(
         anomaly_context=body.anomaly_context.model_dump(),
         detect_evidence=body.detect_evidence,

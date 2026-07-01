@@ -263,6 +263,7 @@ class AIOpsEngine:
         dry_run_mode: bool, 
         anomaly_context: Dict[str, Any],
         detect_evidence: Optional[Dict[str, Any]] = None,
+        tenant_id: str = "default-tenant",
     ) -> Dict[str, Any]:
         """
         Determines and templates healing action plans, suppressing duplicate/symptom alerts.
@@ -317,7 +318,7 @@ class AIOpsEngine:
             decide_ctx["deployment"] = _render_deployment(top_service)
         decide_ctx.setdefault("namespace", DEFAULT_NAMESPACE)
         evidence = detect_evidence or {}
-        decision = self.healing_engine.decide(decide_ctx, detect_evidence=evidence)
+        decision = self.healing_engine.decide(decide_ctx, detect_evidence=evidence, tenant_id=tenant_id)
         should_rank_faults = bool(evidence.get("rank_fault_catalog_for_topk_service"))
         fault_type_ranking = {"fault_type_ranking": [], "used": False, "reason": "not_requested"}
         if should_rank_faults:
@@ -352,7 +353,7 @@ class AIOpsEngine:
             "correlation_id": correlation_id,
             "idempotency_key": idempotency_key,
             "dry_run_mode": dry_run_mode,
-            "cost_cap_exceeded": False,
+            "cost_cap_exceeded": decision.get("cost_cap_exceeded", False),
             "detect_assessment": decision.get("detect_assessment"),
             "corrected_anomaly_context": decision.get("corrected_anomaly_context"),
             "fault_type_ranking": fault_type_ranking.get("fault_type_ranking", []),

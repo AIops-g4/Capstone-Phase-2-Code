@@ -1,13 +1,36 @@
 import os
 import json
 import requests
+import datetime
+import threading
 from typing import Optional, Dict, Any
+
+class CostTracker:
+    _lock = threading.Lock()
+    # (tenant_id, date_str) -> cumulative_cost
+    _daily_costs = {}
+
+    @classmethod
+    def get_cost(cls, tenant_id: str) -> float:
+        date_str = datetime.date.today().isoformat()
+        with cls._lock:
+            return cls._daily_costs.get((tenant_id, date_str), 0.0)
+
+    @classmethod
+    def add_cost(cls, tenant_id: str, cost: float):
+        date_str = datetime.date.today().isoformat()
+        key = (tenant_id, date_str)
+        with cls._lock:
+            current = cls._daily_costs.get(key, 0.0)
+            cls._daily_costs[key] = current + cost
+            print(f"[CostTracker] Added ${cost:.5f} to tenant={tenant_id}. New daily total: ${cls._daily_costs[key]:.5f}")
+
 
 class BaseLLMClient:
     """
     Abstract interface for all LLM providers (OpenAI, Anthropic, Bedrock).
     """
-    def generate_decision(self, prompt: str) -> str:
+    def generate_decision(self, prompt: str, tenant_id: str = "default-tenant") -> str:
         raise NotImplementedError("Subclasses must implement generate_decision.")
 
 
@@ -23,7 +46,7 @@ class OpenAILLMClient(BaseLLMClient):
             url = url.rstrip("/") + "/chat/completions"
         self.api_url = url
 
-    def generate_decision(self, prompt: str) -> str:
+    def generate_decision(self, prompt: str, tenant_id: str = "default-tenant") -> str:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -40,6 +63,15 @@ class OpenAILLMClient(BaseLLMClient):
             res = requests.post(self.api_url, json=payload, headers=headers, timeout=30.0)
             res.raise_for_status()
             res_data = res.json()
+            
+            # Compute token usage cost
+            usage = res_data.get("usage", {})
+            input_tokens = usage.get("prompt_tokens", 0)
+            output_tokens = usage.get("completion_tokens", 0)
+            # OpenAI pricing estimate: $2.50 / 1M input, $10.00 / 1M output
+            cost = (input_tokens * 2.5 / 1_000_000) + (output_tokens * 10.0 / 1_000_000)
+            CostTracker.add_cost(tenant_id, cost)
+            
             return res_data["choices"][0]["message"]["content"]
         except Exception as e:
             raise RuntimeError(f"OpenAI API call failed: {e}")
@@ -57,7 +89,7 @@ class AnthropicLLMClient(BaseLLMClient):
             url = url.rstrip("/") + "/messages"
         self.api_url = url
 
-    def generate_decision(self, prompt: str) -> str:
+    def generate_decision(self, prompt: str, tenant_id: str = "default-tenant") -> str:
         headers = {
             "x-api-key": self.api_key,
             "anthropic-version": "2023-06-01",
@@ -75,6 +107,15 @@ class AnthropicLLMClient(BaseLLMClient):
             res = requests.post(self.api_url, json=payload, headers=headers, timeout=30.0)
             res.raise_for_status()
             res_data = res.json()
+            
+            # Compute token usage cost
+            usage = res_data.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            # Claude 3.5 Sonnet pricing: $3.00 / 1M input, $15.00 / 1M output
+            cost = (input_tokens * 3.0 / 1_000_000) + (output_tokens * 15.0 / 1_000_000)
+            CostTracker.add_cost(tenant_id, cost)
+            
             return res_data["content"][0]["text"]
         except Exception as e:
             raise RuntimeError(f"Anthropic API call failed: {e}")
@@ -100,7 +141,7 @@ class BedrockLLMClient(BaseLLMClient):
         self.model = model
         self.endpoint_url = endpoint_url or os.getenv("AWS_ENDPOINT_URL")
 
-    def generate_decision(self, prompt: str) -> str:
+    def generate_decision(self, prompt: str, tenant_id: str = "default-tenant") -> str:
         try:
             import boto3
             client = boto3.client(
@@ -122,6 +163,15 @@ class BedrockLLMClient(BaseLLMClient):
                     "maxTokens": 2048
                 }
             )
+            
+            # Compute token usage cost
+            usage = response.get("usage", {})
+            input_tokens = usage.get("inputTokens", 0)
+            output_tokens = usage.get("outputTokens", 0)
+            # Claude 3.5 Sonnet pricing: $3.00 / 1M input, $15.00 / 1M output
+            cost = (input_tokens * 3.0 / 1_000_000) + (output_tokens * 15.0 / 1_000_000)
+            CostTracker.add_cost(tenant_id, cost)
+            
             return response['output']['message']['content'][0]['text']
         except Exception as e:
             raise RuntimeError(f"AWS Bedrock converse call failed: {e}")
