@@ -1,10 +1,9 @@
 import uuid
-import traceback
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Literal, Union
 from fastapi import FastAPI, Header, HTTPException, Request, status, Body
 from fastapi.responses import JSONResponse, PlainTextResponse
-from pydantic import BaseModel, Field, ConfigDict, ValidationError
+from pydantic import BaseModel, Field, ConfigDict
 
 from .engine import AIOpsEngine
 from .config import (
@@ -54,9 +53,6 @@ ai_engine_cpu_usage 0.15
 """
 
 # Initialize the global AIOps Engine Facade
-# Use threading.Lock for safe concurrent access to shared mutable state.
-import threading
-_engine_lock = threading.Lock()
 aiops_engine = AIOpsEngine()
 
 
@@ -220,51 +216,6 @@ def _is_rfc3339_datetime(value: Any) -> bool:
         return False
 
 
-def _validate_anomaly_context(anomaly_context: Dict[str, Any]) -> None:
-    """
-    Strict validation for anomaly_context fields before they reach engine logic.
-    Returns HTTP 422 with clear messages for missing/invalid fields instead of HTTP 500.
-    """
-    if not isinstance(anomaly_context, dict):
-        raise HTTPException(status_code=422, detail="anomaly_context must be an object")
-
-    # TC-24: missing target_service
-    if "target_service" not in anomaly_context or anomaly_context.get("target_service") is None:
-        raise HTTPException(status_code=422, detail="anomaly_context.target_service is required")
-    # TC-25: empty target_service
-    if not isinstance(anomaly_context.get("target_service"), str) or not anomaly_context["target_service"].strip():
-        raise HTTPException(status_code=422, detail="anomaly_context.target_service must be a non-empty string")
-
-    # TC-23: missing suspected_fault_type
-    if "suspected_fault_type" not in anomaly_context or anomaly_context.get("suspected_fault_type") is None:
-        raise HTTPException(status_code=422, detail="anomaly_context.suspected_fault_type is required")
-
-    # TC-26: fault = null
-    if anomaly_context.get("suspected_fault_type") is None:
-        raise HTTPException(status_code=422, detail="anomaly_context.suspected_fault_type must not be null")
-
-    # TC-27: invalid type (fault must be a string)
-    if not isinstance(anomaly_context.get("suspected_fault_type"), str):
-        raise HTTPException(
-            status_code=422,
-            detail=f"anomaly_context.suspected_fault_type must be a string, got {type(anomaly_context['suspected_fault_type']).__name__}"
-        )
-
-    # Validate other required AnomalyContext fields
-    for field in ("system",):
-        if field in anomaly_context and anomaly_context[field] is not None and not isinstance(anomaly_context[field], str):
-            raise HTTPException(
-                status_code=422,
-                detail=f"anomaly_context.{field} must be a string, got {type(anomaly_context[field]).__name__}"
-            )
-
-    if not isinstance(anomaly_context.get("target_service"), str):
-        raise HTTPException(
-            status_code=422,
-            detail=f"anomaly_context.target_service must be a string, got {type(anomaly_context['target_service']).__name__}"
-        )
-
-
 def _validate_contract_telemetry_window(telemetry_window: List[Dict[str, Any]], x_tenant_id: str) -> None:
     """
     Strict validation for direct HTTP Push telemetry defined in ai/contracts.
@@ -336,8 +287,7 @@ async def detect_anomalies(
     )
     if not request.telemetry_window:
         raise HTTPException(status_code=400, detail="Provide telemetry_source or telemetry_window")
-    with _engine_lock:
-        res = aiops_engine.detect_anomalies(request.telemetry_window, request.correlation_id)
+    res = aiops_engine.detect_anomalies(request.telemetry_window, request.correlation_id)
     print(f"[API][SERVER] POST /v1/detect completed anomaly_detected={res.get('anomaly_detected')}")
     if telemetry_source:
         return JSONResponse(content=res)
@@ -361,32 +311,20 @@ async def decide_action_plan(
     Matches diagnosed anomalies to runbooks and templates self-healing action plans.
     """
     print("\n[API][SERVER] POST /v1/decide received")
-
-    # ---- Input validation block for critical fields ----
-    _validate_anomaly_context(anomaly_context)
-
-    try:
-        request = DecideRequest(
-            correlation_id=correlation_id,
-            idempotency_key=idempotency_key,
-            dry_run_mode=dry_run_mode,
-            anomaly_context=anomaly_context,
-            detect_evidence=detect_evidence,
-        )
-    except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors())
-
-    try:
-        with _engine_lock:
-            res = aiops_engine.decide_healing_action(
-                correlation_id=request.correlation_id,
-                idempotency_key=request.idempotency_key,
-                dry_run_mode=request.dry_run_mode,
-                anomaly_context=request.anomaly_context.model_dump(),
-                detect_evidence=request.detect_evidence,
-            )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+    request = DecideRequest(
+        correlation_id=correlation_id,
+        idempotency_key=idempotency_key,
+        dry_run_mode=dry_run_mode,
+        anomaly_context=anomaly_context,
+        detect_evidence=detect_evidence,
+    )
+    res = aiops_engine.decide_healing_action(
+        correlation_id=request.correlation_id,
+        idempotency_key=request.idempotency_key,
+        dry_run_mode=request.dry_run_mode,
+        anomaly_context=request.anomaly_context.model_dump(),
+        detect_evidence=request.detect_evidence,
+    )
     print(f"[API][SERVER] POST /v1/decide completed runbook={res.get('matched_runbook')}")
     if request.detect_evidence:
         return JSONResponse(content=res)
@@ -410,26 +348,18 @@ async def verify_healing(
     Verifies execution status and post-healing telemetry, closing the incident if successfully resolved.
     """
     print("\n[API][SERVER] POST /v1/verify received")
-    try:
-        request = VerifyRequest(
-            correlation_id=correlation_id,
-            idempotency_key=idempotency_key,
-            dry_run_mode=dry_run_mode,
-            action_executed=action_executed,
-            post_telemetry_window=post_telemetry_window
-        )
-    except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors())
-
-    try:
-        with _engine_lock:
-            res = aiops_engine.verify_healing(
-                correlation_id=request.correlation_id,
-                action_executed=request.action_executed,
-                post_telemetry_window=request.post_telemetry_window
-            )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+    request = VerifyRequest(
+        correlation_id=correlation_id,
+        idempotency_key=idempotency_key,
+        dry_run_mode=dry_run_mode,
+        action_executed=action_executed,
+        post_telemetry_window=post_telemetry_window
+    )
+    res = aiops_engine.verify_healing(
+        correlation_id=request.correlation_id,
+        action_executed=request.action_executed,
+        post_telemetry_window=request.post_telemetry_window
+    )
     print(f"[API][SERVER] POST /v1/verify completed next_action={res.get('next_action')}")
     return VerifyResponse(**res)
 
@@ -452,26 +382,17 @@ async def rank_fault_types(
     Keeps service fixed and ranks fault types by confidence.
     """
     print("\n[API][SERVER] POST /v1/fault-rank received")
-
-    # ---- Input validation ----
-    _validate_anomaly_context(anomaly_context)
-
-    try:
-        request = FaultRankRequest(
-            correlation_id=correlation_id,
-            idempotency_key=idempotency_key,
-            dry_run_mode=dry_run_mode,
-            anomaly_context=anomaly_context,
-            detect_evidence=detect_evidence,
-        )
-    except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors())
-
-    with _engine_lock:
-        res = aiops_engine.rank_fault_types(
-            anomaly_context=request.anomaly_context.model_dump(),
-            detect_evidence=request.detect_evidence,
-        )
+    request = FaultRankRequest(
+        correlation_id=correlation_id,
+        idempotency_key=idempotency_key,
+        dry_run_mode=dry_run_mode,
+        anomaly_context=anomaly_context,
+        detect_evidence=detect_evidence,
+    )
+    res = aiops_engine.rank_fault_types(
+        anomaly_context=request.anomaly_context.model_dump(),
+        detect_evidence=request.detect_evidence,
+    )
     print(f"[API][SERVER] POST /v1/fault-rank completed used={res.get('used')}")
     return res
 
