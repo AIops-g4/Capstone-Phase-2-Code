@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Literal, Union
 from fastapi import FastAPI, Header, HTTPException, Request, status, Body
 from fastapi.responses import JSONResponse, PlainTextResponse
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 from .engine import AIOpsEngine
 from .config import (
@@ -68,18 +68,35 @@ aiops_engine = AIOpsEngine()
 _CONTRACT_SIGNAL_NAMES: set[str] = set(TELEMETRY_SIGNAL_NAMES)
 
 
+# Signal names whose value must be a log/event string (per contracts/telemetry-contract.md §4)
+_LOG_SIGNAL_NAMES: set[str] = {"application_log_event", "distributed_trace_error_event"}
+
+
 class TelemetryPoint(BaseModel):
     """
     Single telemetry data point per contracts/telemetry-contract.md.
     extra='forbid' enforces additionalProperties: false.
+
+    value type rules (§3 JSON Schema – "type": ["number", "string"]):
+      - signal_name in LOG_SIGNAL_NAMES → value must be a string (log / event message)
+      - all other signal_names           → value must be a number (float metric)
     """
     model_config = ConfigDict(extra="forbid")
     ts: str = Field(..., description="ISO 8601 / RFC3339 timestamp")
     tenant_id: str = Field(..., description="Tenant UUID v4")
     service: str = Field(..., description="Service name")
     signal_name: str = Field(..., description="Signal name from telemetry contract enum")
-    value: Any = Field(..., description="Numerical value or log string message")
-    labels: Optional[Dict[str, Any]] = Field(default=None, description="Optional labels dict; labels.system is required when present")
+    value: Union[float, str] = Field(
+        ...,
+        description=(
+            "Metric value (number) for numeric signals, "
+            "or log/event text (string) for application_log_event / distributed_trace_error_event"
+        ),
+    )
+    labels: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional labels dict; labels.system is required when present",
+    )
 
     @field_validator("ts")
     @classmethod
@@ -115,6 +132,28 @@ class TelemetryPoint(BaseModel):
         if v is not None and "system" not in v:
             raise ValueError("labels.system is required when labels is present")
         return v
+
+    @model_validator(mode="after")
+    def value_type_must_match_signal(self) -> "TelemetryPoint":
+        """
+        Cross-field validation (contracts/telemetry-contract.md §3 and §4):
+          - Log/event signals (application_log_event, distributed_trace_error_event)
+            must carry a string value (the log message / trace event text).
+          - All metric signals must carry a numeric (float) value.
+        """
+        if self.signal_name in _LOG_SIGNAL_NAMES:
+            if not isinstance(self.value, str):
+                raise ValueError(
+                    f"signal_name='{self.signal_name}' requires value to be a string "
+                    f"(log or event message), got {type(self.value).__name__}"
+                )
+        else:
+            if not isinstance(self.value, (int, float)):
+                raise ValueError(
+                    f"signal_name='{self.signal_name}' requires value to be a number "
+                    f"(metric measurement), got {type(self.value).__name__}"
+                )
+        return self
 
 class DetectRequest(BaseModel):
     """
